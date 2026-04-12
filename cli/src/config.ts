@@ -8,8 +8,6 @@
  */
 
 import { readFileSync, existsSync } from 'fs';
-import { join } from 'path';
-import { homedir } from 'os';
 
 export interface SearXNGConfig {
     baseUrl: string;
@@ -117,29 +115,3 @@ function mergeConfig(): SearXNGConfig {
 }
 
 export const config: SearXNGConfig = mergeConfig();
-
-export const VALID_CATEGORIES = [
-    'general',
-    'images',
-    'videos',
-    'news',
-    'it',
-    'science',
-    'music',
-    'files',
-    'books',
-    'q&a',
-    'social media',
-    'weather',
-    'map',
-    'dictionaries',
-    'translate'
-];
-
-export const COMMON_ENGINES = [
-    'google', 'bing', 'duckduckgo', 'brave', 'startpage',
-    'baidu', 'sogou', 'quark', '360search',
-    'github', 'gitlab', 'npm', 'pypi', 'crates',
-    'wikipedia', 'reddit', 'hackernews', 'stackoverflow',
-    'arxiv', 'pubmed', 'google scholar'
-];

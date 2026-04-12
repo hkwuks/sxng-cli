@@ -4,15 +4,21 @@
 
 import { SearXNGService, SearchOptions } from './service.js';
 import { createSuccessEnvelope, createErrorEnvelope } from './protocol.js';
-import { config, VALID_CATEGORIES, COMMON_ENGINES } from './config.js';
+import { config } from './config.js';
+import { initConfig } from './init.js';
 
 const HELP_TEXT = `SearXNG CLI - Web Search Tool
 
 Usage:
   sxng <query> [options]
+  sxng init
   sxng --engines <engine1,engine2> <query>
   sxng --categories <category> <query>
   sxng --health
+
+Commands:
+  init                         Interactive configuration setup
+  <query>                      Perform a web search with the given query
 
 Options:
   -e, --engines <engines>      Comma-separated list of search engines
@@ -28,6 +34,7 @@ Options:
   -h, --help                   Show this help message
 
 Examples:
+  sxng init
   sxng "TypeScript tutorial"
   sxng --engines google,github "react hooks"
   sxng --categories it,science "machine learning"
@@ -52,6 +59,7 @@ interface CliOptions {
     language?: string;
     timeRange?: 'day' | 'week' | 'month' | 'year' | 'all';
     format?: 'json' | 'csv' | 'html';
+    init: boolean;
     enginesList: boolean;
     categoriesList: boolean;
     health: boolean;
@@ -60,6 +68,7 @@ interface CliOptions {
 
 function parseArgs(args: string[]): CliOptions {
     const options: CliOptions = {
+        init: false,
         enginesList: false,
         categoriesList: false,
         health: false,
@@ -75,6 +84,9 @@ function parseArgs(args: string[]): CliOptions {
             case '-h':
             case '--help':
                 options.help = true;
+                break;
+            case 'init':
+                options.init = true;
                 break;
             case '-e':
             case '--engines':
@@ -190,6 +202,10 @@ export async function runCli(args: string[], service: SearXNGService): Promise<n
         return 0;
     }
 
+    if (options.init) {
+        return await initConfig();
+    }
+
     if (options.health) {
         const health = await service.healthCheck();
         const envelope = health.status === 'healthy'
@@ -206,9 +222,18 @@ export async function runCli(args: string[], service: SearXNGService): Promise<n
     if (options.enginesList) {
         try {
             const engines = await service.getEngines();
+            if (engines.length === 0) {
+                const envelope = createErrorEnvelope(
+                    'ENGINES_FETCH_EMPTY',
+                    'No engines returned from SearXNG server',
+                    { hint: 'Check if SearXNG server is properly configured' }
+                );
+                console.log(JSON.stringify(envelope, null, 2));
+                return 1;
+            }
             const envelope = createSuccessEnvelope({
-                engines: engines.length > 0 ? engines : COMMON_ENGINES,
-                source: engines.length > 0 ? 'server' : 'defaults'
+                engines,
+                source: 'server'
             });
             console.log(JSON.stringify(envelope, null, 2));
             return 0;
@@ -216,7 +241,7 @@ export async function runCli(args: string[], service: SearXNGService): Promise<n
             const envelope = createErrorEnvelope(
                 'ENGINES_FETCH_FAILED',
                 error instanceof Error ? error.message : 'Failed to fetch engines',
-                { hint: 'Showing common engines as fallback' }
+                { hint: 'Check your network connection and SearXNG server status' }
             );
             console.log(JSON.stringify(envelope, null, 2));
             return 1;
@@ -226,9 +251,18 @@ export async function runCli(args: string[], service: SearXNGService): Promise<n
     if (options.categoriesList) {
         try {
             const categories = await service.getCategories();
+            if (categories.length === 0) {
+                const envelope = createErrorEnvelope(
+                    'CATEGORIES_FETCH_EMPTY',
+                    'No categories returned from SearXNG server',
+                    { hint: 'Check if SearXNG server is properly configured' }
+                );
+                console.log(JSON.stringify(envelope, null, 2));
+                return 1;
+            }
             const envelope = createSuccessEnvelope({
-                categories: categories.length > 0 ? categories : VALID_CATEGORIES,
-                source: categories.length > 0 ? 'server' : 'defaults'
+                categories,
+                source: 'server'
             });
             console.log(JSON.stringify(envelope, null, 2));
             return 0;
@@ -236,7 +270,7 @@ export async function runCli(args: string[], service: SearXNGService): Promise<n
             const envelope = createErrorEnvelope(
                 'CATEGORIES_FETCH_FAILED',
                 error instanceof Error ? error.message : 'Failed to fetch categories',
-                { hint: 'Showing valid categories as fallback' }
+                { hint: 'Check your network connection and SearXNG server status' }
             );
             console.log(JSON.stringify(envelope, null, 2));
             return 1;

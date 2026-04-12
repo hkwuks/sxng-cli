@@ -1,24 +1,31 @@
 ---
 name: searxng
-description: Web search using SearXNG meta search engine. Use this skill when the user wants to search the web, find information online, look up documentation, research topics, or get current information from the internet. Triggers include "search for", "look up", "find information about", "web search", "google", "search online", or any request requiring up-to-date information not available in the current context.
+description: Web search using SearXNG CLI. Use this skill when the user wants to search the web, find information online, look up documentation, research topics, or get current information from the internet. Triggers include "search for", "look up", "find information about", "web search", "search online", or any request requiring up-to-date information not available in the current context.
 ---
 
-# SearXNG Web Search
+# SearXNG CLI - Web Search Tool
 
-Perform web searches using SearXNG, a privacy-respecting meta search engine.
+Use the SearXNG CLI command-line tool to perform web searches with customizable options, multiple output formats, and engine selection.
 
-## Prerequisites
+## Installation
 
-A SearXNG server must be running and accessible.
-
-To set up your own SearXNG server:
+Install the CLI globally:
 ```bash
-docker run -d --name searxng -p 8080:8080 searxng/searxng
+npm install -g sxng-cli
+```
+
+Or use directly in a Node.js project:
+```bash
+npm install sxng-cli
 ```
 
 ## Configuration
 
-Create a configuration file at `~/.config/searxng/config.json` or `./searxng.config.json`:
+Configure the CLI through a configuration file or environment variables.
+
+### Configuration File
+
+Create a `sxng.config.json` file in your working directory:
 
 ```json
 {
@@ -32,68 +39,171 @@ Create a configuration file at `~/.config/searxng/config.json` or `./searxng.con
 }
 ```
 
-Or use environment variables:
+**Configuration Options:**
+
+| Property | Type | Description | Default |
+|----------|------|-------------|---------|
+| `baseUrl` | string | URL of the SearXNG server | `http://localhost:8080` |
+| `defaultEngine` | string | Default search engine to use for queries | (empty) |
+| `allowedEngines` | array | List of allowed search engines (empty = all allowed) | `[]` |
+| `defaultLimit` | number | Default number of results to return per query | `10` |
+| `useProxy` | boolean | Enable HTTP proxy for requests | `false` |
+| `proxyUrl` | string | HTTP proxy server URL | (empty) |
+| `timeout` | number | Request timeout in milliseconds | `10000` |
+
+### Environment Variables
+
+Alternatively, configure via environment variables. These take precedence over config file settings:
 
 | Variable | Description | Default |
 |----------|-------------|---------|
 | `SEARXNG_BASE_URL` | SearXNG server URL | `http://localhost:8080` |
-| `SEARXNG_DEFAULT_ENGINE` | Default search engine | (none) |
-| `SEARXNG_ALLOWED_ENGINES` | Comma-separated allowed engines | (all) |
-| `SEARXNG_DEFAULT_LIMIT` | Default result limit | `10` |
-| `SEARXNG_USE_PROXY` | Use proxy (`true`/`false`) | `false` |
-| `SEARXNG_PROXY_URL` | Proxy URL | (none) |
-| `SEARXNG_TIMEOUT` | Request timeout in ms | `10000` |
+| `SEARXNG_DEFAULT_ENGINE` | Default search engine to use | (empty) |
+| `SEARXNG_ALLOWED_ENGINES` | Comma-separated list of allowed engines | (all engines) |
+| `SEARXNG_DEFAULT_LIMIT` | Default number of results to return | `10` |
+| `SEARXNG_USE_PROXY` | Enable proxy (`true` or `false`) | `false` |
+| `SEARXNG_PROXY_URL` | Proxy server URL | (empty) |
+| `SEARXNG_TIMEOUT` | Request timeout in milliseconds | `10000` |
 
-## CLI Reference
+### Configuration Priority
 
-```
-searxng <query> [options]
-searxng --health
-searxng --engines-list
-searxng --categories-list
+Settings are loaded in this order (highest to lowest priority):
+1. Environment variables
+2. `sxng.config.json` in current working directory
+3. Default values
 
-Options:
-  -e, --engines <engines>      Comma-separated list of search engines
-  -c, --categories <cats>      Comma-separated list of categories
-  -l, --limit <n>              Maximum number of results (default: 10)
-  -p, --page <n>               Page number for pagination
-  --lang <code>                Language code (e.g., en, zh, ja)
-  --time <range>               Time range: day, week, month, year, all
-  -f, --format <fmt>           Output format: json, csv, html (default: json)
-  --engines-list               List available search engines
-  --categories-list            List available categories
-  --health                     Check SearXNG server health
-  -h, --help                   Show help message
-```
+## Quick Setup with Interactive Configuration
 
-## Examples
+For a guided setup experience, run:
 
 ```bash
-# Simple search
-searxng "TypeScript tutorial"
+sxng init
+```
 
-# Limit results
-searxng "TypeScript tutorial" --limit 5
+This command will interactively walk you through:
+- SearXNG server URL configuration
+- Default search engine selection
+- Allowed engines whitelist
+- Result limit settings
+- Request timeout configuration
+- HTTP proxy setup (optional)
 
-# Use specific engines
-searxng --engines google,github "react hooks"
+The setup will create a `sxng.config.json` file in your current directory with your settings.
+
+## AI-Assisted Configuration
+
+If you need help generating or modifying configuration for your specific use case, you can ask an AI model to:
+- Generate a `sxng.config.json` based on your requirements
+- Suggest optimal settings for your use case
+- Modify existing configurations
+
+Example requests:
+- "Generate a searxng config that uses Google and GitHub for searches with a 20 result limit"
+- "I want to use a remote SearXNG server at searxng.example.com:8080 with proxy settings"
+- "Configure searxng to only use academic search engines with 5 second timeout"
+
+## CLI Commands and Options
+
+### Basic Search
+
+```bash
+sxng <query>
+sxng <query> [options]
+```
+
+Perform a basic web search with the given query.
+
+**Example:**
+```bash
+sxng "TypeScript tutorial"
+```
+
+### Command-line Options
+
+#### Search Query Customization
+
+| Option | Short | Argument | Description |
+|--------|-------|----------|-------------|
+| `--engines` | `-e` | `<engines>` | Comma-separated list of search engines to use (e.g., `google,github,bing`) |
+| `--categories` | `-c` | `<categories>` | Comma-separated list of result categories to search in |
+| `--limit` | `-l` | `<n>` | Maximum number of results to return (default: value from config) |
+| `--page` | `-p` | `<n>` | Page number for pagination (starts at 1) |
+| `--lang` | | `<code>` | Language code for search results (e.g., `en`, `zh`, `ja`, `fr`) |
+| `--time` | | `<range>` | Time range filter: `day`, `week`, `month`, `year`, or `all` |
+
+**Examples:**
+```bash
+# Use specific search engines
+sxng --engines google,github "react hooks"
 
 # Search in specific categories
-searxng --categories it,science "machine learning"
+sxng --categories it,science "machine learning"
 
-# Recent results only
-searxng --time week "latest news"
+# Limit results and filter by time
+sxng --limit 5 --time week "latest TypeScript news"
 
-# Specific language
-searxng --lang zh "TypeScript"
+# Search in Chinese language
+sxng --lang zh "Python 教程"
+
+# Paginate through results
+sxng --page 2 --limit 10 "web development"
+```
+
+#### Output Format
+
+| Option | Short | Argument | Description |
+|--------|-------|----------|-------------|
+| `--format` | `-f` | `<format>` | Output format: `json` (default), `csv`, or `html` |
+
+Formats:
+- **json**: Structured JSON output (default, suitable for programmatic use)
+- **csv**: Comma-separated values (suitable for spreadsheets and data processing)
+- **html**: HTML table format (suitable for viewing in browsers)
+
+**Examples:**
+```bash
+# Output as JSON (default)
+sxng "docker tutorial"
 
 # Output as CSV
-searxng "docker tutorial" --format csv --limit 20 > results.csv
+sxng "docker tutorial" --format csv
+
+# Save results to CSV file
+sxng "docker tutorial" --format csv > results.csv
+
+# Output as HTML
+sxng "docker tutorial" --format html > results.html
+```
+
+#### Administrative Commands
+
+| Option | Description |
+|--------|-------------|
+| `--engines-list` | List all available search engines |
+| `--categories-list` | List all available result categories |
+| `--health` | Check SearXNG server health status |
+| `-h, --help` | Display help message |
+
+**Examples:**
+```bash
+# List all available search engines
+sxng --engines-list
+
+# List all available categories
+sxng --categories-list
+
+# Check server health
+sxng --health
+
+# Show help
+sxng --help
 ```
 
 ## Output Format
 
-The CLI returns results in a standardized JSON envelope format:
+### JSON Output (Default)
+
+Standard envelope format with status, data, and error information:
 
 ```json
 {
@@ -101,17 +211,24 @@ The CLI returns results in a standardized JSON envelope format:
   "data": {
     "query": "search query",
     "totalResults": 100,
-    "returnedResults": 10,
+    "returnedResults": 3,
     "results": [
       {
         "title": "Result Title",
         "url": "https://example.com",
-        "content": "Snippet or description...",
+        "content": "Snippet or description of the result...",
         "engine": "google",
+        "category": "general"
+      },
+      {
+        "title": "Another Result",
+        "url": "https://example2.com",
+        "content": "Another snippet...",
+        "engine": "bing",
         "category": "general"
       }
     ],
-    "suggestions": ["related query 1"],
+    "suggestions": ["related query 1", "related query 2"],
     "answers": [],
     "unresponsiveEngines": []
   },
@@ -120,53 +237,87 @@ The CLI returns results in a standardized JSON envelope format:
 }
 ```
 
-## Available Categories
+Fields:
+- `status`: `ok` for successful search, `error` for failures
+- `data.query`: The search query that was executed
+- `data.totalResults`: Total number of results found
+- `data.returnedResults`: Number of results returned in this response
+- `data.results`: Array of search results
+- `data.suggestions`: Related search suggestions
+- `data.answers`: Direct answers if available
+- `data.unresponsiveEngines`: Engines that failed to respond
+- `error`: Error code if status is `error`
+- `hint`: Helpful hint message for debugging
 
-- `general` - General web search
-- `images` - Image search
-- `videos` - Video search
-- `news` - News articles
-- `it` - IT/Technology
-- `science` - Scientific content
-- `music` - Music
-- `files` - Files
-- `books` - Books
-- `q&a` - Q&A sites
-- ...
+### CSV Output
 
-## Available Engines
+Tab-separated values format with headers:
 
-- General: `google`, `bing`, `duckduckgo`, `brave`, `startpage`
-- Code: `github`, `gitlab`, `stackoverflow`, `npm`, `pypi`
-- Academic: `arxiv`, `pubmed`, `google scholar`
-- Knowledge: `wikipedia`, `wiktionary`
-- Social: `reddit`, `hackernews`
-- ...
-
-List all available engines:
-```bash
-searxng --engines-list
+```
+title	url	content	engine	category
+Result Title	https://example.com	Snippet or description...	google	general
+Another Result	https://example2.com	Another snippet...	bing	general
 ```
 
-## Health Check
+### HTML Output
 
-```bash
-searxng --health
+Formatted HTML table that can be opened directly in a browser:
+
+```html
+<!DOCTYPE html>
+<html>
+<head><title>Search Results</title></head>
+<body>
+<table border="1">
+    <tr><th>Title</th><th>Content</th><th>Engine</th></tr>
+    <tr>
+        <td><a href="https://example.com">Result Title</a></td>
+        <td>Snippet or description...</td>
+        <td>google</td>
+    </tr>
+</table>
+</body>
+</html>
 ```
 
-## Error Handling
-
-Always check the `status` field before using `data`:
+## Practical Examples
 
 ```bash
-result=$(searxng "query" 2>/dev/null)
-status=$(echo "$result" | grep -o '"status": "[^"]*"' | cut -d'"' -f4)
+# Simple search with results
+sxng "machine learning tutorial"
 
-if [ "$status" = "ok" ]; then
-    echo "Search successful"
-    echo "$result"
-else
-    echo "Search failed"
-    echo "$result" | grep -o '"message": "[^"]*"' | cut -d'"' -f4
-fi
+# Save CSV results to file
+sxng "REST API best practices" --format csv --limit 20 > api-results.csv
+
+# Search in technology category with Google and Stack Overflow
+sxng --engines google,stackoverflow --categories it "async await JavaScript" --limit 10
+
+# Get recent news articles
+sxng --time week --categories news "AI developments" --lang en
+
+# Check available search engines before running query
+sxng --engines-list
+
+# Verify SearXNG server is running
+sxng --health
+
+# Display help for all available options
+sxng --help
 ```
+
+## Capabilities Summary
+
+The SearXNG CLI provides the following capabilities:
+
+- **Web Search**: Perform queries across multiple meta-search engines
+- **Engine Selection**: Choose specific search engines to query
+- **Category Filtering**: Narrow results by category (general, IT, science, news, etc.)
+- **Time Range Filtering**: Filter results by publication time (day, week, month, year, all)
+- **Language Support**: Set language preference for results
+- **Result Pagination**: Navigate through paginated results
+- **Result Limiting**: Control the number of results returned (default: 10)
+- **Multiple Output Formats**: JSON, CSV, or HTML output
+- **Health Monitoring**: Check SearXNG server status
+- **Engine Discovery**: List all available search engines and categories
+- **Proxy Support**: Configure HTTP proxy for requests
+- **Timeout Control**: Adjust request timeout via configuration
