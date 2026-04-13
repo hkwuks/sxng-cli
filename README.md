@@ -13,6 +13,30 @@ A TypeScript-based command-line interface for performing web searches via [SearX
 
 ## Installation
 
+### Self-host SearXNG
+
+```yml
+services:
+   searxng:
+        image: docker.io/searxng/searxng:latest
+        container_name: searxng
+        restart: unless-stopped
+        ports:
+            - "8080:8080"
+        volumes:
+            - ./searxng:/etc/searxng:Z
+        depends_on:
+            - valkey
+
+    valkey:
+        container_name: valkey
+        image: docker.io/valkey/valkey:9-alpine
+        command: valkey-server --save 30 1 --loglevel warning
+        restart: always
+        volumes:
+            - ./valkey:/data/
+```
+
 ### From npm (Recommended)
 
 ```bash
