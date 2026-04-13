@@ -3,11 +3,14 @@
  *
  * Configuration priority (highest to lowest):
  * 1. Environment variables
- * 2. Config file (./sxng.config.json)
- * 3. Default values (localhost only)
+ * 2. Local config file (./sxng.config.json)
+ * 3. Global config file (~/sxng-cli/sxng.config.json)
+ * 4. Default values
  */
 
 import { readFileSync, existsSync } from 'fs';
+import { homedir } from 'os';
+import { resolve } from 'path';
 
 export interface SearXNGConfig {
     baseUrl: string;
@@ -48,10 +51,18 @@ function readBoolEnv(name: string, defaultValue: boolean): boolean {
 }
 
 function findConfigFile(): string | null {
+    // Check local config first (for project-specific overrides)
     const localConfig = './sxng.config.json';
     if (existsSync(localConfig)) {
         return localConfig;
     }
+
+    // Check global config in ~/sxng-cli/
+    const globalConfig = resolve(homedir(), 'sxng-cli', 'sxng.config.json');
+    if (existsSync(globalConfig)) {
+        return globalConfig;
+    }
+
     return null;
 }
 

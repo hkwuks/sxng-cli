@@ -2,8 +2,9 @@
  * SearXNG CLI - Interactive Configuration Setup
  */
 
-import { readFileSync, writeFileSync, existsSync } from 'fs';
+import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs';
 import { resolve } from 'path';
+import { homedir } from 'os';
 import readline from 'readline';
 
 export interface SearXNGConfig {
@@ -69,7 +70,8 @@ class ConfiguratorInterface {
 }
 
 export async function initConfig(): Promise<number> {
-    const configPath = resolve('./sxng.config.json');
+    const configDir = resolve(homedir(), 'sxng-cli');
+    const configPath = resolve(configDir, 'sxng.config.json');
     const configurator = new ConfiguratorInterface();
 
     console.log('\n📝 SearXNG CLI Configuration Setup\n');
@@ -151,6 +153,10 @@ export async function initConfig(): Promise<number> {
 
     if (confirm) {
         try {
+            // Ensure config directory exists
+            if (!existsSync(configDir)) {
+                mkdirSync(configDir, { recursive: true });
+            }
             writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf-8');
             console.log(`\n✓ Configuration saved to ${configPath}`);
             console.log('\n✨ Setup complete! You can now use sxng to search.\n');
