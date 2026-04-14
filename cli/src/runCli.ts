@@ -27,7 +27,7 @@ Options:
   -p, --page <n>               Page number for pagination
   --lang <code>                Language code (e.g., en, zh, ja)
   --time <range>               Time range: day, week, month, year, all
-  -f, --format <fmt>           Output format: json, csv, html (default: json)
+  -f, --format <fmt>           Output format: md, json, csv, html (default: md)
   --engines-list               List available search engines
   --categories-list            List available categories
   --health                     Check SearXNG server health
@@ -58,7 +58,7 @@ interface CliOptions {
     page?: number;
     language?: string;
     timeRange?: 'day' | 'week' | 'month' | 'year' | 'all';
-    format?: 'json' | 'csv' | 'html';
+    format?: 'json' | 'csv' | 'html' | 'md';
     init: boolean;
     enginesList: boolean;
     categoriesList: boolean;
@@ -116,8 +116,8 @@ function parseArgs(args: string[]): CliOptions {
             case '-f':
             case '--format':
                 const fmt = args[++i];
-                if (['json', 'csv', 'html'].includes(fmt)) {
-                    options.format = fmt as any;
+                if (['json', 'csv', 'html', 'md', 'markdown'].includes(fmt)) {
+                    options.format = fmt === 'markdown' ? 'md' : (fmt as any);
                 }
                 break;
             case '--engines-list':
@@ -182,12 +182,96 @@ function formatAsHtml(results: any[]): string {
 </html>`;
 }
 
-function formatOutput(data: any, format: 'json' | 'csv' | 'html'): string {
+function formatAsMarkdown(data: any): string {
+    const lines: string[] = [];
+
+    // Query info
+    lines.push(`## Search: ${data.query || 'Unknown'}`);
+    lines.push('');
+
+    // Results
+    const results = data.results || [];
+    if (results.length > 0) {
+        lines.push(`**${results.length}** results`);
+        if (data.totalResults) {
+            lines.push(`Total: ${data.totalResults}`);
+        }
+        lines.push('');
+
+        for (let i = 0; i < results.length; i++) {
+            const r = results[i];
+            lines.push(`### ${i + 1}. [${r.title || 'No Title'}](${r.url || '#'})`);
+            lines.push('');
+            if (r.content) {
+                lines.push(r.content);
+                lines.push('');
+            }
+            // Metadata line: engine, category, score, publishedDate
+            const meta: string[] = [];
+            meta.push(`Engine: ${r.engine || 'unknown'}`);
+            if (r.category) meta.push(`Category: ${r.category}`);
+            if (r.score !== undefined && r.score !== null) meta.push(`Score: ${r.score}`);
+            if (r.publishedDate) meta.push(`Date: ${r.publishedDate}`);
+            lines.push(meta.join(' | '));
+            if (r.thumbnail) {
+                lines.push(`Thumbnail: ${r.thumbnail}`);
+            }
+            lines.push('');
+        }
+    } else {
+        lines.push('No results found.');
+        lines.push('');
+    }
+
+    // Unresponsive engines
+    if (data.unresponsiveEngines && data.unresponsiveEngines.length > 0) {
+        lines.push('---');
+        lines.push('');
+        lines.push('### Unresponsive Engines');
+        lines.push('');
+        for (const item of data.unresponsiveEngines) {
+            if (Array.isArray(item)) {
+                lines.push(`- ${item[0]}: ${item[1] || 'unknown error'}`);
+            } else {
+                lines.push(`- ${item}`);
+            }
+        }
+        lines.push('');
+    }
+
+    // Answers (if any)
+    if (data.answers && data.answers.length > 0) {
+        lines.push('---');
+        lines.push('');
+        lines.push('### Answers');
+        lines.push('');
+        for (const answer of data.answers) {
+            lines.push(answer);
+            lines.push('');
+        }
+    }
+
+    // Suggestions (if any)
+    if (data.suggestions && data.suggestions.length > 0) {
+        lines.push('---');
+        lines.push('');
+        lines.push('### Suggestions');
+        lines.push('');
+        lines.push(data.suggestions.map((s: string) => `- ${s}`).join('\n'));
+        lines.push('');
+    }
+
+    return lines.join('\n');
+}
+
+function formatOutput(data: any, format: 'json' | 'csv' | 'html' | 'md'): string {
     switch (format) {
         case 'csv':
             return formatAsCsv(data.results || []);
         case 'html':
             return formatAsHtml(data.results || []);
+        case 'md':
+            return formatAsMarkdown(data);
         case 'json':
         default:
             return JSON.stringify(data, null, 2);
@@ -308,7 +392,7 @@ export async function runCli(args: string[], service: SearXNGService): Promise<n
         page: options.page,
         language: options.language,
         timeRange: options.timeRange,
-        format: options.format || 'json'
+        format: options.format || config.defaultFormat
     };
 
     try {
@@ -324,11 +408,23 @@ export async function runCli(args: string[], service: SearXNGService): Promise<n
             unresponsiveEngines: results.unresponsiveEngines
         });
 
-        if (options.format && options.format !== 'json') {
-            console.error(JSON.stringify(envelope, null, 2));
-            console.log(formatOutput(results, options.format));
-        } else {
+        const outputFormat = options.format || config.defaultFormat;
+
+        if (outputFormat === 'md') {
+            // Markdown format: output clean markdown directly
+            console.log(formatOutput({
+                query: results.query,
+                totalResults: results.numberOfResults,
+                results: results.results,
+                answers: results.answers,
+                suggestions: results.suggestions,
+                unresponsiveEngines: results.unresponsiveEngines
+            }, 'md'));
+        } else if (outputFormat === 'json') {
             console.log(JSON.stringify(envelope, null, 2));
+        } else {
+            // csv or html
+            console.log(formatOutput(results, outputFormat));
         }
 
         return 0;

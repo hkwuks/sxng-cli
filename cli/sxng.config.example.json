@@ -3,6 +3,7 @@
   "defaultEngine": "",
   "allowedEngines": [],
   "defaultLimit": 10,
+  "defaultFormat": "md",
   "useProxy": false,
   "proxyUrl": "",
   "timeout": 10000

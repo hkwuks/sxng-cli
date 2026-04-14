@@ -1,26 +1,59 @@
-# SearXNG CLI
+# 🔍 SXNG CLI
 
-A TypeScript-based command-line interface for performing web searches via [SearXNG](https://github.com/searxng/searxng) - a privacy-respecting metasearch engine.
+<p align="center">
+  <b>A powerful command-line interface for <a href="https://github.com/searxng/searxng">SearXNG</a></b><br>
+  Privacy-respecting web search from your terminal
+</p>
 
-## Features
+<p align="center">
+  <a href="https://www.npmjs.com/package/sxng-cli">
+    <img src="https://img.shields.io/npm/v/sxng-cli?style=flat-square&color=cb3837" alt="npm version">
+  </a>
+  <a href="https://www.npmjs.com/package/sxng-cli">
+    <img src="https://img.shields.io/npm/dm/sxng-cli?style=flat-square&color=cb3837" alt="npm downloads">
+  </a>
+  <a href="https://github.com/hkwuks/sxng-cli/blob/main/LICENSE">
+    <img src="https://img.shields.io/github/license/hkwuks/sxng-cli?style=flat-square&color=green" alt="license">
+  </a>
+  <img src="https://img.shields.io/badge/node-%3E%3D18.0.0-brightgreen?style=flat-square" alt="node version">
+</p>
 
-- **Web Search** - Search across multiple search engines simultaneously
-- **Dynamic Engine/Category Discovery** - Automatically fetches available engines and categories from your SearXNG server (no hardcoded lists)
-- **Multiple Output Formats** - JSON (default), CSV, or HTML
-- **Flexible Configuration** - Environment variables, config file, or interactive setup
-- **Health Check** - Verify SearXNG server connectivity
-- **Proxy Support** - HTTP/HTTPS proxy configuration
+<p align="center">
+  <a href="#-features">Features</a> •
+  <a href="#-installation">Installation</a> •
+  <a href="#-quick-start">Quick Start</a> •
+  <a href="#-usage">Usage</a> •
+  <a href="#-configuration">Configuration</a>
+</p>
 
-## Installation
+---
+
+## ✨ Features
+
+- 🔎 **Multi-Engine Search** — Search across Google, Bing, DuckDuckGo, GitHub, StackOverflow, and 30+ engines simultaneously
+- 🔄 **Dynamic Discovery** — Auto-fetches available engines and categories from your SearXNG server
+- 📄 **Multiple Formats** — Markdown (LLM-optimized), JSON, CSV, or HTML output
+- ⚡ **Fast & Lightweight** — Built with TypeScript, minimal dependencies
+- 🔧 **Flexible Config** — Environment variables, config file, or interactive setup
+- 🏥 **Health Check** — Verify server connectivity instantly
+- 🌐 **Proxy Support** — HTTP/HTTPS proxy configuration
+
+---
+
+## 📦 Installation
 
 ### Self-host SearXNG
 
 **For WSL**
+
 WSL2 will automatically shut itself down after you exit all the connections. I suggest you use https://github.com/gardengim/keepwsl to keep it alive.
 
 Before starting the searXNG container, you must create a `settings.yml` file in the `./searxng` directory. You can visit https://github.com/searxng/searxng for specific configuration methods.
 
 An example of `settings.yml` is just like below.
+
+<details>
+<summary>📋 点击展开完整 settings.yml 配置（30+ 搜索引擎）</summary>
 
 ```yml
 use_default_settings: true
@@ -233,6 +266,8 @@ engines:
     disabled: false
 ```
 
+</details>
+
 An example of `docker-compose.yml` is just like below.
 
 ```yml
@@ -273,7 +308,9 @@ npm run build
 npm link
 ```
 
-## Quick Start
+---
+
+## 🚀 Quick Start
 
 1. **Install the CLI:**
    ```bash
@@ -294,7 +331,9 @@ npm link
    sxng "TypeScript tutorial"
    ```
 
-## Usage
+---
+
+## 📖 Usage
 
 ### Commands
 
@@ -317,13 +356,16 @@ npm link
 | `-p, --page <n>` | Page number for pagination |
 | `--lang <code>` | Language code (e.g., `en`, `zh`, `ja`) |
 | `--time <range>` | Time range: `day`, `week`, `month`, `year`, `all` |
-| `-f, --format <fmt>` | Output format: `json`, `csv`, `html` (default: json) |
+| `-f, --format <fmt>` | Output format: `md`, `json`, `csv`, `html` (default: md) |
 
 ### Examples
 
 ```bash
-# Basic search
+# Basic search (outputs Markdown by default)
 sxng "machine learning"
+
+# Output as JSON
+sxng --format json "machine learning"
 
 # Search with specific engines
 sxng --engines google,duckduckgo "privacy tools"
@@ -344,12 +386,15 @@ sxng --engines-list
 sxng --categories-list
 ```
 
-## Configuration
+---
+
+## ⚙️ Configuration
 
 Configuration priority (highest to lowest):
 1. Environment variables
-2. Config file (`./sxng.config.json`)
-3. Default values
+2. Local config file (`./sxng.config.json`)
+3. Global config file (`~/sxng-cli/sxng.config.json`)
+4. Default values
 
 ### Environment Variables
 
@@ -359,13 +404,19 @@ Configuration priority (highest to lowest):
 | `SEARXNG_DEFAULT_ENGINE` | Default search engine | *(none)* |
 | `SEARXNG_ALLOWED_ENGINES` | Comma-separated allowed engines | *(all)* |
 | `SEARXNG_DEFAULT_LIMIT` | Default result limit | `10` |
+| `SEARXNG_DEFAULT_FORMAT` | Default output format (`md`, `json`, `csv`, `html`) | `md` |
 | `SEARXNG_USE_PROXY` | Use proxy (`true`/`false`) | `false` |
 | `SEARXNG_PROXY_URL` | Proxy URL | *(none)* |
 | `SEARXNG_TIMEOUT` | Request timeout in ms | `10000` |
 
 ### Config File
 
-Create `sxng.config.json` in your working directory:
+Config file search order (first found wins):
+
+1. **Local config** - `./sxng.config.json` (current working directory, for project-specific settings)
+2. **Global config** - `~/sxng-cli/sxng.config.json` (user home directory, for global defaults)
+
+Create `sxng.config.json`:
 
 ```json
 {
@@ -373,13 +424,16 @@ Create `sxng.config.json` in your working directory:
   "defaultEngine": "",
   "allowedEngines": [],
   "defaultLimit": 10,
+  "defaultFormat": "md",
   "useProxy": false,
   "proxyUrl": "",
   "timeout": 10000
 }
 ```
 
-## Architecture
+---
+
+## 🏗️ Architecture
 
 ### Dynamic Engine/Category Discovery
 
@@ -393,7 +447,39 @@ Use `sxng --engines-list` and `sxng --categories-list` to see what's available o
 
 ### Output Format
 
-All responses use a standardized envelope format:
+The CLI supports multiple output formats:
+
+- **Markdown (default)** - Optimized for LLM context windows, saves ~50% tokens vs JSON
+- **JSON** - Structured envelope format for programmatic use
+- **CSV** - Comma-separated values for data processing
+- **HTML** - Table format for viewing in browsers
+
+<details>
+<summary>📝 点击展开输出格式示例</summary>
+
+#### Markdown Format (Default)
+
+```markdown
+## Search: machine learning
+
+**5** results
+Total: 42
+
+### 1. [Machine Learning Tutorial](https://example.com/ml)
+
+Learn machine learning from scratch...
+
+Engine: google | Category: general | Score: 1
+
+---
+
+### Suggestions
+
+- deep learning tutorial
+- neural networks
+```
+
+#### JSON Envelope Format
 
 ```json
 {
@@ -404,7 +490,11 @@ All responses use a standardized envelope format:
 }
 ```
 
-## Development
+</details>
+
+---
+
+## 🛠️ Development
 
 ```bash
 # Build
@@ -417,10 +507,14 @@ npm run dev
 npm start -- "search query"
 ```
 
-## Star History
+---
+
+## ⭐ Star History
 
 [![Star History Chart](https://api.star-history.com/svg?repos=hkwuks/sxng-cli&type=date&legend=top-left)](https://www.star-history.com/?repos=hkwuks%2Fsxng-cli&type=date&legend=top-left)
 
-## License
+---
+
+## 📄 License
 
 MIT

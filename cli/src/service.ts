@@ -14,7 +14,7 @@ export interface SearchOptions {
     page?: number;
     language?: string;
     timeRange?: 'day' | 'week' | 'month' | 'year' | 'all';
-    format?: 'json' | 'csv' | 'html';
+    format?: 'json' | 'csv' | 'html' | 'md';
 }
 
 export interface SearchResult {

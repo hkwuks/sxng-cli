@@ -17,6 +17,7 @@ export interface SearXNGConfig {
     defaultEngine: string;
     allowedEngines: string[];
     defaultLimit: number;
+    defaultFormat: 'json' | 'csv' | 'html' | 'md';
     useProxy: boolean;
     proxyUrl: string;
     timeout: number;
@@ -27,6 +28,7 @@ const DEFAULT_CONFIG: SearXNGConfig = {
     defaultEngine: '',
     allowedEngines: [],
     defaultLimit: 10,
+    defaultFormat: 'md',
     useProxy: false,
     proxyUrl: '',
     timeout: 10000
@@ -89,6 +91,7 @@ function mergeConfig(): SearXNGConfig {
     if (fileConfig.defaultEngine !== undefined) config.defaultEngine = fileConfig.defaultEngine;
     if (fileConfig.allowedEngines !== undefined) config.allowedEngines = fileConfig.allowedEngines;
     if (fileConfig.defaultLimit !== undefined) config.defaultLimit = fileConfig.defaultLimit;
+    if (fileConfig.defaultFormat !== undefined) config.defaultFormat = fileConfig.defaultFormat;
     if (fileConfig.useProxy !== undefined) config.useProxy = fileConfig.useProxy;
     if (fileConfig.proxyUrl !== undefined) config.proxyUrl = fileConfig.proxyUrl;
     if (fileConfig.timeout !== undefined) config.timeout = fileConfig.timeout;
@@ -107,6 +110,11 @@ function mergeConfig(): SearXNGConfig {
     const envDefaultLimit = process.env.SEARXNG_DEFAULT_LIMIT;
     if (envDefaultLimit !== undefined) {
         config.defaultLimit = readIntEnv('SEARXNG_DEFAULT_LIMIT', config.defaultLimit);
+    }
+
+    const envDefaultFormat = process.env.SEARXNG_DEFAULT_FORMAT;
+    if (envDefaultFormat !== undefined && ['json', 'csv', 'html', 'md'].includes(envDefaultFormat)) {
+        config.defaultFormat = envDefaultFormat as SearXNGConfig['defaultFormat'];
     }
 
     const envUseProxy = process.env.SEARXNG_USE_PROXY;
