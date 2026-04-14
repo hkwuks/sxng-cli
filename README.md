@@ -15,7 +15,225 @@ A TypeScript-based command-line interface for performing web searches via [SearX
 
 ### Self-host SearXNG
 
+**For WSL**
+WSL2 will automatically shut itself down after you exit all the connections. I suggest you use https://github.com/gardengim/keepwsl to keep it alive.
+
 Before starting the searXNG container, you must create a `settings.yml` file in the `./searxng` directory. You can visit https://github.com/searxng/searxng for specific configuration methods.
+
+An example of `settings.yml` is just like below.
+
+```yml
+use_default_settings: true
+
+server:
+  secret_key: "your key (use a random string)"
+  limiter: false
+
+outgoing:
+  request_timeout: 8.0 # 全局默认超时
+
+search:
+  formats:
+    - html
+    - json
+    - csv
+
+valkey:
+  url: valkey://valkey:6379/0
+
+engines:
+  # 通用搜索
+  - name: google
+    engine: google
+    shortcut: g
+
+  - name: bing
+    engine: bing
+    shortcut: b
+    disabled: false
+
+  - name: duckduckgo
+    engine: duckduckgo
+    shortcut: ddg
+
+  - name: brave
+    engine: brave
+    shortcut: br
+
+  - name: baidu
+    engine: baidu
+    shortcut: bd
+    disabled: false
+
+  - name: sogou
+    engine: sogou
+    shortcut: sg
+    disabled: false
+
+  - name: 360search
+    engine: 360search
+    shortcut: 360
+    disabled: false
+
+  - name: quark
+    engine: quark
+    shortcut: qk
+    disabled: false
+
+  - name: startpage
+    engine: startpage
+    shortcut: sp
+
+  - name: qwant
+    engine: qwant
+    shortcut: qw
+    disabled: false
+
+  - name: yandex
+    engine: yandex
+    shortcut: yx
+    disabled: false
+
+  # 编程相关
+  - name: github
+    engine: github
+    shortcut: gh
+
+  - name: github code
+    engine: github_code
+    shortcut: ghc
+
+  - name: gitlab
+    engine: gitlab
+    shortcut: gl
+    disabled: false
+
+  - name: stackexchange
+    engine: stackexchange
+    shortcut: se
+
+  - name: npm
+    engine: npm
+    shortcut: npm
+    disabled: false
+
+  - name: pypi
+    engine: pypi
+    shortcut: py
+
+  - name: crates
+    engine: crates
+    shortcut: crate
+
+  - name: pkg.go.dev
+    engine: pkg_go_dev
+    shortcut: go
+    disabled: false
+
+  - name: metacpan
+    engine: metacpan
+    shortcut: cpan
+    disabled: false
+
+  - name: docker hub
+    engine: docker_hub
+    shortcut: docker
+
+  - name: huggingface
+    engine: huggingface
+    shortcut: hf
+    disabled: false
+
+  - name: hex
+    engine: hex
+    shortcut: hex
+    disabled: false
+
+  # 知识/问答
+  - name: wikipedia
+    engine: wikipedia
+    shortcut: wp
+
+  - name: reddit
+    engine: reddit
+    shortcut: re
+    disabled: false
+
+  - name: hackernews
+    engine: hackernews
+    shortcut: hn
+    disabled: false
+
+  - name: stackoverflow
+    engine: stackexchange
+    shortcut: so
+    categories: q&a
+    stackexchange_site: stackoverflow
+
+  # 图片/视频
+  - name: google images
+    engine: google_images
+    shortcut: gi
+
+  - name: bing images
+    engine: bing_images
+    shortcut: bi
+
+  - name: youtube
+    engine: youtube_noapi
+    shortcut: yt
+
+  - name: bilibili
+    engine: bilibili
+    shortcut: bili
+    disabled: false
+
+  - name: pinterest
+    engine: pinterest
+    shortcut: pin
+
+  - name: unsplash
+    engine: unsplash
+    shortcut: us
+
+  - name: pixabay
+    engine: pixabay
+    shortcut: pxb
+
+  # 学术/文档
+  - name: arxiv
+    engine: arxiv
+    shortcut: arx
+
+  - name: semantic scholar
+    engine: semantic_scholar
+    shortcut: sem
+
+  - name: google scholar
+    engine: google_scholar
+    shortcut: gsch
+
+  - name: pubmed
+    engine: pubmed
+    shortcut: pub
+
+  - name: mdn
+    engine: microsoft_learn
+    shortcut: mdn
+
+  # 其他
+  - name: imdb
+    engine: imdb
+    shortcut: imdb
+    disabled: false
+
+  - name: steam
+    engine: steam
+    shortcut: stm
+    disabled: false
+```
+
+An example of `docker-compose.yml` is just like below.
 
 ```yml
 services:
