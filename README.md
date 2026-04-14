@@ -15,7 +15,7 @@ A TypeScript-based command-line interface for performing web searches via [SearX
 
 ### Self-host SearXNG
 
-Before starting the searXNG container, you must create a 'settings.yml' file in the './searxng 'directory. You can visit https://github.com/searxng/searxng for specific configuration methods.
+Before starting the searXNG container, you must create a `settings.yml` file in the `./searxng` directory. You can visit https://github.com/searxng/searxng for specific configuration methods.
 
 ```yml
 services:
