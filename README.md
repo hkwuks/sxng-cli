@@ -512,9 +512,3 @@ npm start -- "search query"
 ## ⭐ Star History
 
 [![Star History Chart](https://api.star-history.com/svg?repos=hkwuks/sxng-cli&type=date&legend=top-left)](https://www.star-history.com/?repos=hkwuks%2Fsxng-cli&type=date&legend=top-left)
-
----
-
-## 📄 License
-
-MIT
