@@ -6,5 +6,5 @@
   "defaultFormat": "md",
   "useProxy": false,
   "proxyUrl": "",
-  "timeout": 10000
+  "timeout": 20000
 }
