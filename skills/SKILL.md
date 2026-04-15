@@ -1,5 +1,5 @@
 ---
-name: searxng
+name: sxng
 description: Web search using SearXNG CLI. Use this skill when the user wants to search the web, find information online, look up documentation, research topics, or get current information from the internet. Triggers include "search for", "look up", "find information about", "web search", "search online", or any request requiring up-to-date information not available in the current context.
 ---
 
