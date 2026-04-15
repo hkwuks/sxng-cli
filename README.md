@@ -59,7 +59,7 @@ An example of `settings.yml` is just like below.
 use_default_settings: true
 
 server:
-  secret_key: "your key (use a random string)"
+  secret_key: "localdev12345678"
   limiter: false
 
 outgoing:
@@ -67,26 +67,28 @@ outgoing:
   max_request_timeout: 15.0
   pool_connections: 200
   pool_maxsize: 20
-  retries: 1
+  retries: 2
 
 search:
+  safe_search: 0
   formats:
     - html
     - json
     - csv
+    - rss
 
 valkey:
   url: valkey://valkey:6379/0
 
 engines:
-  # 通用搜索
+  # ==================== 通用搜索 ====================
   - name: google
     engine: google
     shortcut: g
 
   - name: bing
     engine: bing
-    shortcut: b
+    shortcut: bi
     disabled: false
 
   - name: duckduckgo
@@ -96,26 +98,6 @@ engines:
   - name: brave
     engine: brave
     shortcut: br
-
-  - name: baidu
-    engine: baidu
-    shortcut: bd
-    disabled: false
-
-  - name: sogou
-    engine: sogou
-    shortcut: sg
-    disabled: false
-
-  - name: 360search
-    engine: 360search
-    shortcut: 360
-    disabled: false
-
-  - name: quark
-    engine: quark
-    shortcut: qk
-    disabled: false
 
   - name: startpage
     engine: startpage
@@ -131,7 +113,35 @@ engines:
     shortcut: yx
     disabled: false
 
-  # 编程相关
+  - name: karmasearch
+    engine: karmasearch
+    categories: [general, web]
+    search_type: web
+    shortcut: ka
+    disabled: false
+
+  # ==================== 中文搜索 ====================
+  - name: baidu
+    engine: baidu
+    shortcut: bd
+    disabled: false
+
+  - name: sogou
+    engine: sogou
+    shortcut: sg
+    disabled: false
+
+  - name: 360search
+    engine: 360search
+    shortcut: 360so
+    disabled: false
+
+  - name: quark
+    engine: quark
+    shortcut: qk
+    disabled: false
+
+  # ==================== 编程相关 ====================
   - name: github
     engine: github
     shortcut: gh
@@ -142,12 +152,25 @@ engines:
 
   - name: gitlab
     engine: gitlab
+    base_url: https://gitlab.com
     shortcut: gl
+    disabled: false
+
+  - name: codeberg
+    engine: gitea
+    base_url: https://codeberg.org
+    shortcut: cb
     disabled: false
 
   - name: stackexchange
     engine: stackexchange
     shortcut: se
+
+  - name: stackoverflow
+    engine: stackexchange
+    shortcut: so
+    categories: q&a
+    stackexchange_site: stackoverflow
 
   - name: npm
     engine: npm
@@ -158,9 +181,10 @@ engines:
     engine: pypi
     shortcut: py
 
-  - name: crates
+  - name: crates.io
     engine: crates
     shortcut: crate
+    disabled: false
 
   - name: pkg.go.dev
     engine: pkg_go_dev
@@ -174,11 +198,17 @@ engines:
 
   - name: docker hub
     engine: docker_hub
-    shortcut: docker
+    shortcut: dh
 
   - name: huggingface
     engine: huggingface
     shortcut: hf
+    disabled: false
+
+  - name: huggingface datasets
+    engine: huggingface
+    huggingface_endpoint: datasets
+    shortcut: hfd
     disabled: false
 
   - name: hex
@@ -186,10 +216,57 @@ engines:
     shortcut: hex
     disabled: false
 
-  # 知识/问答
+  - name: mdn
+    engine: json_engine
+    shortcut: mdn
+    categories: [it]
+    paging: true
+    search_url: https://developer.mozilla.org/api/v1/search?q={query}&page={pageno}
+    results_query: documents
+    url_query: mdn_url
+    url_prefix: https://developer.mozilla.org
+    title_query: title
+    content_query: summary
+
+  - name: arch linux wiki
+    engine: archlinux
+    shortcut: al
+
+  - name: gentoo wiki
+    engine: mediawiki
+    shortcut: gentoo
+    categories: ["it", "software wikis"]
+    base_url: "https://wiki.gentoo.org/"
+    api_path: "api.php"
+    search_type: text
+    
+
+  - name: lobste.rs
+    engine: xpath
+    search_url: https://lobste.rs/search?q={query}&what=stories&order=relevance
+    results_xpath: //li[contains(@class, "story")]
+    url_xpath: .//a[@class="u-url"]/@href
+    title_xpath: .//a[@class="u-url"]
+    content_xpath: .//a[@class="domain"]
+    categories: it
+    shortcut: lo
+    
+    disabled: false
+
+  # ==================== 知识/问答 ====================
   - name: wikipedia
     engine: wikipedia
     shortcut: wp
+    display_type: ["infobox"]
+    categories: [general]
+
+  - name: wikidata
+    engine: wikidata
+    shortcut: wd
+    
+    weight: 2
+    display_type: ["infobox"]
+    categories: [general]
 
   - name: reddit
     engine: reddit
@@ -201,29 +278,20 @@ engines:
     shortcut: hn
     disabled: false
 
-  - name: stackoverflow
-    engine: stackexchange
-    shortcut: so
-    categories: q&a
-    stackexchange_site: stackoverflow
-
-  # 图片/视频
+  # ==================== 图片 ====================
   - name: google images
     engine: google_images
-    shortcut: gi
+    shortcut: goi
 
   - name: bing images
     engine: bing_images
-    shortcut: bi
+    shortcut: bii
 
-  - name: youtube
-    engine: youtube_noapi
-    shortcut: yt
-
-  - name: bilibili
-    engine: bilibili
-    shortcut: bili
-    disabled: false
+  - name: duckduckgo images
+    engine: duckduckgo_extra
+    categories: [images]
+    ddg_category: images
+    shortcut: ddi
 
   - name: pinterest
     engine: pinterest
@@ -237,7 +305,90 @@ engines:
     engine: pixabay
     shortcut: pxb
 
-  # 学术/文档
+  - name: deviantart
+    engine: deviantart
+    shortcut: da
+    disabled: false
+
+  - name: flickr
+    categories: images
+    shortcut: fl
+    engine: flickr_noapi
+    disabled: false
+
+  - name: openverse
+    engine: openverse
+    categories: images
+    shortcut: opv
+    disabled: false
+
+  - name: artic
+    engine: artic
+    shortcut: arc
+    disabled: false
+
+  # ==================== 视频 ====================
+  - name: google videos
+    engine: google_videos
+    shortcut: gov
+
+  - name: bing videos
+    engine: bing_videos
+    shortcut: biv
+
+  - name: duckduckgo videos
+    engine: duckduckgo_extra
+    categories: [videos]
+    ddg_category: videos
+    shortcut: ddv
+
+  - name: youtube
+    engine: youtube_noapi
+    shortcut: yt
+
+  - name: bilibili
+    engine: bilibili
+    shortcut: bili
+    disabled: false
+
+  # ==================== 新闻 ====================
+  - name: google news
+    engine: google_news
+    shortcut: gon
+
+  - name: bing news
+    engine: bing_news
+    shortcut: bin
+
+  - name: duckduckgo news
+    engine: duckduckgo_extra
+    categories: [news]
+    ddg_category: news
+    shortcut: ddn
+
+  # ==================== 音乐 ====================
+  - name: bandcamp
+    engine: bandcamp
+    shortcut: bc
+    categories: music
+    disabled: false
+
+  - name: deezer
+    engine: deezer
+    shortcut: dz
+    disabled: false
+
+  - name: mixcloud
+    engine: mixcloud
+    shortcut: mc
+    disabled: false
+
+  - name: genius
+    engine: genius
+    shortcut: gen
+    disabled: false
+
+  # ==================== 学术/文档 ====================
   - name: arxiv
     engine: arxiv
     shortcut: arx
@@ -254,11 +405,63 @@ engines:
     engine: pubmed
     shortcut: pub
 
-  - name: mdn
-    engine: microsoft_learn
-    shortcut: mdn
+  - name: crossref
+    engine: crossref
+    shortcut: cr
+    disabled: false
 
-  # 其他
+  # ==================== 社交媒体 ====================
+  - name: lemmy posts
+    engine: lemmy
+    lemmy_type: Posts
+    shortcut: lepo
+    disabled: false
+
+  - name: mastodon users
+    engine: mastodon
+    mastodon_type: accounts
+    base_url: https://mastodon.social
+    shortcut: mau
+    disabled: false
+
+  # ==================== 文件/种子 ====================
+  - name: library genesis
+    engine: xpath
+    search_url: https://libgen.rs/search.php?req={query}
+    url_xpath: //a[contains(@href,"book/index.php?md5")]/@href
+    title_xpath: //a[contains(@href,"book/")]/text()[1]
+    content_xpath: //td/a[1][contains(@href,"=author")]/text()
+    categories: files
+    shortcut: lg
+    disabled: false
+
+  - name: kickass
+    engine: kickass
+    base_url:
+      - https://kickasstorrents.to
+      - https://kickasstorrents.cr
+    shortcut: kc
+    disabled: false
+
+  - name: annas archive
+    engine: annas_archive
+    base_url:
+      - https://annas-archive.gl
+      - https://annas-archive.vg
+    shortcut: aa
+    disabled: false
+
+  # ==================== 翻译 ====================
+  - name: lingva
+    engine: lingva
+    shortcut: lv
+    disabled: false
+
+  - name: currency
+    engine: currency_convert
+    shortcut: cc
+
+  # ==================== 其他 ====================
   - name: imdb
     engine: imdb
     shortcut: imdb
@@ -267,6 +470,11 @@ engines:
   - name: steam
     engine: steam
     shortcut: stm
+    disabled: false
+
+  - name: goodreads
+    engine: goodreads
+    shortcut: good
     disabled: false
 ```
 
