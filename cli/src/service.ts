@@ -134,6 +134,13 @@ export class SearXNGService {
                 score: item.score
             }));
 
+            // Sort by score (descending), handle undefined/null scores
+            results.sort((a, b) => {
+                const scoreA = a.score ?? -Infinity;
+                const scoreB = b.score ?? -Infinity;
+                return scoreB - scoreA;
+            });
+
             const limitedResults = options.limit && options.limit > 0
                 ? results.slice(0, options.limit)
                 : results;
