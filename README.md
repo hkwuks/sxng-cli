@@ -59,12 +59,12 @@ An example of `settings.yml` is just like below.
 use_default_settings: true
 
 server:
-  secret_key: "localdev12345678"
+  secret_key: "random string"
   limiter: false
 
 outgoing:
-  request_timeout: 15.0 # 全局默认超时
-  max_request_timeout: 15.0
+  request_timeout: 10.0 # 全局默认超时
+  max_request_timeout: 10.0
   pool_connections: 200
   pool_maxsize: 20
   retries: 2
