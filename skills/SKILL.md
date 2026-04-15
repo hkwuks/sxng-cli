@@ -1,6 +1,6 @@
 ---
 name: sxng
-description: Web search using SearXNG CLI. Use when you need to search the web for current information, documentation, or research. Triggers: "search for", "look up", "find information", "web search", or any request needing up-to-date information.
+description: "Web search using SearXNG CLI. Use when you need to search the web for current information, documentation, or research. Triggers: 'search for', 'look up', 'find information', 'web search', or any request needing up-to-date information."
 ---
 
 # SearXNG Web Search
@@ -65,7 +65,8 @@ sxng init              # Interactive setup
 
 ## Tips
 
-- **Prefer specifying categories or engines** - Without `-e` or `-c`, all available engines are used
+- Specify categories or engines using `-c` or `-e` when you want to dig from specific sources 
+- Without `-e` or `-c`, all available engines are used
 - Use `--time week` or `--time day` for recent information
 - Your purpose is to dig deeply from the web, so do not limit `--lang` and so all unless you were asked to do so
 - Run `sxng --health` first if searches fail
