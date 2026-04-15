@@ -63,7 +63,11 @@ server:
   limiter: false
 
 outgoing:
-  request_timeout: 8.0 # 全局默认超时
+  request_timeout: 15.0 # 全局默认超时
+  max_request_timeout: 15.0
+  pool_connections: 200
+  pool_maxsize: 20
+  retries: 1
 
 search:
   formats:
@@ -282,6 +286,10 @@ services:
             - ./searxng:/etc/searxng:Z
         depends_on:
             - valkey
+        ulimits:
+            nofile:
+                soft: 10000
+                hard: 65535
 
     valkey:
         container_name: valkey
