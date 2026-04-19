@@ -193,29 +193,31 @@ function formatAsMarkdown(data: any): string {
     const results = data.results || [];
     if (results.length > 0) {
         lines.push(`**${results.length}** results`);
-        if (data.totalResults) {
-            lines.push(`Total: ${data.totalResults}`);
-        }
         lines.push('');
 
         for (let i = 0; i < results.length; i++) {
             const r = results[i];
-            lines.push(`### ${i + 1}. [${r.title || 'No Title'}](${r.url || '#'})`);
+            // Title with score indicator
+            let scoreIndicator = '';
+            if (r.score !== undefined && r.score !== null) {
+                // Score might be already > 1 or in 0-1 range
+                const normalizedScore = r.score > 1 ? r.score : r.score * 100;
+                scoreIndicator = ` [${normalizedScore.toFixed(1)}]`;
+            }
+            lines.push(`### ${i + 1}. [${r.title || 'No Title'}](${r.url || '#'})${scoreIndicator}`);
             lines.push('');
+
             if (r.content) {
                 lines.push(r.content);
                 lines.push('');
             }
-            // Metadata line: engine, category, score, publishedDate
+
+            // Metadata: engine, category, publishedDate (if available)
             const meta: string[] = [];
             meta.push(`Engine: ${r.engine || 'unknown'}`);
             if (r.category) meta.push(`Category: ${r.category}`);
-            if (r.score !== undefined && r.score !== null) meta.push(`Score: ${r.score}`);
-            if (r.publishedDate) meta.push(`Date: ${r.publishedDate}`);
-            lines.push(meta.join(' | '));
-            if (r.thumbnail) {
-                lines.push(`Thumbnail: ${r.thumbnail}`);
-            }
+            if (r.publishedDate) meta.push(`Published: ${r.publishedDate}`);
+            lines.push(meta.join(' · '));
             lines.push('');
         }
     } else {
@@ -223,41 +225,18 @@ function formatAsMarkdown(data: any): string {
         lines.push('');
     }
 
-    // Unresponsive engines
+    // Unresponsive engines (compact format)
     if (data.unresponsiveEngines && data.unresponsiveEngines.length > 0) {
-        lines.push('---');
+        const unresponsive = data.unresponsiveEngines.map((item: any) =>
+            Array.isArray(item) ? item[0] : item
+        ).join(', ');
+        lines.push(`*Unresponsive: ${unresponsive}*`);
         lines.push('');
-        lines.push('### Unresponsive Engines');
-        lines.push('');
-        for (const item of data.unresponsiveEngines) {
-            if (Array.isArray(item)) {
-                lines.push(`- ${item[0]}: ${item[1] || 'unknown error'}`);
-            } else {
-                lines.push(`- ${item}`);
-            }
-        }
-        lines.push('');
-    }
-
-    // Answers (if any)
-    if (data.answers && data.answers.length > 0) {
-        lines.push('---');
-        lines.push('');
-        lines.push('### Answers');
-        lines.push('');
-        for (const answer of data.answers) {
-            lines.push(answer);
-            lines.push('');
-        }
     }
 
     // Suggestions (if any)
     if (data.suggestions && data.suggestions.length > 0) {
-        lines.push('---');
-        lines.push('');
-        lines.push('### Suggestions');
-        lines.push('');
-        lines.push(data.suggestions.map((s: string) => `- ${s}`).join('\n'));
+        lines.push('**Suggestions:** ' + data.suggestions.join(' · '));
         lines.push('');
     }
 
