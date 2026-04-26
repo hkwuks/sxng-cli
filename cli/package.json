@@ -1,6 +1,6 @@
 {
   "name": "sxng-cli",
-  "version": "1.0.5",
+  "version": "1.0.6",
   "description": "SearXNG CLI - Web Search Tool",
   "type": "module",
   "main": "dist/index.js",
@@ -29,8 +29,12 @@
   "author": "hkwuks",
   "license": "MIT",
   "dependencies": {
+    "@mozilla/readability": "^0.6.0",
     "axios": "^1.6.0",
-    "https-proxy-agent": "^7.0.0"
+    "fastest-levenshtein": "^1.0.16",
+    "graphology": "^0.26.0",
+    "https-proxy-agent": "^7.0.0",
+    "linkedom": "^0.18.12"
   },
   "devDependencies": {
     "@types/node": "^20.0.0",

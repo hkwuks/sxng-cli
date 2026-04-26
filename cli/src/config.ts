@@ -17,7 +17,7 @@ export interface SearXNGConfig {
     defaultEngine: string;
     allowedEngines: string[];
     defaultLimit: number;
-    defaultFormat: 'json' | 'csv' | 'html' | 'md';
+    defaultFormat: 'json' | 'md';
     useProxy: boolean;
     proxyUrl: string;
     timeout: number;
@@ -113,7 +113,7 @@ function mergeConfig(): SearXNGConfig {
     }
 
     const envDefaultFormat = process.env.SEARXNG_DEFAULT_FORMAT;
-    if (envDefaultFormat !== undefined && ['json', 'csv', 'html', 'md'].includes(envDefaultFormat)) {
+    if (envDefaultFormat !== undefined && ['json', 'md'].includes(envDefaultFormat)) {
         config.defaultFormat = envDefaultFormat as SearXNGConfig['defaultFormat'];
     }
 

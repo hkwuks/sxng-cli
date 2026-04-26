@@ -33,6 +33,10 @@
 - 🔎 **Multi-Engine Search** — Search across Google, Bing, DuckDuckGo, GitHub, StackOverflow, and 30+ engines simultaneously
 - 🔄 **Dynamic Discovery** — Auto-fetches available engines and categories from your SearXNG server
 - 📄 **Multiple Formats** — Markdown (LLM-optimized), JSON, CSV, or HTML output
+- 🧠 **Deep Search** — Multi-round iterative research with session accumulation and knowledge graph
+- 🔍 **Content Extraction** — Extract full article content from search results
+- 🗂️ **Session Management** — Accumulate search results across multiple rounds with deduplication
+- 🕸️ **Knowledge Graph** — Build semantic graphs of entities and relationships
 - ⚡ **Fast & Lightweight** — Built with TypeScript, minimal dependencies
 - 🔧 **Flexible Config** — Environment variables, config file, or interactive setup
 - 🏥 **Health Check** — Verify server connectivity instantly
@@ -557,6 +561,13 @@ npm link
 |---------|-------------|
 | `sxng init` | Interactive configuration setup |
 | `sxng <query>` | Perform a web search |
+| `sxng --queries "q1,q2"` | Multi-query search with RRF fusion |
+| `sxng extract --urls <urls>` | Extract content from web pages |
+| `sxng --session new` | Create deep search session |
+| `sxng session-list` | List all sessions |
+| `sxng session-delete <name>` | Delete a session |
+| `sxng graph-add <session>` | Add entities to knowledge graph |
+| `sxng query-graph <session>` | Query knowledge graph |
 | `sxng --health` | Check SearXNG server health |
 | `sxng --engines-list` | List available search engines from server |
 | `sxng --categories-list` | List available categories from server |
@@ -573,6 +584,10 @@ npm link
 | `--lang <code>` | Language code (e.g., `en`, `zh`, `ja`) |
 | `--time <range>` | Time range: `day`, `week`, `month`, `year`, `all` |
 | `-f, --format <fmt>` | Output format: `md`, `json`, `csv`, `html` (default: md) |
+| `--queries <list>` | Multi-query with RRF fusion (e.g., `q1,q2,q3`) |
+| `--session <dir>` | Session directory or `new` for deep search |
+| `--owner <name>` | Session owner identifier |
+| `--desc <text>` | Session description |
 
 ### Examples
 
@@ -594,6 +609,9 @@ sxng --limit 5 --time week "latest AI news"
 
 # Output as CSV
 sxng --format csv "python tutorial" > results.csv
+
+# Multi-query search with RRF fusion
+sxng --queries "tokio tutorial,rust async basics,async-std guide"
 
 # List available engines (fetched from server)
 sxng --engines-list
@@ -646,6 +664,68 @@ Create `sxng.config.json`:
   "timeout": 10000
 }
 ```
+
+---
+
+## 🧠 Deep Search
+
+Deep search enables multi-round iterative research with session accumulation and knowledge graph building.
+
+### Quick Example
+
+```bash
+# Create a session and search
+sxng --session new --owner "researcher" --desc "Rust async study" "rust async ecosystem"
+# Session created: ~/.sxng/sessions/<session-name>
+
+# Extract content from results
+sxng extract --session ~/.sxng/sessions/<session-name>
+
+# Add knowledge graph entities
+sxng graph-add ~/.sxng/sessions/<session-name> --data '{
+  "entities": [
+    {"label": "tokio", "entityType": "runtime", "score": 0.95},
+    {"label": "async-std", "entityType": "runtime", "score": 0.85}
+  ],
+  "edges": [
+    {"source": "e:tokio", "target": "e:async_std", "relation": "alternative_to", "weight": 0.9}
+  ]
+}'
+
+# Query the graph
+sxng query-graph ~/.sxng/sessions/<session-name> --seeds "tokio" --depth 2
+
+# Continue research (results accumulate)
+sxng --session ~/.sxng/sessions/<session-name> --queries "tokio vs async-std,benchmark 2024"
+```
+
+### Session Management
+
+| Command | Description |
+|---------|-------------|
+| `sxng --session new` | Create new auto-named session |
+| `sxng --session <path>` | Use existing session |
+| `sxng session-list` | List all sessions with stats |
+| `sxng session-delete <name>` | Delete specific session |
+| `sxng session-delete --older <hours>` | Delete old sessions |
+
+### Session Data Structure
+
+Each session stores three files in `~/.sxng/sessions/<session-name>/`:
+
+- **`results.json`** — Accumulated search results (URL dedup, multi-round)
+- **`graph.json`** — Knowledge graph (structural + semantic layers)
+- **`meta.json`** — Session metadata (owner, description, timestamps)
+
+### Knowledge Graph
+
+**Structural Layer** (auto-built):
+- `q:` — Query nodes
+- `r:` — Result nodes
+- `d:` — Domain nodes
+
+**Semantic Layer** (via `graph-add`):
+- `e:` — Entity nodes with type and score
 
 ---
 
