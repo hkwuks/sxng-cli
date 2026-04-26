@@ -1,6 +1,6 @@
 {
   "name": "sxng-cli",
-  "version": "1.0.6",
+  "version": "1.0.7",
   "description": "SearXNG CLI - Web Search Tool",
   "type": "module",
   "main": "dist/index.js",

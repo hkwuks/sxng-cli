@@ -41,7 +41,7 @@ Extract full article content from web pages. You can use the built-in `sxng extr
 sxng extract --urls "https://example.com/article1,https://example.com/article2"
 
 # Extract from search results JSON file
-sxng extract --from-json /tmp/search.json
+sxng extract --from-json <session-name>earch.json
 
 # Or just use any other fetch tool you have available
 ```
@@ -106,23 +106,23 @@ The deep search flow is an iterative loop. Each round follows the same pattern:
 
 **Step-by-step:**
 
-1. **Search** — `sxng --session <dir> <query>` runs a search, results accumulate in session
-2. **Extract** — Get content from top results. Use `sxng extract --session <dir>` or any fetch tool
+1. **Search** — `sxng --session <session-name> <query>` runs a search, results accumulate in session
+2. **Extract** — Get content from top results. Use `sxng extract --session <session-name>` or any fetch tool
 3. **Analyze** — As LLM, read the results/extracted content, identify entities and gaps
-4. **Build graph** — `sxng graph-add <dir> --data '...'` adds entities and relationships
-5. **Decide** — Check `sxng query-graph <dir> --seeds ...` to see what's connected. If gaps remain, loop back to step 1 with refined queries
+4. **Build graph** — `sxng graph-add <session-name> --data '...'` adds entities and relationships
+5. **Decide** — Check `sxng query-graph <session-name> --seeds ...` to see what's connected. If gaps remain, loop back to step 1 with refined queries
 6. **Synthesize** — When enough information is gathered, produce the final answer
 
 ### Session (--session)
 
-Each `sxng --session <dir> <query>` automatically:
+Each `sxng --session <session-name> <query>` automatically:
 1. Deduplicates and accumulates results into `results.json`
 2. Builds structural graph edges (query→result→domain) in `graph.json`
 3. Returns RRF-fused display of all accumulated results
 
 ```bash
-sxng --session /tmp/s "rust async ecosystem"          # Round 1
-sxng --session /tmp/s --queries "tokio vs async-std,rust async benchmark"  # Round 2
+sxng --session <session-name> "rust async ecosystem"          # Round 1
+sxng --session <session-name> --queries "tokio vs async-std,rust async benchmark"  # Round 2
 ```
 
 ### Extract with Session
@@ -130,7 +130,7 @@ sxng --session /tmp/s --queries "tokio vs async-std,rust async benchmark"  # Rou
 `extract --session` reads URLs from session results and merges extracted content back:
 
 ```bash
-sxng extract --session /tmp/s   # Extract from all session URLs, merge content into results.json
+sxng extract --session <session-name>   # Extract from all session URLs, merge content into results.json
 ```
 
 Or use any external fetch tool to extract content — just read the URLs from session output.
@@ -162,7 +162,7 @@ Edges: any relation type between entity↔entity or entity→result, with custom
 Add entities and semantic edges after you analyze the search results:
 
 ```bash
-sxng graph-add /tmp/s --data '{
+sxng graph-add <session-name> --data '{
   "entities": [
     {"label": "tokio", "entityType": "technology", "score": 0.9},
     {"label": "async-std", "entityType": "technology", "score": 0.8}
@@ -181,8 +181,8 @@ Edge source/target must reference existing node IDs. Invalid references are skip
 Explore the graph to decide whether to continue searching or synthesize an answer:
 
 ```bash
-sxng query-graph /tmp/s --seeds "tokio" --depth 3          # human-readable
-sxng query-graph /tmp/s --seeds "tokio" --depth 3 -f json  # raw data
+sxng query-graph <session-name> --seeds "tokio" --depth 3          # human-readable
+sxng query-graph <session-name> --seeds "tokio" --depth 3 -f json  # raw data
 ```
 
 Seed matching: exact ID → prefix match → label match (case-insensitive).
@@ -242,9 +242,42 @@ sxng session-delete --older 24
 
 ## When to Use
 
-- Simple web search → `sxng <query>`
-- Need article content → `extract --urls` or any fetch tool
-- Deep research → deep search workflow (session + extract + graph-add loop)
+### Quick Decision Guide
+
+**Use Simple Search (`sxng <query>`) when:**
+- Looking for specific information (API usage, error solutions)
+- The question has a definitive answer, solvable with 1-2 results
+- Finding official docs or GitHub repo addresses
+
+**Use Deep Search (`--session` workflow) when:**
+- Multi-dimensional information integration needed (tech selection, market analysis, framework comparison)
+- Information is scattered across sources requiring cross-validation
+- Tracking evolution of a topic (ecosystem changes, version updates)
+- Output is a research report, tech survey, or decision analysis
+- Initial search reveals incomplete information requiring deeper digging
+
+### Examples
+
+| Your Need | Recommended Approach | Command Example |
+|---------|---------------------|-----------------|
+| "Python dict get method usage" | Simple search | `sxng "python dict get method"` |
+| "Compare PostgreSQL vs MySQL performance" | **Deep Search** | `sxng --session new --owner "agent-1" "PostgreSQL vs MySQL performance benchmark 2024"` |
+| "React latest version features" | Simple search | `sxng "React 19 new features" --time month` |
+| "Frontend build tools ecosystem survey" | **Deep Search** | `sxng --session new --owner "agent-1" "frontend build tools ecosystem vite webpack parcel"` |
+| "Fix Docker port already allocated error" | Simple search | `sxng "docker port already allocated fix"` |
+
+### Deep Search Workflow
+
+Deep search follows an iterative research process:
+
+1. **Create Session** — Start a new research session
+2. **Search** — Execute queries, results auto-deduplicate and accumulate
+3. **Extract** — Get full content from key pages
+4. **Analyze** — Identify entities, discover information gaps
+5. **Build Knowledge Graph** — Use `graph-add` to record key findings
+6. **Decide** — Use `query-graph` to check coverage, decide to continue searching or synthesize answer
+
+See "Deep Search" section below for complete examples.
 
 ## Tips
 

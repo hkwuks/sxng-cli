@@ -33,7 +33,11 @@ export interface SessionResultsFile {
     };
 }
 
-/** Resolve session path. If "new", auto-create under default root with unique name */
+/** Resolve session path. Supports:
+ *  - "new": auto-create under default root with unique name
+ *  - pure name (no separators): resolve to ~/.sxng/sessions/<name>
+ *  - full path: return as-is
+ */
 export function resolveSessionPath(sessionValue: string): string {
     if (sessionValue === 'new') {
         const root = join(homedir(), '.sxng', 'sessions');
@@ -42,6 +46,11 @@ export function resolveSessionPath(sessionValue: string): string {
         }
         const name = `ds_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
         return join(root, name);
+    }
+    // Pure name without path separators: resolve to default sessions dir
+    if (!sessionValue.includes('/') && !sessionValue.includes('\\')) {
+        const root = join(homedir(), '.sxng', 'sessions');
+        return join(root, sessionValue);
     }
     return sessionValue;
 }

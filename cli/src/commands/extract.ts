@@ -5,7 +5,7 @@
 import { ContentExtractor, ExtractedContent } from '../deep/extractor.js';
 import { createSuccessEnvelope, createErrorEnvelope } from '../protocol.js';
 import { readFileSync } from 'fs';
-import { loadSessionResults, mergeExtractedContent } from '../deep/session.js';
+import { loadSessionResults, mergeExtractedContent, resolveSessionPath } from '../deep/session.js';
 
 export interface ExtractOptions {
     urls?: string[];
@@ -28,6 +28,11 @@ export async function runExtract(
     options: ExtractOptions
 ): Promise<number> {
     let urls: string[] = [];
+
+    // Resolve session path if provided
+    if (options.session) {
+        options.session = resolveSessionPath(options.session);
+    }
 
     if (options.urls && options.urls.length > 0) {
         urls = options.urls;

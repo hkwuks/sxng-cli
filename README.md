@@ -565,7 +565,7 @@ npm link
 | `sxng extract --urls <urls>` | Extract content from web pages |
 | `sxng --session new` | Create deep search session |
 | `sxng session-list` | List all sessions |
-| `sxng session-delete <name>` | Delete a session |
+| `sxng session-delete <session-name>` | Delete a session |
 | `sxng graph-add <session>` | Add entities to knowledge graph |
 | `sxng query-graph <session>` | Query knowledge graph |
 | `sxng --health` | Check SearXNG server health |
@@ -585,8 +585,8 @@ npm link
 | `--time <range>` | Time range: `day`, `week`, `month`, `year`, `all` |
 | `-f, --format <fmt>` | Output format: `md`, `json`, `csv`, `html` (default: md) |
 | `--queries <list>` | Multi-query with RRF fusion (e.g., `q1,q2,q3`) |
-| `--session <dir>` | Session directory or `new` for deep search |
-| `--owner <name>` | Session owner identifier |
+| `--session <session-name>` | Session directory or `new` for deep search |
+| `--owner <session-name>` | Session owner identifier |
 | `--desc <text>` | Session description |
 
 ### Examples
@@ -678,11 +678,12 @@ Deep search enables multi-round iterative research with session accumulation and
 sxng --session new --owner "researcher" --desc "Rust async study" "rust async ecosystem"
 # Session created: ~/.sxng/sessions/<session-name>
 
-# Extract content from results
-sxng extract --session ~/.sxng/sessions/<session-name>
+# Extract content from results (by name or path)
+sxng extract --session <session-name>
+# or: sxng extract --session ~/.sxng/sessions/<session-name>
 
-# Add knowledge graph entities
-sxng graph-add ~/.sxng/sessions/<session-name> --data '{
+# Add knowledge graph entities (by name or path)
+sxng graph-add <session-name> --data '{
   "entities": [
     {"label": "tokio", "entityType": "runtime", "score": 0.95},
     {"label": "async-std", "entityType": "runtime", "score": 0.85}
@@ -692,11 +693,11 @@ sxng graph-add ~/.sxng/sessions/<session-name> --data '{
   ]
 }'
 
-# Query the graph
-sxng query-graph ~/.sxng/sessions/<session-name> --seeds "tokio" --depth 2
+# Query the graph (by name or path)
+sxng query-graph <session-name> --seeds "tokio" --depth 2
 
 # Continue research (results accumulate)
-sxng --session ~/.sxng/sessions/<session-name> --queries "tokio vs async-std,benchmark 2024"
+sxng --session <session-name> --queries "tokio vs async-std,benchmark 2024"
 ```
 
 ### Session Management
@@ -704,10 +705,16 @@ sxng --session ~/.sxng/sessions/<session-name> --queries "tokio vs async-std,ben
 | Command | Description |
 |---------|-------------|
 | `sxng --session new` | Create new auto-named session |
-| `sxng --session <path>` | Use existing session |
+| `sxng --session <session-name>` | Use session by name (auto-resolves to `~/.sxng/sessions/<session-name>`) |
+| `sxng --session <path>` | Use session by full path |
 | `sxng session-list` | List all sessions with stats |
-| `sxng session-delete <name>` | Delete specific session |
+| `sxng session-delete <session-name>` | Delete specific session |
 | `sxng session-delete --older <hours>` | Delete old sessions |
+
+**Session Path Resolution:**
+- Pure name (e.g., `my-session`) → `~/.sxng/sessions/my-session`
+- Full path (e.g., `/custom/path/session`) → used as-is
+- `new` → auto-generate unique name under `~/.sxng/sessions/`
 
 ### Session Data Structure
 

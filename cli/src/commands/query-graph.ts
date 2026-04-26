@@ -4,11 +4,18 @@
 
 import { readFileSync, existsSync, statSync } from 'fs';
 import { join } from 'path';
+import { homedir } from 'os';
 import { deserializeGraph, bfsSubgraph, serializeGraph, graphStats, GraphNodeAttrs, GraphEdgeAttrs } from '../deep/graph.js';
 import { createSuccessEnvelope, createErrorEnvelope } from '../protocol.js';
 
-/** Resolve graph file path — if directory (session), use graph.json inside it */
+/** Resolve graph file path — if directory (session), use graph.json inside it.
+ *  Pure name (no separators) is resolved to ~/.sxng/sessions/<name>
+ */
 function resolveGraphFile(path: string): string {
+    // Pure name without path separators: resolve to default sessions dir
+    if (!path.includes('/') && !path.includes('\\')) {
+        path = join(homedir(), '.sxng', 'sessions', path);
+    }
     try {
         if (statSync(path).isDirectory()) {
             return join(path, 'graph.json');
