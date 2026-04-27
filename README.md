@@ -32,7 +32,7 @@
 
 - 🔎 **Multi-Engine Search** — Search across Google, Bing, DuckDuckGo, GitHub, StackOverflow, and 30+ engines simultaneously
 - 🔄 **Dynamic Discovery** — Auto-fetches available engines and categories from your SearXNG server
-- 📄 **Multiple Formats** — Markdown (LLM-optimized), JSON, CSV, or HTML output
+- 📄 **Multiple Formats** — Markdown (LLM-optimized) or JSON output
 - 🧠 **Deep Search** — Multi-round iterative research with session accumulation and knowledge graph
 - 🔍 **Content Extraction** — Extract full article content from search results
 - 🗂️ **Session Management** — Accumulate search results across multiple rounds with deduplication
