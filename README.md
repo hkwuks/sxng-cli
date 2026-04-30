@@ -754,8 +754,6 @@ The CLI supports multiple output formats:
 
 - **Markdown (default)** - Optimized for LLM context windows, saves ~50% tokens vs JSON
 - **JSON** - Structured envelope format for programmatic use
-- **CSV** - Comma-separated values for data processing
-- **HTML** - Table format for viewing in browsers
 
 <details>
 <summary>📝 点击展开输出格式示例</summary>
