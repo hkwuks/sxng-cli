@@ -1,7 +1,16 @@
 {
   "name": "sxng-cli",
-  "version": "1.0.7",
+  "version": "1.0.9",
   "description": "SearXNG CLI - Web Search Tool",
+  "homepage": "https://github.com/hkwuks/sxng-cli#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/hkwuks/sxng-cli.git",
+    "directory": "cli"
+  },
+  "bugs": {
+    "url": "https://github.com/hkwuks/sxng-cli/issues"
+  },
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",

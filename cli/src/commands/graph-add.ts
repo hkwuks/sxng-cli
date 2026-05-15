@@ -14,12 +14,12 @@ import { DirectedGraph } from 'graphology';
 import { createSuccessEnvelope, createErrorEnvelope } from '../protocol.js';
 
 /** Resolve graph file path — if directory (session), use graph.json inside it.
- *  Pure name (no separators) is resolved to ~/.sxng/sessions/<name>
+ *  Pure name (no separators) is resolved to ~/sxng-cli/sessions/<name>
  */
 function resolveGraphFile(path: string): string {
     // Pure name without path separators: resolve to default sessions dir
     if (!path.includes('/') && !path.includes('\\')) {
-        path = join(homedir(), '.sxng', 'sessions', path);
+        path = join(homedir(), 'sxng-cli', 'sessions', path);
     }
     try {
         if (statSync(path).isDirectory()) {

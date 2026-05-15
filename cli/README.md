@@ -1,131 +1,190 @@
-# SearXNG CLI
+# 🔍 SXNG CLI
 
-A command-line interface for searching with SearXNG, a privacy-respecting meta search engine. Supports deep multi-round search with knowledge graph, session accumulation, and content extraction.
+> 📖 **完整文档请访问 GitHub**: https://github.com/hkwuks/sxng-cli#readme
+> 
+> 本 README 为快速参考，详细的安装指南（包括 SearXNG 自托管配置、Docker 部署、settings.yml 配置等）请参阅 GitHub 文档。
 
-## Installation
+<p align="center">
+  <b>A powerful command-line interface for <a href="https://github.com/searxng/searxng">SearXNG</a></b><br>
+  Privacy-respecting web search from your terminal
+</p>
+
+<p align="center">
+  <a href="https://www.npmjs.com/package/sxng-cli">
+    <img src="https://img.shields.io/npm/v/sxng-cli?style=flat-square&color=cb3837" alt="npm version">
+  </a>
+  <a href="https://www.npmjs.com/package/sxng-cli">
+    <img src="https://img.shields.io/npm/dm/sxng-cli?style=flat-square&color=cb3837" alt="npm downloads">
+  </a>
+  <a href="https://github.com/hkwuks/sxng-cli/blob/main/LICENSE">
+    <img src="https://img.shields.io/github/license/hkwuks/sxng-cli?style=flat-square&color=green" alt="license">
+  </a>
+  <img src="https://img.shields.io/badge/node-%3E%3D18.0.0-brightgreen?style=flat-square" alt="node version">
+</p>
+
+## ✨ Features
+
+- 🔎 **Multi-Engine Search** — Search across Google, Bing, DuckDuckGo, GitHub, StackOverflow, and 30+ engines simultaneously
+- 🔄 **Dynamic Discovery** — Auto-fetches available engines and categories from your SearXNG server
+- 📄 **Multiple Formats** — Markdown (LLM-optimized), JSON, CSV, or HTML output
+- 🧠 **Deep Search** — Multi-round iterative research with session accumulation and knowledge graph
+- 🔍 **Content Extraction** — Extract full article content from search results
+- 🗂️ **Session Management** — Accumulate search results across multiple rounds with deduplication
+- 🕸️ **Knowledge Graph** — Build semantic graphs of entities and relationships
+- ⚡ **Fast & Lightweight** — Built with TypeScript, minimal dependencies
+- 🔧 **Flexible Config** — Environment variables, config file, or interactive setup
+- 🏥 **Health Check** — Verify server connectivity instantly
+- 🌐 **Proxy Support** — HTTP/HTTPS proxy configuration
+
+## 📦 Installation
+
+> ⚠️ **完整安装指南**: [GitHub - Installation](https://github.com/hkwuks/sxng-cli#installation)
+> 
+> 包含 SearXNG 自托管配置、Docker 部署、30+ 搜索引擎 settings.yml 配置等。
 
 ```bash
 npm install -g sxng-cli
-# or
-pnpm add -g sxng-cli
-# or
-yarn global add sxng-cli
 ```
 
-## Quick Start
+Or from source:
 
-1. Set up a SearXNG server:
 ```bash
-docker run -d --name searxng -p 8080:8080 searxng/searxng
+git clone https://github.com/hkwuks/sxng-cli.git
+cd sxng-cli/cli
+npm install
+npm run build
+npm link
 ```
 
-2. Create a configuration file:
+## 🚀 Quick Start
+
+1. **Configure the CLI:**
+   ```bash
+   sxng init
+   ```
+   Or set environment variable:
+   ```bash
+   export SEARXNG_BASE_URL=http://your-searxng-instance:8080
+   ```
+
+2. **Perform a search:**
+   ```bash
+   sxng "TypeScript tutorial"
+   ```
+
+## 📖 Usage
+
+### Commands
+
+| Command | Description |
+|---------|-------------|
+| `sxng init` | Interactive configuration setup |
+| `sxng <query>` | Perform a web search |
+| `sxng --queries "q1,q2"` | Multi-query search with RRF fusion |
+| `sxng extract --urls <urls>` | Extract content from web pages |
+| `sxng --session new` | Create deep search session |
+| `sxng session-list` | List all sessions |
+| `sxng session-delete <session-name>` | Delete a session |
+| `sxng graph-add <session>` | Add entities to knowledge graph |
+| `sxng query-graph <session>` | Query knowledge graph |
+| `sxng --health` | Check SearXNG server health |
+| `sxng --engines-list` | List available search engines from server |
+| `sxng --categories-list` | List available categories from server |
+
+### Search Options
+
+| Option | Description |
+|--------|-------------|
+| `-e, --engines <list>` | Comma-separated list of search engines (e.g., `google,github`) |
+| `-c, --categories <list>` | Comma-separated list of categories (e.g., `it,science`) |
+| `-l, --limit <n>` | Maximum number of results (default: 10) |
+| `-p, --page <n>` | Page number for pagination |
+| `--lang <code>` | Language code (e.g., `en`, `zh`, `ja`) |
+| `--time <range>` | Time range: `day`, `week`, `month`, `year`, `all` |
+| `-f, --format <fmt>` | Output format: `md`, `json`, `csv`, `html` (default: md) |
+| `--queries <list>` | Multi-query with RRF fusion (e.g., `q1,q2,q3`) |
+| `--session <session-name>` | Session directory or `new` for deep search |
+| `--owner <session-name>` | Session owner identifier |
+| `--desc <text>` | Session description |
+
+### Examples
+
 ```bash
-cp searxng.config.example.json searxng.config.json
-# Edit the file with your settings
-```
-
-3. Run a search:
-```bash
-sxng "your search query"
-```
-
-## Configuration
-
-Configuration can be provided via:
-1. Environment variables (highest priority)
-2. Config file: `./searxng.config.json` or `~/.sxng/config.json`
-3. Default values (lowest priority)
-
-See `searxng.config.example.json` for an example configuration.
-
-## Usage
-
-### Basic Search
-
-```bash
-# Simple search
-sxng "TypeScript tutorial"
-
-# Limit results
-sxng "TypeScript tutorial" --limit 5
-
-# Use specific engines
-sxng --engines google,github "react hooks"
-
-# Search in specific categories
-sxng --categories it,science "machine learning"
-
-# Recent results only
-sxng --time week "latest news"
+# Basic search (outputs Markdown by default)
+sxng "machine learning"
 
 # Output as JSON
-sxng -f json "docker tutorial"
+sxng --format json "machine learning"
 
-# Check server health
-sxng --health
+# Search with specific engines
+sxng --engines google,duckduckgo "privacy tools"
 
-# List available engines
+# Search IT and Science categories
+sxng --categories it,science "kubernetes tutorial"
+
+# Limit results and filter by time
+sxng --limit 5 --time week "latest AI news"
+
+# Multi-query search with RRF fusion
+sxng --queries "tokio tutorial,rust async basics,async-std guide"
+
+# List available engines (fetched from server)
 sxng --engines-list
-
-# List available categories
-sxng --categories-list
 ```
 
-### Multi-Query Search
+## ⚙️ Configuration
 
-Run multiple queries with RRF (Reciprocal Rank Fusion) result fusion and deduplication:
+Configuration priority (highest to lowest):
+1. Environment variables
+2. Local config file (`./sxng.config.json`)
+3. Global config file (`~/sxng-cli/sxng.config.json`)
+4. Default values
 
-```bash
-sxng --queries "tokio tutorial,rust async basics,tokio vs async-std"
+### Environment Variables
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `SEARXNG_BASE_URL` | SearXNG server URL | *(required)* |
+| `SEARXNG_DEFAULT_ENGINE` | Default search engine | *(none)* |
+| `SEARXNG_ALLOWED_ENGINES` | Comma-separated allowed engines | *(all)* |
+| `SEARXNG_DEFAULT_LIMIT` | Default result limit | `10` |
+| `SEARXNG_DEFAULT_FORMAT` | Default output format (`md`, `json`, `csv`, `html`) | `md` |
+| `SEARXNG_USE_PROXY` | Use proxy (`true`/`false`) | `false` |
+| `SEARXNG_PROXY_URL` | Proxy URL | *(none)* |
+| `SEARXNG_TIMEOUT` | Request timeout in ms | `10000` |
+
+### Config File
+
+Create `sxng.config.json`:
+
+```json
+{
+  "baseUrl": "http://localhost:8080",
+  "defaultEngine": "",
+  "allowedEngines": [],
+  "defaultLimit": 10,
+  "defaultFormat": "md",
+  "useProxy": false,
+  "proxyUrl": "",
+  "timeout": 10000
+}
 ```
 
-### Content Extraction
-
-Extract full article content from web pages:
-
-```bash
-# Extract from specific URLs
-sxng extract --urls "https://example.com/article1,https://example.com/article2"
-
-# Extract from search results JSON file
-sxng extract --from-json search-results.json
-```
-
-## Deep Search
+## 🧠 Deep Search
 
 Deep search enables multi-round iterative research with session accumulation and knowledge graph building.
 
-### Session Management
+### Quick Example
 
 ```bash
-# Create a new session with auto-generated name
-sxng --session new --owner "research-agent" --desc "Rust async research" "rust async ecosystem"
-
-# List all sessions
-sxng session-list
-
-# Delete a specific session
-sxng session-delete <session-name>
-
-# Delete sessions older than N hours
-sxng session-delete --older 24
-```
-
-### Deep Search Workflow
-
-The deep search flow follows an iterative loop: search → extract → analyze → build graph → decide.
-
-```bash
-# Round 1: Create session and search
-sxng --session new --owner "agent-1" --desc "async ecosystem research" "rust async ecosystem"
-# Note the returned session path, e.g., ~/.sxng/sessions/<session-name>
+# Create a session and search
+sxng --session new --owner "researcher" --desc "Rust async study" "rust async ecosystem"
 
 # Extract content from results
-sxng extract --session ~/.sxng/sessions/<session-name>
+sxng extract --session <session-name>
 
-# Add entities and relationships to knowledge graph
-sxng graph-add ~/.sxng/sessions/<session-name> --data '{
+# Add knowledge graph entities
+sxng graph-add <session-name> --data '{
   "entities": [
     {"label": "tokio", "entityType": "runtime", "score": 0.95},
     {"label": "async-std", "entityType": "runtime", "score": 0.85}
@@ -135,67 +194,44 @@ sxng graph-add ~/.sxng/sessions/<session-name> --data '{
   ]
 }'
 
-# Query the knowledge graph
-sxng query-graph ~/.sxng/sessions/<session-name> --seeds "tokio" --depth 2
+# Query the graph
+sxng query-graph <session-name> --seeds "tokio" --depth 2
 
-# Round 2: Search with multiple queries (results accumulate in session)
-sxng --session ~/.sxng/sessions/<session-name> --queries "tokio vs async-std comparison,rust async benchmark 2024"
-
-# Extract again and continue the loop...
+# Continue research (results accumulate)
+sxng --session <session-name> --queries "tokio vs async-std,benchmark 2024"
 ```
 
-### Session Data Structure
+### Session Management
 
-Each session stores three files in `~/.sxng/sessions/<session-name>/`:
+| Command | Description |
+|---------|-------------|
+| `sxng --session new` | Create new auto-named session |
+| `sxng --session <session-name>` | Use session by name |
+| `sxng session-list` | List all sessions with stats |
+| `sxng session-delete <session-name>` | Delete specific session |
+| `sxng session-delete --older <hours>` | Delete old sessions |
 
-- **`results.json`** — Accumulated search result pool (URL dedup, multi-round accumulation)
-- **`graph.json`** — Knowledge graph (structural + semantic layers)
-- **`meta.json`** — Session metadata (owner, description, timestamps)
+**Session Path Resolution:**
+- Pure name (e.g., `my-session`) → `~/sxng-cli/sessions/my-session`
+- Full path (e.g., `/custom/path/session`) → used as-is
+- `new` → auto-generate unique name under `~/sxng-cli/sessions/`
 
 ### Knowledge Graph
 
-The graph has two layers:
+**Structural Layer** (auto-built):
+- `q:` — Query nodes
+- `r:` — Result nodes
+- `d:` — Domain nodes
 
-**Structural Layer** (auto-built by CLI every search):
+**Semantic Layer** (via `graph-add`):
+- `e:` — Entity nodes with type and score
 
-| Node type | Prefix | Attributes |
-|-----------|--------|------------|
-| query | `q:` | label, query, round |
-| result | `r:` | label, url, title, rank |
-| domain | `d:` | label, domain |
+## 🔗 Links
 
-**Semantic Layer** (added via `graph-add`):
+- **GitHub:** https://github.com/hkwuks/sxng-cli
+- **npm:** https://www.npmjs.com/package/sxng-cli
+- **SearXNG:** https://github.com/searxng/searxng
 
-| Node type | Prefix | Attributes |
-|-----------|--------|------------|
-| entity | `e:` | label, entityType, score |
-
-## Options Reference
-
-| Option | Short | Description | Example |
-|--------|-------|-------------|---------|
-| `--limit` | `-l` | Max results | `-l 20` |
-| `--engines` | `-e` | Specific search engines | `-e google,github` |
-| `--categories` | `-c` | Filter by category | `-c it,science` |
-| `--page` | `-p` | Pagination | `-p 2` |
-| `--lang` | | Result language | `--lang zh` |
-| `--time` | | Time filter | `--time week` |
-| `--format` | `-f` | Output format | `-f json` |
-| `--queries` | | Multi-query with RRF fusion | `--queries "q1,q2,q3"` |
-| `--session` | | Session directory or "new" | `--session new` |
-| `--owner` | | Session owner identifier | `--owner "agent-1"` |
-| `--desc` | | Session description | `--desc "research topic"` |
-
-## Environment Variables
-
-| Variable | Description | Default |
-|----------|-------------|---------|
-| `SEARXNG_BASE_URL` | SearXNG server URL | `http://localhost:8080` |
-| `SEARXNG_DEFAULT_LIMIT` | Default result limit | `10` |
-| `SEARXNG_TIMEOUT` | Request timeout in ms | `10000` |
-| `SEARXNG_USE_PROXY` | Use proxy (`true`/`false`) | `false` |
-| `SEARXNG_PROXY_URL` | Proxy URL | (none) |
-
-## License
+## 📄 License
 
 MIT

@@ -17,7 +17,7 @@ export interface SessionMeta {
 
 /** Default session root directory */
 export function getDefaultSessionRoot(): string {
-    return join(homedir(), '.sxng', 'sessions');
+    return join(homedir(), 'sxng-cli', 'sessions');
 }
 
 /** Load session meta.json */

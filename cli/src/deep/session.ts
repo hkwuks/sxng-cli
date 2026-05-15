@@ -35,12 +35,12 @@ export interface SessionResultsFile {
 
 /** Resolve session path. Supports:
  *  - "new": auto-create under default root with unique name
- *  - pure name (no separators): resolve to ~/.sxng/sessions/<name>
+ *  - pure name (no separators): resolve to ~/sxng-cli/sessions/<name>
  *  - full path: return as-is
  */
 export function resolveSessionPath(sessionValue: string): string {
     if (sessionValue === 'new') {
-        const root = join(homedir(), '.sxng', 'sessions');
+        const root = join(homedir(), 'sxng-cli', 'sessions');
         if (!existsSync(root)) {
             mkdirSync(root, { recursive: true });
         }
@@ -49,7 +49,7 @@ export function resolveSessionPath(sessionValue: string): string {
     }
     // Pure name without path separators: resolve to default sessions dir
     if (!sessionValue.includes('/') && !sessionValue.includes('\\')) {
-        const root = join(homedir(), '.sxng', 'sessions');
+        const root = join(homedir(), 'sxng-cli', 'sessions');
         return join(root, sessionValue);
     }
     return sessionValue;

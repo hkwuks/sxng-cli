@@ -41,7 +41,7 @@ Extract full article content from web pages. You can use the built-in `sxng extr
 sxng extract --urls "https://example.com/article1,https://example.com/article2"
 
 # Extract from search results JSON file
-sxng extract --from-json <session-name>earch.json
+sxng extract --from-json <session-name> search.json
 
 # Or just use any other fetch tool you have available
 ```
@@ -65,9 +65,16 @@ Deep search enables multi-round iterative research: search → extract → analy
 - **`graph.json`** — Knowledge graph (structural + semantic layers)
 - **`meta.json`** — Session metadata (owner, description, timestamps)
 
+> **For detailed workflows and decision frameworks, read `references/SOP.md`** — it contains:
+> - L1/L2/L3 complexity levels and when to use each
+> - Complete SOP for deep research (intent analysis → query planning → evidence standards)
+> - Tool selection matrix (scenario → command mapping)
+> - Source quality guidelines (whitelist/graylist/blacklist)
+> - Self-checklist before delivering answers
+
 ### Session Management
 
-Sessions are stored under `~/.sxng/sessions/` by default. Each agent should create its own session to avoid mixing results.
+Sessions are stored under `~/sxng-cli/sessions/` by default. Each agent should create its own session to avoid mixing results.
 
 ```bash
 # Create a new auto-named session (avoids collisions between agents)
@@ -196,13 +203,13 @@ Research "Rust async ecosystem differences and recommendations":
 ```bash
 # Round 1: Create session and search
 sxng --session new --owner "agent-1" --desc "async ecosystem" "rust async ecosystem"
-# Output includes session path, e.g. ~/.sxng/sessions/<session-name>
+# Output includes session path, e.g. ~/sxng-cli/sessions/<session-name>
 
 # Extract content from results (or use MCP fetch / any tool you prefer)
-sxng extract --session ~/.sxng/sessions/<session-name>
+sxng extract --session ~/sxng-cli/sessions/<session-name>
 
 # After reading results, identify key entities and add them
-sxng graph-add ~/.sxng/sessions/<session-name> --data '{
+sxng graph-add ~/sxng-cli/sessions/<session-name> --data '{
   "entities": [
     {"label": "tokio", "entityType": "technology"},
     {"label": "async-std", "entityType": "technology"},
@@ -215,19 +222,19 @@ sxng graph-add ~/.sxng/sessions/<session-name> --data '{
 }'
 
 # Check what we know so far
-sxng query-graph ~/.sxng/sessions/<session-name> --seeds "tokio" --depth 2
+sxng query-graph ~/sxng-cli/sessions/<session-name> --seeds "tokio" --depth 2
 
 # Gap found: need comparison details → Round 2 with focused queries
-sxng --session ~/.sxng/sessions/<session-name> --queries "tokio vs async-std comparison,rust async runtime benchmark 2024"
+sxng --session ~/sxng-cli/sessions/<session-name> --queries "tokio vs async-std comparison,rust async runtime benchmark 2024"
 
 # Extract again
-sxng extract --session ~/.sxng/sessions/<session-name>
+sxng extract --session ~/sxng-cli/sessions/<session-name>
 
 # Add new findings to graph
-sxng graph-add ~/.sxng/sessions/<session-name> --data '{"entities":[...],"edges":[...]}'
+sxng graph-add ~/sxng-cli/sessions/<session-name> --data '{"entities":[...],"edges":[...]}'
 
 # Check coverage — enough info? If yes, synthesize answer. If not, another round.
-sxng query-graph ~/.sxng/sessions/<session-name> --seeds "tokio" --depth 3
+sxng query-graph ~/sxng-cli/sessions/<session-name> --seeds "tokio" --depth 3
 
 # When done, clean up old sessions
 sxng session-delete --older 24
