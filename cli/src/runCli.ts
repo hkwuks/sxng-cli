@@ -1,7 +1,8 @@
 /**
- * SearXNG CLI - CLI Runner
+ * SearXNG CLI - CLI Runner (Commander-based)
  */
 
+import { Command } from 'commander';
 import { SearXNGService, SearchOptions, SearchResult, SearchResponse } from './service.js';
 import { createSuccessEnvelope, createErrorEnvelope } from './protocol.js';
 import { config } from './config.js';
@@ -9,251 +10,33 @@ import { initConfig } from './init.js';
 import { runExtract, ExtractOptions } from './commands/extract.js';
 import { runQueryGraph, QueryGraphOptions } from './commands/query-graph.js';
 import { runGraphAdd, GraphAddOptions } from './commands/graph-add.js';
+import { runGraphObfuscateCommand, GraphObfuscateOptions } from './commands/graph-obfuscate.js';
 import { ContentExtractor } from './deep/extractor.js';
 import { rrf } from './deep/rrf.js';
 import { normalizeUrl } from './deep/dedupe.js';
 import { deserializeGraph, serializeGraph, graphStats, resultId, GraphNodeAttrs, GraphEdgeAttrs } from './deep/graph.js';
-import { initSessionDir, resolveSessionPath, appendSessionResults, updateSessionGraph, loadSessionResults } from './deep/session.js';
+import { initSessionDir, resolveSessionPath, appendSessionResults, updateSessionGraph, loadSessionResults, loadSessionGraph } from './deep/session.js';
 import { runSessionList, runSessionDelete, getDefaultSessionRoot } from './commands/session.js';
+import { graphPreprocess } from './deep/graph-preprocess.js';
+import { checkQueryRedundancy, RedundancyConfig } from './deep/query-redundancy.js';
+import { assessResultQuality, QualityThresholds } from './deep/quality-assess.js';
+import { generateQuerySuggestions } from './deep/query-suggest.js';
+import { determineSearchStage, getStrategyInfo } from './deep/search-strategy.js';
+import { analyzeRecoveryOptions, RecoveryAnalysis, RoundQuality } from './deep/recovery-analysis.js';
+import { getSessionAnalysis } from './deep/iteration-data.js';
+import { runGraphExplore } from './commands/graph-explore.js';
+import { runGraphDrill } from './commands/graph-drill.js';
+import { runGraphTraverse } from './commands/graph-traverse.js';
+import { runGraphSearch } from './commands/graph-search.js';
 import { DirectedGraph } from 'graphology';
 import { readFileSync, writeFileSync, existsSync } from 'fs';
-
-const HELP_TEXT = `SearXNG CLI - Web Search Tool
-
-Usage:
-  sxng <query> [options]             Single search
-  sxng --queries "q1,q2,q3"          Multi-query search (RRF fusion)
-  sxng --session new <query>         Create new session and search (auto-named)
-  sxng --session <dir> <query>       Multi-round session with result accumulation
-  sxng extract --urls/--from-json    Extract article content
-  sxng extract --session <dir>       Extract content from session and merge back
-  sxng query-graph <path> --seeds    Query subgraph via BFS
-  sxng graph-add <path> --data       Add entities/edges to knowledge graph
-  sxng session-list                  List all sessions
-  sxng session-delete <names>        Delete sessions by name
-  sxng session-delete --older <h>    Delete sessions older than N hours
-  sxng init                          Interactive configuration setup
-  sxng --health                      Check SearXNG server health
-
-Search Options:
-  -e, --engines <engines>      Comma-separated list of search engines
-  -c, --categories <cats>      Comma-separated list of categories
-  -l, --limit <n>              Maximum number of results (default: ${config.defaultLimit})
-  -p, --page <n>               Page number for pagination
-  --lang <code>                Language code (e.g., en, zh, ja)
-  --time <range>               Time range: day, week, month, year, all
-  -f, --format <fmt>           Output format: md (default), json
-  --queries <q1,q2,q3>        Multi-query with RRF fusion
-  --merge <file>               Merge new results with previous search JSON
-  --session <dir|new>          Session dir, or "new" to auto-create
-  --owner <name>               Session owner (stored in meta.json)
-  --desc <text>                Session description (stored in meta.json)
-  --graph <file>               Save search result metadata to knowledge graph file
-
-Extract Options:
-  --urls <url1,url2>           URLs to extract content from
-  --from-json <file>           Extract from search results JSON file
-  --session <dir>              Extract from session results and merge content back
-
-Graph Options:
-  --seeds <s1,s2>              Seed nodes for query-graph BFS
-  --depth <n>                  BFS depth for query-graph (default: 2)
-  --data <json>                JSON with entities/edges for graph-add
-
-Examples:
-  sxng "TypeScript tutorial"
-  sxng --session new "rust async" --owner "agent-1" --desc "async ecosystem research"
-  sxng --session /tmp/s "rust async"
-  sxng extract --session /tmp/s
-  sxng session-list
-  sxng session-delete ds_1745000000_abcd123
-  sxng session-delete --older 24
-
-Environment Variables:
-  SEARXNG_BASE_URL             SearXNG server URL
-  SEARXNG_DEFAULT_ENGINE       Default search engine
-  SEARXNG_ALLOWED_ENGINES      Comma-separated allowed engines
-  SEARXNG_DEFAULT_LIMIT        Default result limit
-  SEARXNG_USE_PROXY            Use proxy (true/false)
-  SEARXNG_PROXY_URL            Proxy URL
-  SEARXNG_TIMEOUT              Request timeout in ms
-`;
-
-interface CliOptions {
-    query?: string;
-    extract: boolean;
-    queryGraph: boolean;
-    graphAdd: boolean;
-    sessionList: boolean;
-    sessionDelete: boolean;
-    engines?: string[];
-    categories?: string[];
-    limit?: number;
-    page?: number;
-    language?: string;
-    timeRange?: 'day' | 'week' | 'month' | 'year' | 'all';
-    format?: 'json' | 'md';
-    init: boolean;
-    enginesList: boolean;
-    categoriesList: boolean;
-    health: boolean;
-    help: boolean;
-    queries?: string[];
-    urls?: string[];
-    fromJson?: string;
-    merge?: string;
-    graph?: string;
-    session?: string;
-    seeds?: string[];
-    depth?: number;
-    data?: string;
-    owner?: string;
-    desc?: string;
-    older?: number;
-}
-
-function parseArgs(args: string[]): CliOptions {
-    const options: CliOptions = {
-        init: false,
-        extract: false,
-        queryGraph: false,
-        graphAdd: false,
-        sessionList: false,
-        sessionDelete: false,
-        enginesList: false,
-        categoriesList: false,
-        health: false,
-        help: false
-    };
-
-    const positional: string[] = [];
-
-    for (let i = 0; i < args.length; i++) {
-        const arg = args[i];
-
-        switch (arg) {
-            case '-h':
-            case '--help':
-                options.help = true;
-                break;
-            case 'init':
-                options.init = true;
-                break;
-            case 'extract':
-                options.extract = true;
-                break;
-            case 'query-graph':
-                options.queryGraph = true;
-                break;
-            case 'graph-add':
-                options.graphAdd = true;
-                break;
-            case 'session-list':
-                options.sessionList = true;
-                break;
-            case 'session-delete':
-                options.sessionDelete = true;
-                break;
-            case '-e':
-            case '--engines':
-                options.engines = args[++i]?.split(',').map(e => e.trim()).filter(Boolean);
-                break;
-            case '-c':
-            case '--categories':
-                options.categories = args[++i]?.split(',').map(c => c.trim()).filter(Boolean);
-                break;
-            case '-l':
-            case '--limit':
-                options.limit = parseInt(args[++i], 10);
-                break;
-            case '-p':
-            case '--page':
-                options.page = parseInt(args[++i], 10);
-                break;
-            case '--lang':
-                options.language = args[++i];
-                break;
-            case '--time':
-                const timeVal = args[++i];
-                if (['day', 'week', 'month', 'year', 'all'].includes(timeVal)) {
-                    options.timeRange = timeVal as any;
-                }
-                break;
-            case '-f':
-            case '--format':
-                const fmt = args[++i];
-                if (fmt === 'json' || fmt === 'md' || fmt === 'markdown') {
-                    options.format = fmt === 'markdown' ? 'md' : fmt;
-                }
-                break;
-            case '--queries':
-                options.queries = args[++i]?.split(',').map(q => q.trim()).filter(Boolean);
-                break;
-            case '--urls':
-                options.urls = args[++i]?.split(',').map(u => u.trim()).filter(Boolean);
-                break;
-            case '--from-json':
-                options.fromJson = args[++i];
-                break;
-            case '--merge':
-                options.merge = args[++i];
-                break;
-            case '--graph':
-                options.graph = args[++i];
-                break;
-            case '--session':
-                options.session = args[++i];
-                break;
-            case '--seeds':
-                options.seeds = args[++i]?.split(',').map(s => s.trim()).filter(Boolean);
-                break;
-            case '--depth':
-                options.depth = parseInt(args[++i], 10);
-                break;
-            case '--data':
-                options.data = args[++i];
-                break;
-            case '--owner':
-                options.owner = args[++i];
-                break;
-            case '--desc':
-                options.desc = args[++i];
-                break;
-            case '--older':
-                options.older = parseFloat(args[++i]);
-                break;
-            case '--engines-list':
-                options.enginesList = true;
-                break;
-            case '--categories-list':
-                options.categoriesList = true;
-                break;
-            case '--health':
-                options.health = true;
-                break;
-            default:
-                if (!arg.startsWith('-')) {
-                    positional.push(arg);
-                }
-                break;
-        }
-    }
-
-    if (positional.length > 0) {
-        options.query = positional.join(' ');
-    }
-
-    return options;
-}
 
 function formatAsMarkdown(data: any): string {
     const lines: string[] = [];
 
-    // Query info
     lines.push(`## Search: ${data.query || 'Unknown'}`);
     lines.push('');
 
-    // Results
     const results = data.results || [];
     if (results.length > 0) {
         lines.push(`**${results.length}** results`);
@@ -286,7 +69,6 @@ function formatAsMarkdown(data: any): string {
         lines.push('');
     }
 
-    // Unresponsive engines
     if (data.unresponsiveEngines && data.unresponsiveEngines.length > 0) {
         const unresponsive = data.unresponsiveEngines.map((item: any) =>
             Array.isArray(item) ? item[0] : item
@@ -295,7 +77,6 @@ function formatAsMarkdown(data: any): string {
         lines.push('');
     }
 
-    // Suggestions
     if (data.suggestions && data.suggestions.length > 0) {
         lines.push('**Suggestions:** ' + data.suggestions.join(' · '));
         lines.push('');
@@ -309,8 +90,266 @@ function formatOutput(data: any, format: 'json' | 'md'): string {
     return JSON.stringify(data, null, 2);
 }
 
+function formatPreprocessAsMarkdown(data: any): string {
+    const lines: string[] = [];
+    lines.push('## Graph Preprocess Results');
+    lines.push('');
+    lines.push(`**Strategy:** ${data.tokenizationStrategy}`);
+    lines.push(`**Coverage:** ${data.resultsWithContent}/${data.totalResults} results with content`);
+    lines.push(`**Rounds:** ${data.roundsCovered}`);
+    if (data.coOccurrenceTruncated) lines.push('*Co-occurrence matrix was truncated*');
+    lines.push('');
+
+    if (data.tfidfTerms?.length) {
+        lines.push('### Top TF-IDF Terms');
+        lines.push('');
+        lines.push('| Term | TF-IDF | Doc Freq |');
+        lines.push('|------|--------|----------|');
+        for (const t of data.tfidfTerms.slice(0, 20)) {
+            lines.push(`| ${t.term} | ${t.tfidf.toFixed(2)} | ${t.docFreq} |`);
+        }
+        lines.push('');
+    }
+
+    if (data.coOccurrences?.length) {
+        lines.push('### Co-occurrences');
+        lines.push('');
+        lines.push('| Term 1 | Term 2 | Count |');
+        lines.push('|--------|--------|-------|');
+        for (const p of data.coOccurrences.slice(0, 20)) {
+            lines.push(`| ${p.term1} | ${p.term2} | ${p.count} |`);
+        }
+        lines.push('');
+    }
+
+    if (data.existingEntities?.length) {
+        lines.push('### Existing Entities');
+        lines.push('');
+        for (const e of data.existingEntities) {
+            lines.push(`- ${e.label} (degree: ${e.degree}${e.entityType ? `, type: ${e.entityType}` : ''})`);
+        }
+        lines.push('');
+    }
+
+    return lines.join('\n');
+}
+
+function formatQualityAsMarkdown(data: any): string {
+    const lines: string[] = [];
+    lines.push('## Result Quality Assessment');
+    lines.push('');
+    const verdictEmoji: Record<string, string> = { good: '✓', acceptable: '△', poor: '✗' };
+    lines.push(`**Verdict:** ${data.verdict.toUpperCase()} ${verdictEmoji[data.verdict] || ''}`);
+    lines.push('');
+
+    const breakdown = data.breakdown;
+    if (breakdown) {
+        lines.push('| Indicator | Value | Threshold | Pass |');
+        lines.push('|-----------|-------|-----------|------|');
+        const indicators = ['resultCount', 'contentDepth', 'entityRichness', 'sourceDiversity', 'novelty'];
+        const labels: Record<string, string> = {
+            resultCount: 'Result Count',
+            contentDepth: 'Content Depth',
+            entityRichness: 'Entity Richness',
+            sourceDiversity: 'Source Diversity',
+            novelty: 'Novelty',
+        };
+        for (const key of indicators) {
+            const ind = breakdown[key];
+            if (ind) {
+                const valueStr = key === 'novelty' ? ind.value.toFixed(2) : String(Math.round(ind.value * 100) / 100);
+                const thStr = key === 'novelty' ? ind.threshold.toFixed(2) : String(ind.threshold);
+                lines.push(`| ${labels[key] || key} | ${valueStr} | ${thStr} | ${ind.pass ? '✓' : '✗'} |`);
+            }
+        }
+        lines.push('');
+    }
+
+    if (data.failedIndicators?.length > 0) {
+        lines.push(`**Failed:** ${data.failedIndicators.join(', ')}`);
+        lines.push('');
+    }
+
+    return lines.join('\n');
+}
+
+function formatSuggestAsMarkdown(data: any): string {
+    const lines: string[] = [];
+    lines.push('## Query Suggestion Data');
+    lines.push('');
+    lines.push(`**Current Stage:** ${data.currentStage}`);
+    lines.push('');
+
+    if (data.topEntities?.length) {
+        lines.push('### Top Entities');
+        lines.push('');
+        lines.push('| Entity | Obfuscated Label | Degree | Frequency | Type |');
+        lines.push('|--------|------------------|--------|-----------|------|');
+        for (const e of data.topEntities.slice(0, 15)) {
+            lines.push(`| ${e.label} | ${e.obfuscatedLabel || '-'} | ${e.degree} | ${e.frequency} | ${e.entityType || '-'} |`);
+        }
+        lines.push('');
+    }
+
+    if (data.unexploredDomains?.length) {
+        lines.push('### Unexplored Domains');
+        lines.push('');
+        for (const d of data.unexploredDomains) {
+            lines.push(`- ${d}`);
+        }
+        lines.push('');
+    }
+
+    if (data.roundHistory?.length) {
+        lines.push('### Round History');
+        lines.push('');
+        lines.push('| Round | Query | Results |');
+        lines.push('|-------|-------|---------|');
+        for (const r of data.roundHistory) {
+            lines.push(`| ${r.round} | ${r.query} | ${r.resultCount} |`);
+        }
+        lines.push('');
+    }
+
+    if (data.qualityLastRound) {
+        lines.push(`**Last Round Quality:** ${data.qualityLastRound.verdict}`);
+        if (data.qualityLastRound.failedIndicators?.length) {
+            lines.push(` (failed: ${data.qualityLastRound.failedIndicators.join(', ')})`);
+        }
+        lines.push('');
+    }
+
+    return lines.join('\n');
+}
+
+function formatStrategyAsMarkdown(data: any): string {
+    const lines: string[] = [];
+    lines.push('## Search Strategy Info');
+    lines.push('');
+    lines.push(`**Current Stage:** ${data.currentStage}`);
+    lines.push(`**Round:** ${data.roundNumber}`);
+    lines.push(`**Growth Rate:** ${data.growthRate.toFixed(2)}`);
+    lines.push('');
+    lines.push(`**Recommended Engines:** ${data.recommendedEngines?.join(', ') || '-'}`);
+    lines.push(`**Recommended Categories:** ${data.recommendedCategories?.join(', ') || '-'}`);
+    if (data.transitionReason) {
+        lines.push('');
+        lines.push(`**Transition Reason:** ${data.transitionReason}`);
+    }
+    lines.push('');
+    return lines.join('\n');
+}
+
+function formatRecoveryAsMarkdown(data: RecoveryAnalysis): string {
+    const lines: string[] = [];
+    lines.push('## Recovery Analysis');
+    lines.push('');
+    const verdictEmoji: Record<string, string> = { good: '✓', acceptable: '△', poor: '✗' };
+    lines.push(`**Quality:** ${data.qualityScore.verdict.toUpperCase()} ${verdictEmoji[data.qualityScore.verdict] || ''}`);
+    lines.push(`**Consecutive Failures:** ${data.recentFailures}`);
+    lines.push('');
+
+    if (data.lastSuccessfulRound) {
+        lines.push(`**Last Successful Round:** Round ${data.lastSuccessfulRound.round} — "${data.lastSuccessfulRound.query}"`);
+        lines.push('');
+    }
+
+    if (data.availableStrategies.length > 0) {
+        lines.push('### Available Strategies');
+        lines.push('');
+        for (const s of data.availableStrategies) {
+            lines.push(`**${s.strategy}**`);
+            lines.push(`- Reason: ${s.reason}`);
+            lines.push(`- Suggestion: ${s.suggestion}`);
+            if (s.backtrackTo) {
+                lines.push(`- Backtrack to: Round ${s.backtrackTo.round} — "${s.backtrackTo.query}"`);
+            }
+            lines.push('');
+        }
+    }
+
+    if (data.roundQualityHistory.length > 0) {
+        lines.push('### Quality History');
+        lines.push('');
+        lines.push('| Round | Query | Verdict | Failed |');
+        lines.push('|-------|-------|---------|--------|');
+        for (const r of data.roundQualityHistory) {
+            lines.push(`| ${r.round} | ${r.query} | ${r.verdict} | ${r.failedIndicators.join(', ') || '-'} |`);
+        }
+        lines.push('');
+    }
+
+    return lines.join('\n');
+}
+
+function formatSessionReportAsMarkdown(data: any): string {
+    const lines: string[] = [];
+    lines.push('## Session Report');
+    lines.push('');
+
+    // Quality summary
+    const q = data.quality;
+    const verdictEmoji: Record<string, string> = { good: '✓', acceptable: '△', poor: '✗' };
+    lines.push(`### Quality: ${q.verdict.toUpperCase()} ${verdictEmoji[q.verdict] || ''}`);
+    lines.push('');
+    if (q.breakdown) {
+        const indicators = ['resultCount', 'contentDepth', 'entityRichness', 'sourceDiversity', 'novelty'];
+        const labels: Record<string, string> = {
+            resultCount: 'Result Count', contentDepth: 'Content Depth',
+            entityRichness: 'Entity Richness', sourceDiversity: 'Source Diversity', novelty: 'Novelty',
+        };
+        for (const key of indicators) {
+            const ind = q.breakdown[key];
+            if (ind) {
+                const valueStr = key === 'novelty' ? ind.value.toFixed(2) : String(Math.round(ind.value * 100) / 100);
+                lines.push(`- ${labels[key]}: ${valueStr} (threshold: ${ind.threshold}) ${ind.pass ? '✓' : '✗'}`);
+            }
+        }
+        lines.push('');
+    }
+
+    // Strategy
+    const s = data.strategy;
+    lines.push(`### Strategy: ${s.currentStage}`);
+    lines.push(`- Round: ${s.roundNumber}`);
+    lines.push(`- Growth Rate: ${s.growthRate.toFixed(2)}`);
+    lines.push(`- Engines: ${s.recommendedEngines.join(', ')}`);
+    lines.push(`- Categories: ${s.recommendedCategories.join(', ')}`);
+    if (s.transitionReason) lines.push(`- Transition: ${s.transitionReason}`);
+    lines.push('');
+
+    // Top entities
+    if (data.suggestions.topEntities?.length) {
+        lines.push('### Top Entities');
+        lines.push('');
+        for (const e of data.suggestions.topEntities.slice(0, 5)) {
+            lines.push(`- ${e.label} (degree: ${e.degree}, freq: ${e.frequency})`);
+        }
+        lines.push('');
+    }
+
+    // Recovery hint
+    if (q.verdict !== 'good') {
+        lines.push(`> Recovery: ${data.recovery.availableStrategies.length} strategies available. Use \`sxng recovery-analysis <session>\` for details.`);
+        lines.push('');
+    }
+
+    return lines.join('\n');
+}
+
+/** Load query strings from session graph history. */
+function loadSessionQueryHistory(sessionDir: string): string[] {
+    const graph = loadSessionGraph(sessionDir);
+    const queries: string[] = [];
+    graph.forEachNode((node: string, attrs: GraphNodeAttrs) => {
+        if (attrs.type === 'query' && attrs.query) {
+            queries.push(attrs.query);
+        }
+    });
+    return queries;
+}
+
 function addToGraph(graphFile: string, results: SearchResult[]): void {
-    // Load existing graph or create new one
     let graph: DirectedGraph<GraphNodeAttrs, GraphEdgeAttrs>;
     if (existsSync(graphFile)) {
         try {
@@ -331,8 +370,6 @@ function addToGraph(graphFile: string, results: SearchResult[]): void {
         graph = new DirectedGraph<GraphNodeAttrs, GraphEdgeAttrs>();
     }
 
-    // Save result metadata nodes (title, url, rank) into the graph
-    // Entity nodes and relationships are added by Agent via graph-add
     for (let i = 0; i < results.length; i++) {
         const r = results[i];
         const id = resultId(r.url);
@@ -352,128 +389,29 @@ function addToGraph(graphFile: string, results: SearchResult[]): void {
     writeFileSync(graphFile, JSON.stringify({ status: 'ok', data: { graph: serialized, stats } }, null, 2), 'utf-8');
 }
 
-export async function runCli(args: string[], service: SearXNGService): Promise<number | null> {
-    const options = parseArgs(args);
-
-    if (options.help) {
-        console.log(HELP_TEXT);
-        return 0;
+async function runSearch(
+    service: SearXNGService,
+    options: {
+        query?: string;
+        queries?: string[];
+        engines?: string[];
+        categories?: string[];
+        limit?: number;
+        page?: number;
+        language?: string;
+        timeRange?: string;
+        format?: string;
+        session?: string;
+        owner?: string;
+        desc?: string;
+        graph?: string;
+        merge?: string;
+        redundancy?: 'warn' | 'adjust' | 'skip';
     }
+): Promise<number> {
+    const queries = options.queries || (options.query ? [options.query] : []);
 
-    if (options.init) {
-        return await initConfig();
-    }
-
-    if (options.extract) {
-        const extractor = new ContentExtractor();
-        const extractOptions: ExtractOptions = {
-            urls: options.urls,
-            fromJson: options.fromJson,
-            session: options.session,
-        };
-        return await runExtract(extractor, extractOptions);
-    }
-
-    if (options.health) {
-        const health = await service.healthCheck();
-        const envelope = health.status === 'healthy'
-            ? createSuccessEnvelope(health)
-            : createErrorEnvelope(
-                'HEALTH_CHECK_FAILED',
-                health.error || 'SearXNG server is not responding',
-                { hint: `Check if SearXNG is running at ${config.baseUrl}` }
-            );
-        console.log(JSON.stringify(envelope, null, 2));
-        return health.status === 'healthy' ? 0 : 1;
-    }
-
-    if (options.enginesList) {
-        try {
-            const engines = await service.getEngines();
-            if (engines.length === 0) {
-                const envelope = createErrorEnvelope(
-                    'ENGINES_FETCH_EMPTY',
-                    'No engines returned from SearXNG server',
-                    { hint: 'Check if SearXNG server is properly configured' }
-                );
-                console.log(JSON.stringify(envelope, null, 2));
-                return 1;
-            }
-            const envelope = createSuccessEnvelope({
-                engines,
-                source: 'server'
-            });
-            console.log(JSON.stringify(envelope, null, 2));
-            return 0;
-        } catch (error) {
-            const envelope = createErrorEnvelope(
-                'ENGINES_FETCH_FAILED',
-                error instanceof Error ? error.message : 'Failed to fetch engines',
-                { hint: 'Check your network connection and SearXNG server status' }
-            );
-            console.log(JSON.stringify(envelope, null, 2));
-            return 1;
-        }
-    }
-
-    if (options.categoriesList) {
-        try {
-            const categories = await service.getCategories();
-            if (categories.length === 0) {
-                const envelope = createErrorEnvelope(
-                    'CATEGORIES_FETCH_EMPTY',
-                    'No categories returned from SearXNG server',
-                    { hint: 'Check if SearXNG server is properly configured' }
-                );
-                console.log(JSON.stringify(envelope, null, 2));
-                return 1;
-            }
-            const envelope = createSuccessEnvelope({
-                categories,
-                source: 'server'
-            });
-            console.log(JSON.stringify(envelope, null, 2));
-            return 0;
-        } catch (error) {
-            const envelope = createErrorEnvelope(
-                'CATEGORIES_FETCH_FAILED',
-                error instanceof Error ? error.message : 'Failed to fetch categories',
-                { hint: 'Check your network connection and SearXNG server status' }
-            );
-            console.log(JSON.stringify(envelope, null, 2));
-            return 1;
-        }
-    }
-
-    if (options.queryGraph) {
-        const { runQueryGraph } = await import('./commands/query-graph.js');
-        const graphFormat = options.format === 'json' ? 'json' : 'md';
-        return await runQueryGraph({
-            graphFile: options.query || options.fromJson || '',
-            seeds: options.seeds || [],
-            depth: options.depth ?? 2,
-            format: graphFormat,
-        });
-    }
-
-    if (options.graphAdd) {
-        const { runGraphAdd } = await import('./commands/graph-add.js');
-        return await runGraphAdd({
-            graphFile: options.query || options.fromJson || '',
-            data: options.data || '',
-        });
-    }
-
-    if (options.sessionList) {
-        return await runSessionList();
-    }
-
-    if (options.sessionDelete) {
-        const names = (options.query || '').split(',').map(n => n.trim()).filter(Boolean);
-        return await runSessionDelete(names, options.older);
-    }
-
-    if (!options.query && !options.queries) {
+    if (queries.length === 0) {
         const envelope = createErrorEnvelope(
             'MISSING_QUERY',
             'No search query provided',
@@ -496,18 +434,73 @@ export async function runCli(args: string[], service: SearXNGService): Promise<n
         }
     }
 
-    const queries = options.queries || (options.query ? [options.query] : []);
     const limit = options.limit ?? config.defaultLimit;
 
-    // Initialize session directory if --session specified
     if (options.session) {
         const resolved = resolveSessionPath(options.session);
         options.session = resolved;
         initSessionDir(resolved, options.owner, options.desc, options.query);
     }
 
+    // Pre-search redundancy check
+    if (options.redundancy && options.session) {
+        const history = loadSessionQueryHistory(options.session);
+        const redundancyConfig: RedundancyConfig = {
+            jaccardThreshold: 0.7,
+            action: options.redundancy,
+        };
+
+        const adjustedQueries: string[] = [];
+        const skippedQueries: string[] = [];
+
+        for (const q of queries) {
+            const result = checkQueryRedundancy(q, history, redundancyConfig);
+
+            if (result.isRedundant) {
+                if (redundancyConfig.action === 'skip') {
+                    skippedQueries.push(q);
+                    continue;
+                } else if (redundancyConfig.action === 'adjust' && result.adjustedQuery) {
+                    adjustedQueries.push(result.adjustedQuery);
+                } else {
+                    // warn — proceed but output warning
+                    adjustedQueries.push(q);
+                }
+
+                // Output redundancy info
+                if (redundancyConfig.action === 'warn' || redundancyConfig.action === 'adjust') {
+                    const envelope = createSuccessEnvelope({
+                        redundancyWarning: {
+                            query: q,
+                            adjustedQuery: result.adjustedQuery,
+                            maxSimilarity: result.maxSimilarity,
+                            similarQueries: result.similarQueries,
+                            action: redundancyConfig.action,
+                        },
+                    });
+                    console.error(JSON.stringify(envelope, null, 2));
+                }
+            } else {
+                adjustedQueries.push(q);
+            }
+        }
+
+        if (skippedQueries.length > 0 && skippedQueries.length === queries.length) {
+            // All queries skipped
+            const envelope = createSuccessEnvelope({
+                message: 'All queries skipped due to redundancy',
+                skippedQueries,
+            });
+            console.log(JSON.stringify(envelope, null, 2));
+            return 0;
+        }
+
+        // Replace queries with adjusted ones (skipped ones removed)
+        queries.length = 0;
+        queries.push(...adjustedQueries);
+    }
+
     try {
-        // Single query: use SearXNG directly (it already aggregates/sorts)
         if (queries.length === 1 && !options.merge) {
             const searchOptions: SearchOptions = {
                 query: queries[0],
@@ -516,11 +509,10 @@ export async function runCli(args: string[], service: SearXNGService): Promise<n
                 limit,
                 page: options.page,
                 language: options.language,
-                timeRange: options.timeRange,
+                timeRange: options.timeRange as any,
             };
             const results = await service.search(searchOptions);
 
-            // Session: accumulate results and update graph
             let sessionInfo: { added: number; total: number } | null = null;
             if (options.session) {
                 sessionInfo = appendSessionResults(options.session, results.results as any[]);
@@ -532,9 +524,8 @@ export async function runCli(args: string[], service: SearXNGService): Promise<n
                 }
             }
 
-            const outputFormat = options.format || config.defaultFormat;
+            const outputFormat = (options.format || config.defaultFormat) as 'json' | 'md';
 
-            // When session active, RRF-merge with all accumulated results for display
             let displayResults = results.results;
             if (options.session) {
                 const allSessionResults = loadSessionResults(options.session);
@@ -574,7 +565,6 @@ export async function runCli(args: string[], service: SearXNGService): Promise<n
                 }), null, 2));
             }
 
-            // Auto-insert result metadata into knowledge graph if --graph specified
             if (options.graph) {
                 addToGraph(options.graph, results.results);
             }
@@ -582,7 +572,6 @@ export async function runCli(args: string[], service: SearXNGService): Promise<n
             return 0;
         }
 
-        // Multi-query or --merge: RRF fusion across ranked lists
         const allResponses: SearchResponse[] = [];
         for (const query of queries) {
             const searchOptions: SearchOptions = {
@@ -592,18 +581,16 @@ export async function runCli(args: string[], service: SearXNGService): Promise<n
                 limit,
                 page: options.page,
                 language: options.language,
-                timeRange: options.timeRange,
+                timeRange: options.timeRange as any,
             };
             const response = await service.search(searchOptions);
             allResponses.push(response);
         }
 
-        // Build rankings for RRF: each query's results as a separate ranked list
         let rankings = allResponses.map(resp =>
             resp.results.map((r: SearchResult) => ({ id: normalizeUrl(r.url), ...r }))
         );
 
-        // If --merge, load historical results and add as another ranking
         let mergeData: any = null;
         if (options.merge) {
             try {
@@ -630,10 +617,8 @@ export async function runCli(args: string[], service: SearXNGService): Promise<n
             }
         }
 
-        // RRF fusion
         const rrfFused = rrf(rankings);
 
-        // Map RRF scores back to original results
         const allResults: SearchResult[] = [];
         const allSuggestions: string[] = [];
         const allAnswers: string[] = [];
@@ -653,7 +638,6 @@ export async function runCli(args: string[], service: SearXNGService): Promise<n
             }
         }
 
-        // Include historical results in the URL map if merging
         if (mergeData) {
             let mergeResults = mergeData;
             if (mergeData.status === 'ok' && mergeData.data) {
@@ -673,7 +657,6 @@ export async function runCli(args: string[], service: SearXNGService): Promise<n
             }
         }
 
-        // Dedup by URL to get unique results, then apply RRF order
         const urlMap = new Map<string, SearchResult>();
         for (const r of allResults) {
             const norm = normalizeUrl(r.url);
@@ -692,7 +675,6 @@ export async function runCli(args: string[], service: SearXNGService): Promise<n
             fusedResults = fusedResults.slice(0, limit);
         }
 
-        // Session: accumulate results and update graph
         let sessionInfo: { added: number; total: number } | null = null;
         if (options.session) {
             sessionInfo = appendSessionResults(options.session, fusedResults as any[]);
@@ -705,7 +687,7 @@ export async function runCli(args: string[], service: SearXNGService): Promise<n
         }
 
         const displayQuery = queries.length > 1 ? queries.join(' · ') : queries[0];
-        const outputFormat = options.format || config.defaultFormat;
+        const outputFormat = (options.format || config.defaultFormat) as 'json' | 'md';
 
         const displayData = {
             query: displayQuery,
@@ -729,7 +711,6 @@ export async function runCli(args: string[], service: SearXNGService): Promise<n
             console.log(formatOutput(displayData, outputFormat));
         }
 
-        // Auto-insert result metadata into knowledge graph if --graph specified
         if (options.graph) {
             addToGraph(options.graph, fusedResults);
         }
@@ -747,4 +728,519 @@ export async function runCli(args: string[], service: SearXNGService): Promise<n
         console.log(JSON.stringify(envelope, null, 2));
         return 1;
     }
+}
+
+export function createProgram(): Command {
+    const program = new Command();
+
+    program
+        .name('sxng')
+        .description('SearXNG CLI - Web Search Tool')
+        .version('1.0.9')
+        .argument('[query]', 'Search query')
+        .option('-e, --engines <engines>', 'Comma-separated list of search engines')
+        .option('-c, --categories <cats>', 'Comma-separated list of categories')
+        .option('-l, --search-limit <n>', 'Maximum number of results', val => parseInt(val, 10))
+        .option('-p, --page <n>', 'Page number for pagination', val => parseInt(val, 10))
+        .option('--lang <code>', 'Language code (e.g., en, zh, ja)')
+        .option('--time <range>', 'Time range: day, week, month, year, all')
+        .option('--output-format <fmt>', 'Output format: md (default), json')
+        .option('--queries <q1,q2,q3>', 'Multi-query with RRF fusion')
+        .option('--merge <file>', 'Merge new results with previous search JSON')
+        .option('--search-session <dir|new>', 'Session dir, or "new" to auto-create')
+        .option('--owner <name>', 'Session owner (stored in meta.json)')
+        .option('--desc <text>', 'Session description (stored in meta.json)')
+        .option('--graph <file>', 'Save search result metadata to knowledge graph file')
+        .option('--redundancy <action>', 'Query redundancy check: warn | adjust | skip')
+        .option('--quality', 'Assess result quality for current session')
+        .option('--threshold-override <json>', 'Override quality thresholds (JSON, e.g. \'{"resultCount":10}\')')
+        .option('--health', 'Check SearXNG server health')
+        .option('--engines-list', 'List available search engines')
+        .option('--categories-list', 'List available categories')
+        .allowUnknownOption(false);
+
+    program
+        .command('init')
+        .description('Interactive configuration setup')
+        .action(async () => {
+            const code = await initConfig();
+            process.exit(code);
+        });
+
+    program
+        .command('extract')
+        .description('Extract article content from URLs or session results')
+        .option('--urls <url1,url2>', 'URLs to extract content from')
+        .option('--from-json <file>', 'Extract from search results JSON file')
+        .option('--session <dir>', 'Extract from session results and merge content back')
+        .action(async (opts) => {
+            const extractor = new ContentExtractor();
+            const extractOptions: ExtractOptions = {
+                urls: opts.urls?.split(',').map((u: string) => u.trim()).filter(Boolean),
+                fromJson: opts.fromJson,
+                session: opts.session,
+            };
+            const code = await runExtract(extractor, extractOptions);
+            process.exit(code);
+        });
+
+    program
+        .command('query-graph')
+        .argument('<path>', 'Graph file or session name')
+        .description('[DEPRECATED] Query subgraph via BFS. Use graph-explore + graph-drill instead.')
+        .option('--seeds <s1,s2>', 'Seed nodes for BFS')
+        .option('--depth <n>', 'BFS depth (default: 2)', val => parseInt(val, 10), 2)
+        .option('--strategy <strategy>', 'Sampling strategy: augmented_chain | dual_core_bridge | community_core_path | deep_chain | mixed')
+        .option('-f, --format <fmt>', 'Output format: md, json')
+        .action(async (path, opts) => {
+            console.warn('[DEPRECATED] query-graph is deprecated. Use graph-explore + graph-drill instead.');
+            const graphFormat = opts.format === 'json' ? 'json' : 'md';
+            const code = await runQueryGraph({
+                graphFile: path,
+                seeds: opts.seeds?.split(',').map((s: string) => s.trim()).filter(Boolean) || [],
+                depth: opts.depth ?? 2,
+                format: graphFormat,
+                strategy: opts.strategy,
+            });
+            process.exit(code);
+        });
+
+    program
+        .command('graph-add')
+        .argument('<path>', 'Graph file or session name')
+        .description('Add entities/edges to knowledge graph')
+        .requiredOption('--data <json>', 'JSON with entities/edges')
+        .action(async (path, opts) => {
+            const code = await runGraphAdd({
+                graphFile: path,
+                data: opts.data,
+            });
+            process.exit(code);
+        });
+
+    program
+        .command('session-list')
+        .description('List all sessions')
+        .action(async () => {
+            const code = await runSessionList();
+            process.exit(code);
+        });
+
+    program
+        .command('session-delete')
+        .argument('[names]', 'Comma-separated session names to delete')
+        .option('--older <h>', 'Delete sessions older than N hours', val => parseFloat(val))
+        .action(async (names, opts) => {
+            const nameList = (names || '').split(',').map((n: string) => n.trim()).filter(Boolean);
+            const code = await runSessionDelete(nameList, opts.older);
+            process.exit(code);
+        });
+
+    program
+        .command('graph-obfuscate')
+        .argument('<path>', 'Graph file or session name')
+        .description('List obfuscation candidates or apply fallback rules (experimental)')
+        .option('--list', 'List entities needing obfuscation (default)')
+        .option('--fallback-rules', 'Apply simple rule-based obfuscation (experimental)')
+        .option('--skip-types <t1,t2>', 'Entity types to skip')
+        .option('-f, --format <fmt>', 'Output format: json (default), md')
+        .addHelpText('after', `
+Examples:
+  sxng graph-obfuscate my-session --list
+  sxng graph-obfuscate my-session --fallback-rules --format md
+
+Note: --fallback-rules is experimental and may produce low-quality obfuscation labels.
+Recommended workflow: use --list to get candidates, then have an LLM generate obfuscated labels,
+and write them back via graph-add.`)
+        .action(async (path, opts) => {
+            const code = await runGraphObfuscateCommand({
+                graphFile: path,
+                list: opts.list ?? !opts.fallbackRules,
+                fallbackRules: opts.fallbackRules ?? false,
+                format: opts.format === 'md' ? 'md' : 'json',
+                skipEntityTypes: opts.skipTypes?.split(',').map((t: string) => t.trim()).filter(Boolean),
+            });
+            process.exit(code);
+        });
+
+    program
+        .command('graph-preprocess')
+        .argument('<session>', 'Session directory or name')
+        .description('Preprocess session data: TF-IDF, co-occurrence, entity context')
+        .option('--top <n>', 'Top N terms to return', val => parseInt(val, 10), 30)
+        .option('--co-occurrence-threshold <n>', 'Min co-occurrence count', val => parseInt(val, 10), 2)
+        .option('--max-terms <n>', 'Max terms for co-occurrence matrix', val => parseInt(val, 10), 50)
+        .option('-f, --format <fmt>', 'Output format: json (default), md')
+        .addHelpText('after', `
+Examples:
+  sxng graph-preprocess my-session
+  sxng graph-preprocess my-session --top 50 --format md`)
+        .action(async (session, opts) => {
+            const sessionDir = resolveSessionPath(session);
+            const result = graphPreprocess(sessionDir, {
+                top: opts.top,
+                coOccurrenceThreshold: opts.coOccurrenceThreshold,
+                maxTermsForCoOccurrence: opts.maxTerms,
+            });
+            if (opts.format === 'md') {
+                console.log(formatPreprocessAsMarkdown(result));
+            } else {
+                console.log(JSON.stringify(createSuccessEnvelope(result), null, 2));
+            }
+            process.exit(0);
+        });
+
+    program
+        .command('suggest-queries')
+        .argument('<session>', 'Session directory or name')
+        .description('Output query suggestion data for Agent follow-up query generation')
+        .option('-f, --format <fmt>', 'Output format: json (default), md')
+        .addHelpText('after', `
+Examples:
+  sxng suggest-queries my-session
+  sxng suggest-queries my-session --format md`)
+        .action(async (session, opts) => {
+            const sessionDir = resolveSessionPath(session);
+            const graph = loadSessionGraph(sessionDir);
+            const results = loadSessionResults(sessionDir);
+            const stage = determineSearchStage(graph);
+            const quality = assessResultQuality(results, results, graph);
+
+            const data = generateQuerySuggestions(graph, results, stage, quality);
+
+            if (opts.format === 'md') {
+                console.log(formatSuggestAsMarkdown(data));
+            } else {
+                console.log(JSON.stringify(createSuccessEnvelope(data), null, 2));
+            }
+            process.exit(0);
+        });
+
+    program
+        .command('strategy-info')
+        .argument('<session>', 'Session directory or name')
+        .description('Output current search stage recommendation (broad vs targeted)')
+        .option('--broad-rounds <n>', 'Rounds before transition check', val => parseInt(val, 10), 2)
+        .option('--transition-threshold <n>', 'Growth rate threshold for stage transition', parseFloat, 0.2)
+        .option('-f, --format <fmt>', 'Output format: json (default), md')
+        .addHelpText('after', `
+Examples:
+  sxng strategy-info my-session
+  sxng strategy-info my-session --format md`)
+        .action(async (session, opts) => {
+            const sessionDir = resolveSessionPath(session);
+            const graph = loadSessionGraph(sessionDir);
+
+            const info = getStrategyInfo(graph, {
+                broadRounds: opts.broadRounds,
+                transitionThreshold: opts.transitionThreshold,
+            });
+
+            if (opts.format === 'md') {
+                console.log(formatStrategyAsMarkdown(info));
+            } else {
+                console.log(JSON.stringify(createSuccessEnvelope(info), null, 2));
+            }
+            process.exit(0);
+        });
+
+    program
+        .command('recovery-analysis')
+        .argument('<session>', 'Session directory or name')
+        .description('Output recovery strategy analysis for Agent decision-making')
+        .option('-f, --format <fmt>', 'Output format: json (default), md')
+        .addHelpText('after', `
+Examples:
+  sxng recovery-analysis my-session
+  sxng recovery-analysis my-session --format md`)
+        .action(async (session, opts) => {
+            const sessionDir = resolveSessionPath(session);
+            const graph = loadSessionGraph(sessionDir);
+            const results = loadSessionResults(sessionDir);
+            const quality = assessResultQuality(results, results, graph);
+
+            const analysis = analyzeRecoveryOptions(graph, results, quality);
+
+            if (opts.format === 'md') {
+                console.log(formatRecoveryAsMarkdown(analysis));
+            } else {
+                console.log(JSON.stringify(createSuccessEnvelope(analysis), null, 2));
+            }
+            process.exit(0);
+        });
+
+    program
+        .command('session-report')
+        .argument('<session>', 'Session directory or name')
+        .description('Show session quality history and stage progression')
+        .option('-f, --format <fmt>', 'Output format: json (default), md')
+        .addHelpText('after', `
+Examples:
+  sxng session-report my-session
+  sxng session-report my-session --format md`)
+        .action(async (session, opts) => {
+            const sessionDir = resolveSessionPath(session);
+            const graph = loadSessionGraph(sessionDir);
+            const results = loadSessionResults(sessionDir);
+
+            const analysis = getSessionAnalysis(graph, results);
+
+            if (opts.format === 'md') {
+                console.log(formatSessionReportAsMarkdown(analysis));
+            } else {
+                console.log(JSON.stringify(createSuccessEnvelope(analysis), null, 2));
+            }
+            process.exit(0);
+        });
+
+    program
+        .command('graph-explore')
+        .argument('<session>', 'Session directory or name')
+        .description('List all relations around a seed entity (Agent graph navigation)')
+        .requiredOption('--seed <entity>', 'Seed entity label to explore')
+        .option('-f, --format <fmt>', 'Output format: md (default), json')
+        .addHelpText('after', `
+Examples:
+  sxng graph-explore my-session --seed "tokio"
+  sxng graph-explore my-session --seed "tokio" --format json
+
+See also: graph-drill, graph-search`)
+        .action(async (session, opts) => {
+            const code = await runGraphExplore({
+                session,
+                seed: opts.seed,
+                format: opts.format === 'json' ? 'json' : 'md',
+            });
+            process.exit(code);
+        });
+
+    program
+        .command('graph-drill')
+        .argument('<session>', 'Session directory or name')
+        .description('Follow specific relations from an entity (Agent graph navigation)')
+        .requiredOption('--seed <entity>', 'Seed entity label')
+        .requiredOption('--relations <list>', 'Comma-separated relation types to follow')
+        .option('-f, --format <fmt>', 'Output format: md (default), json')
+        .addHelpText('after', `
+Examples:
+  sxng graph-drill my-session --seed "tokio" --relations "alternative_to"
+  sxng graph-drill my-session --seed "tokio" --relations "alternative_to,depends_on" --format json
+
+See also: graph-explore`)
+        .action(async (session, opts) => {
+            const code = await runGraphDrill({
+                session,
+                seed: opts.seed,
+                relations: opts.relations.split(',').map((r: string) => r.trim()).filter(Boolean),
+                format: opts.format === 'json' ? 'json' : 'md',
+            });
+            process.exit(code);
+        });
+
+    program
+        .command('graph-traverse')
+        .argument('<session>', 'Session directory or name')
+        .description('Traverse a reasoning path by path node ID (requires path nodes from graph-preprocess)')
+        .requiredOption('--path <path-id>', 'Path node ID (e.g. p:chain_001)')
+        .option('-f, --format <fmt>', 'Output format: md (default), json')
+        .addHelpText('after', `
+Examples:
+  sxng graph-traverse my-session --path "p:chain_001"
+  sxng graph-traverse my-session --path "p:chain_001" --format json
+
+Note: Path nodes are created by graph-preprocess. If no paths exist,
+the command will list available path node IDs.`)
+        .action(async (session, opts) => {
+            const code = await runGraphTraverse({
+                session,
+                pathId: opts.path,
+                format: opts.format === 'json' ? 'json' : 'md',
+            });
+            process.exit(code);
+        });
+
+    program
+        .command('graph-search')
+        .argument('<session>', 'Session directory or name')
+        .description('Keyword search across entity labels (discover entities before exploring)')
+        .requiredOption('--keyword <term>', 'Search keyword')
+        .option('--limit <n>', 'Max results', val => parseInt(val, 10), 10)
+        .option('-f, --format <fmt>', 'Output format: md (default), json')
+        .addHelpText('after', `
+Examples:
+  sxng graph-search my-session --keyword "async"
+  sxng graph-search my-session --keyword "tokio" --limit 5 --format json
+
+See also: graph-explore (for viewing relations of a known entity)`)
+        .action(async (session, opts) => {
+            const code = await runGraphSearch({
+                session,
+                keyword: opts.keyword,
+                limit: opts.limit,
+                format: opts.format === 'json' ? 'json' : 'md',
+            });
+            process.exit(code);
+        });
+
+    return program;
+}
+
+export async function runCli(args: string[], service: SearXNGService): Promise<number | null> {
+    const program = createProgram();
+
+    // Custom action for default command (search)
+    // Commander passes the [query] argument as first param, then opts
+    program.action(async (query, opts) => {
+        const queryString = query || '';
+
+        if (opts.health) {
+            const health = await service.healthCheck();
+            const envelope = health.status === 'healthy'
+                ? createSuccessEnvelope(health)
+                : createErrorEnvelope(
+                    'HEALTH_CHECK_FAILED',
+                    health.error || 'SearXNG server is not responding',
+                    { hint: `Check if SearXNG is running at ${config.baseUrl}` }
+                );
+            console.log(JSON.stringify(envelope, null, 2));
+            process.exit(health.status === 'healthy' ? 0 : 1);
+            return;
+        }
+
+        if (opts.quality) {
+            if (!opts.searchSession) {
+                const envelope = createErrorEnvelope(
+                    'QUALITY_NO_SESSION',
+                    '--quality requires --session',
+                    { hint: 'Use: sxng --session <name> --quality' }
+                );
+                console.log(JSON.stringify(envelope, null, 2));
+                process.exit(1);
+                return;
+            }
+            const sessionDir = resolveSessionPath(opts.searchSession);
+            const sessionResults = loadSessionResults(sessionDir);
+            const sessionGraph = loadSessionGraph(sessionDir);
+
+            let thresholdOverride: Partial<QualityThresholds> | undefined;
+            if (opts.thresholdOverride) {
+                try {
+                    thresholdOverride = JSON.parse(opts.thresholdOverride);
+                } catch {
+                    const envelope = createErrorEnvelope(
+                        'INVALID_THRESHOLD_OVERRIDE',
+                        '--threshold-override must be valid JSON',
+                        { hint: 'Example: \'{"resultCount":10}\'' }
+                    );
+                    console.log(JSON.stringify(envelope, null, 2));
+                    process.exit(1);
+                    return;
+                }
+            }
+
+            const quality = assessResultQuality(
+                sessionResults,
+                sessionResults,
+                sessionGraph,
+                thresholdOverride
+            );
+
+            const outputFormat = (opts.outputFormat || config.defaultFormat) as 'json' | 'md';
+            if (outputFormat === 'md') {
+                console.log(formatQualityAsMarkdown(quality));
+            } else {
+                console.log(JSON.stringify(createSuccessEnvelope(quality), null, 2));
+            }
+            process.exit(0);
+            return;
+        }
+
+        if (opts.enginesList) {
+            try {
+                const engines = await service.getEngines();
+                if (engines.length === 0) {
+                    const envelope = createErrorEnvelope(
+                        'ENGINES_FETCH_EMPTY',
+                        'No engines returned from SearXNG server',
+                        { hint: 'Check if SearXNG server is properly configured' }
+                    );
+                    console.log(JSON.stringify(envelope, null, 2));
+                    process.exit(1);
+                    return;
+                }
+                const envelope = createSuccessEnvelope({ engines, source: 'server' });
+                console.log(JSON.stringify(envelope, null, 2));
+                process.exit(0);
+            } catch (error) {
+                const envelope = createErrorEnvelope(
+                    'ENGINES_FETCH_FAILED',
+                    error instanceof Error ? error.message : 'Failed to fetch engines',
+                    { hint: 'Check your network connection and SearXNG server status' }
+                );
+                console.log(JSON.stringify(envelope, null, 2));
+                process.exit(1);
+            }
+            return;
+        }
+
+        if (opts.categoriesList) {
+            try {
+                const categories = await service.getCategories();
+                if (categories.length === 0) {
+                    const envelope = createErrorEnvelope(
+                        'CATEGORIES_FETCH_EMPTY',
+                        'No categories returned from SearXNG server',
+                        { hint: 'Check if SearXNG server is properly configured' }
+                    );
+                    console.log(JSON.stringify(envelope, null, 2));
+                    process.exit(1);
+                    return;
+                }
+                const envelope = createSuccessEnvelope({ categories, source: 'server' });
+                console.log(JSON.stringify(envelope, null, 2));
+                process.exit(0);
+            } catch (error) {
+                const envelope = createErrorEnvelope(
+                    'CATEGORIES_FETCH_FAILED',
+                    error instanceof Error ? error.message : 'Failed to fetch categories',
+                    { hint: 'Check your network connection and SearXNG server status' }
+                );
+                console.log(JSON.stringify(envelope, null, 2));
+                process.exit(1);
+            }
+            return;
+        }
+
+        const queries = opts.queries?.split(',').map((q: string) => q.trim()).filter(Boolean);
+        const code = await runSearch(service, {
+            query: queryString,
+            queries,
+            engines: opts.engines?.split(',').map((e: string) => e.trim()).filter(Boolean),
+            categories: opts.categories?.split(',').map((c: string) => c.trim()).filter(Boolean),
+            limit: opts.searchLimit,
+            page: opts.page,
+            language: opts.lang,
+            timeRange: opts.time,
+            format: opts.outputFormat,
+            session: opts.searchSession,
+            owner: opts.owner,
+            desc: opts.desc,
+            graph: opts.graph,
+            merge: opts.merge,
+            redundancy: opts.redundancy as 'warn' | 'adjust' | 'skip' | undefined,
+        });
+        process.exit(code);
+    });
+
+    try {
+        await program.parseAsync(args, { from: 'user' });
+    } catch (error) {
+        if (error instanceof Error && error.name === 'CommanderError') {
+            console.error(error.message);
+            return 1;
+        }
+        throw error;
+    }
+
+    return null;
 }

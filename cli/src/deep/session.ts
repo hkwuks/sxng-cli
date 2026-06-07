@@ -226,7 +226,7 @@ export function mergeExtractedContent(sessionDir: string, extracted: Array<{ url
 }
 
 /** Get current round number from results file */
-function loadSessionRounds(sessionDir: string): number {
+export function loadSessionRounds(sessionDir: string): number {
     const file = join(sessionDir, 'results.json');
     if (!existsSync(file)) return 0;
 

@@ -41,6 +41,10 @@ interface EntityInput {
     entityType?: string; // "person", "technology", "concept", "organization", etc.
     score?: number;
     id?: string; // explicit ID, otherwise auto-generated from label
+    obfuscatedLabel?: string;
+    sourceRounds?: number[];
+    frequency?: number;
+    reasoningPaths?: string[];
 }
 
 interface ResultInput {
@@ -123,16 +127,24 @@ export async function runGraphAdd(options: GraphAddOptions): Promise<number> {
                 label: entity.label,
                 entityType: entity.entityType,
                 score: entity.score,
+                obfuscatedLabel: entity.obfuscatedLabel,
+                sourceRounds: entity.sourceRounds,
+                frequency: entity.frequency,
+                reasoningPaths: entity.reasoningPaths,
             });
             entitiesAdded++;
         } else {
-            // Update existing entity
+            // Update existing entity — merge new fields
             const existing = graph.getNodeAttributes(id);
             graph.mergeNode(id, {
                 ...existing,
                 label: entity.label,
                 entityType: entity.entityType ?? existing.entityType,
                 score: entity.score ?? existing.score,
+                obfuscatedLabel: entity.obfuscatedLabel ?? existing.obfuscatedLabel,
+                sourceRounds: entity.sourceRounds ?? existing.sourceRounds,
+                frequency: entity.frequency ?? existing.frequency,
+                reasoningPaths: entity.reasoningPaths ?? existing.reasoningPaths,
             });
         }
     }

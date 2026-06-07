@@ -11,12 +11,30 @@
 
 import { DirectedGraph } from 'graphology';
 
+/** Semantic edge relation types */
+export const EDGE_RELATIONS = {
+    yields: 'yields',           // query → result
+    belongs_to: 'belongs_to',   // result → domain
+    mentions: 'mentions',       // result → entity
+    alternative_to: 'alternative_to', // entity ↔ entity
+    depends_on: 'depends_on',   // entity → entity
+    co_occurs_with: 'co_occurs_with', // entity ↔ entity
+    mentioned_in: 'mentioned_in',     // entity → result
+    includes: 'includes',             // path → entity
+} as const;
+
+export type PathType = 'composition_chain' | 'conjunction' | 'augmented_chain' | 'community_core_path' | 'dual_core_bridge';
+
 export interface GraphNodeAttrs {
-    type: 'entity' | 'result' | 'query' | 'domain';
+    type: 'entity' | 'result' | 'query' | 'domain' | 'path';
     label: string;
     // Entity-specific
     entityType?: string; // e.g. "person", "technology", "concept"
     score?: number;
+    reasoningPaths?: string[]; // path node IDs this entity participates in
+    sourceRounds?: number[]; // search rounds where this entity appeared
+    frequency?: number; // how many results mention this entity
+    obfuscatedLabel?: string; // LLM-generated obfuscated label (Phase 5)
     // Result-specific
     url?: string;
     rank?: number;
@@ -26,6 +44,10 @@ export interface GraphNodeAttrs {
     round?: number;
     // Domain-specific
     domain?: string;
+    // Path-specific
+    pathType?: PathType;
+    hops?: number;
+    entities?: string[]; // ordered entity IDs in this path
 }
 
 export interface GraphEdgeAttrs {
@@ -60,6 +82,34 @@ export function queryId(query: string): string {
 /** Generate a node ID for a domain */
 export function domainId(domain: string): string {
     return generateId('d', domain);
+}
+
+/** Map from PathType to ID prefix */
+const PATH_TYPE_PREFIX: Record<PathType, string> = {
+    composition_chain: 'chain',
+    conjunction: 'conj',
+    augmented_chain: 'aug',
+    community_core_path: 'core',
+    dual_core_bridge: 'bridge',
+};
+
+/** Generate the next path node ID for a given path type.
+ *  Scans existing graph nodes to find the current max counter. */
+export function nextPathId(graph: DirectedGraph<GraphNodeAttrs, GraphEdgeAttrs>, pathType: PathType): string {
+    const prefix = PATH_TYPE_PREFIX[pathType];
+    let maxCounter = 0;
+    graph.forEachNode((node: string, attrs: GraphNodeAttrs) => {
+        if (attrs.type === 'path' && attrs.pathType === pathType) {
+            // Extract counter from node ID: p:<prefix>_NNN
+            const match = node.match(new RegExp(`^p:${prefix}_(\\d+)$`));
+            if (match) {
+                const counter = parseInt(match[1], 10);
+                if (counter > maxCounter) maxCounter = counter;
+            }
+        }
+    });
+    const next = maxCounter + 1;
+    return `p:${prefix}_${String(next).padStart(3, '0')}`;
 }
 
 /** Extract domain from URL */
@@ -188,13 +238,15 @@ export function graphStats(graph: DirectedGraph<GraphNodeAttrs, GraphEdgeAttrs>)
     results: number;
     queries: number;
     domains: number;
+    paths: number;
 } {
-    let entities = 0, results = 0, queries = 0, domains = 0;
+    let entities = 0, results = 0, queries = 0, domains = 0, paths = 0;
     graph.forEachNode((node: string, attrs: GraphNodeAttrs) => {
         if (attrs.type === 'entity') entities++;
         else if (attrs.type === 'result') results++;
         else if (attrs.type === 'query') queries++;
         else if (attrs.type === 'domain') domains++;
+        else if (attrs.type === 'path') paths++;
     });
 
     return {
@@ -204,5 +256,6 @@ export function graphStats(graph: DirectedGraph<GraphNodeAttrs, GraphEdgeAttrs>)
         results,
         queries,
         domains,
+        paths,
     };
 }

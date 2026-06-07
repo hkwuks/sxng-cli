@@ -3,8 +3,17 @@
  */
 
 export class SimHash {
+    private hashCache = new Map<string, bigint>();
+
     hash(text: string): bigint {
         const normalized = text.toLowerCase().trim();
+
+        // Check cache first
+        const cached = this.hashCache.get(normalized);
+        if (cached !== undefined) {
+            return cached;
+        }
+
         const tokens = this.tokenize(normalized);
 
         if (tokens.length === 0) return BigInt(0);
@@ -26,6 +35,8 @@ export class SimHash {
             }
         }
 
+        // Cache the result
+        this.hashCache.set(normalized, simhash);
         return simhash;
     }
 
@@ -37,6 +48,16 @@ export class SimHash {
 
     isDuplicate(a: string, b: string, threshold: number = 0.85): boolean {
         return this.similarity(this.hash(a), this.hash(b)) >= threshold;
+    }
+
+    /** Clear the internal hash cache. Call this if memory becomes a concern. */
+    clearCache(): void {
+        this.hashCache.clear();
+    }
+
+    /** Get the current cache size for debugging. */
+    getCacheSize(): number {
+        return this.hashCache.size;
     }
 
     private tokenize(text: string): string[] {

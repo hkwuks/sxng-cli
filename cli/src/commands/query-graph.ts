@@ -7,6 +7,7 @@ import { join } from 'path';
 import { homedir } from 'os';
 import { deserializeGraph, bfsSubgraph, serializeGraph, graphStats, GraphNodeAttrs, GraphEdgeAttrs } from '../deep/graph.js';
 import { createSuccessEnvelope, createErrorEnvelope } from '../protocol.js';
+import { sampleGraph, SamplingStrategy, SamplingResult } from '../deep/graph-sampling.js';
 
 /** Resolve graph file path — if directory (session), use graph.json inside it.
  *  Pure name (no separators) is resolved to ~/sxng-cli/sessions/<name>
@@ -48,6 +49,7 @@ export interface QueryGraphOptions {
     seeds: string[];
     depth: number;
     format?: 'json' | 'md';
+    strategy?: SamplingStrategy;
 }
 
 export async function runQueryGraph(options: QueryGraphOptions): Promise<number> {
@@ -132,6 +134,79 @@ export async function runQueryGraph(options: QueryGraphOptions): Promise<number>
         );
         console.log(JSON.stringify(envelope, null, 2));
         return 1;
+    }
+
+    // If --strategy is specified, use sampling instead of BFS
+    if (options.strategy) {
+        // Filter seeds to entity nodes only for sampling
+        const entitySeeds = resolvedSeeds.filter(id => graph.getNodeAttributes(id).type === 'entity');
+        if (entitySeeds.length === 0) {
+            const envelope = createErrorEnvelope(
+                'NO_ENTITY_SEEDS',
+                'Sampling strategies require entity seed nodes (e:xxx)',
+                { hint: 'Use --seeds with entity names like "tokio" or IDs like "e:tokio"' }
+            );
+            console.log(JSON.stringify(envelope, null, 2));
+            return 1;
+        }
+
+        const samplingResult = sampleGraph(graph, {
+            strategy: options.strategy,
+            seedEntities: entitySeeds,
+            maxHops: options.depth,
+        });
+
+        if (options.format === 'md') {
+            const lines: string[] = [];
+            lines.push(`Sampling: ${samplingResult.strategy} (seeds: ${entitySeeds.join(', ')}, maxHops: ${options.depth})`);
+            lines.push(`Entities: ${samplingResult.entities.length}, Edges: ${samplingResult.edges.length}, Hops: ${samplingResult.hopsCovered}`);
+            lines.push('');
+
+            if (samplingResult.entities.length > 0) {
+                lines.push('Entities:');
+                for (const e of samplingResult.entities) {
+                    const parts = [e.label];
+                    if (e.entityType) parts.push(`type=${e.entityType}`);
+                    parts.push(`degree=${e.degree}`);
+                    if (e.score) parts.push(`score=${e.score.toFixed(2)}`);
+                    lines.push(`  ${e.id}: ${parts.join(', ')}`);
+                }
+            }
+
+            if (samplingResult.edges.length > 0) {
+                lines.push('');
+                lines.push('Edges:');
+                for (const edge of samplingResult.edges) {
+                    const srcLabel = graph.getNodeAttributes(edge.source)?.label ?? edge.source;
+                    const tgtLabel = graph.getNodeAttributes(edge.target)?.label ?? edge.target;
+                    lines.push(`  ${srcLabel} → (${edge.relation}, w=${edge.weight.toFixed(2)}) → ${tgtLabel}`);
+                }
+            }
+
+            if (Object.keys(samplingResult.metadata).length > 0) {
+                lines.push('');
+                lines.push('Metadata:');
+                for (const [key, value] of Object.entries(samplingResult.metadata)) {
+                    lines.push(`  ${key}: ${value}`);
+                }
+            }
+
+            console.log(lines.join('\n'));
+        } else {
+            const envelope = createSuccessEnvelope({
+                strategy: samplingResult.strategy,
+                seeds: entitySeeds,
+                maxHops: options.depth,
+                entityCount: samplingResult.entities.length,
+                edgeCount: samplingResult.edges.length,
+                hopsCovered: samplingResult.hopsCovered,
+                entities: samplingResult.entities,
+                edges: samplingResult.edges,
+                metadata: samplingResult.metadata,
+            });
+            console.log(JSON.stringify(envelope, null, 2));
+        }
+        return 0;
     }
 
     const subgraph = bfsSubgraph(graph, resolvedSeeds, options.depth);

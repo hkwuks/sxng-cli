@@ -1,22 +1,51 @@
 ---
 name: sxng
-description: "Web search using SearXNG CLI. Use when you need to search the web for current information, documentation, or research. Supports deep multi-round search with knowledge graph, session accumulation, and content extraction. Triggers: 'search for', 'look up', 'find information', 'web search', 'deep search', 'deep dive', or any request needing up-to-date information."
+description: "Web search using SearXNG CLI. Use when you need to search the web for current information, documentation, or research. Supports deep multi-round search with knowledge graph, quality assessment, recovery strategies, and content extraction. Triggers: 'search for', 'look up', 'find information', 'web search', 'deep search', 'deep dive', or any request needing up-to-date information."
 ---
 
 # SearXNG Web Search
 
-Use `sxng` CLI to search the web. Default output is markdown (md). Use `-f json` for JSON when needed by downstream tools.
+Use `sxng` CLI to search the web. Default output format: **md** for search & graph navigation commands (graph-search/explore/drill/traverse); **json** for analysis commands (graph-preprocess, suggest-queries, strategy-info, recovery-analysis, session-report, graph-obfuscate). Use `--output-format json` on main program or `-f json`/`-f md` on subcommands to override.
 
 ## Quick Reference
 
 ```bash
-sxng <query>                       # Search (markdown output)
-sxng -f json <query>               # Search (JSON output)
-sxng --queries "q1,q2,q3"          # Multi-query search with RRF fusion & dedup
-sxng extract --urls "url1,url2"    # Extract article content from URLs
-sxng extract --from-json file      # Extract content from search results JSON
-sxng session-list                  # List all sessions
-sxng session-delete --older 24     # Delete sessions older than 24 hours
+# Simple search
+sxng <query>                                # Search (markdown output)
+sxng --output-format json <query>           # Search (JSON output)
+sxng --queries "q1,q2,q3"                  # Multi-query with RRF fusion & dedup
+
+# Deep search session
+sxng --search-session new --owner "agent-1" --desc "topic" "query"
+sxng --search-session <session> "more queries"
+
+# Content extraction
+sxng extract --urls "url1,url2"             # Extract from URLs
+sxng extract --session <session>            # Extract session results
+
+# Quality & iteration
+sxng --search-session <session> --quality   # Assess result quality
+sxng suggest-queries <session>              # Get query suggestions
+sxng strategy-info <session>                # Check search stage
+sxng recovery-analysis <session>            # Get recovery strategies
+sxng session-report <session>               # Full session report
+
+# Knowledge graph
+sxng graph-preprocess <session>             # TF-IDF + co-occurrence analysis
+sxng graph-add <session> --data '{...}'     # Add entities/edges
+sxng graph-search <session> --keyword "x"   # Discover entities
+sxng graph-search <session> --keyword "x" --limit 5  # Limit results
+sxng graph-explore <session> --seed "x"     # View entity relations
+sxng graph-drill <session> --seed "x" --relations "r1,r2"  # Follow relations
+sxng graph-traverse <session> --path "p:chain_001"  # Traverse reasoning paths
+sxng graph-obfuscate <session> --list       # List obfuscation candidates
+
+# Utility
+sxng session-list                           # List all sessions
+sxng session-delete --older 24              # Delete old sessions
+sxng --engines-list                         # List available engines
+sxng --categories-list                      # List available categories
+sxng --health                               # Check server status
 ```
 
 ## Search Options
@@ -25,126 +54,160 @@ sxng session-delete --older 24     # Delete sessions older than 24 hours
 |--------|---------|---------|
 | `-e, --engines` | `-e google,github` | Specific search engines |
 | `-c, --categories` | `-c it,science` | Filter by category |
-| `-l, --limit` | `-l 20` | Max results (default: 10) |
+| `-l, --search-limit` | `-l 20` | Max results (default: 10) |
 | `-p, --page` | `-p 2` | Pagination |
 | `--lang` | `--lang zh` | Result language (en, zh, ja, etc.) |
 | `--time` | `--time week` | Filter: day/week/month/year/all |
-| `-f, --format` | `-f json` | Output format: md (default), json |
+| `--output-format` | `--output-format json` | Output format: md (default), json |
 | `--queries` | `--queries "q1,q2,q3"` | Multi-query with RRF fusion |
+| `--search-session` | `--search-session new` | Session dir or "new" to auto-create |
+| `--owner` | `--owner "agent-1"` | Session owner (stored in meta.json) |
+| `--desc` | `--desc "research topic"` | Session description |
+| `--redundancy` | `--redundancy warn` | Redundancy check: warn / adjust / skip |
+| `--quality` | `--quality` | Assess result quality for session |
+| `--threshold-override` | `--threshold-override '{"resultCount":10}'` | Override quality thresholds |
 
 ## Extract
 
-Extract full article content from web pages. You can use the built-in `sxng extract` or any other tool that fetches web content (MCP fetch tools, WebFetch, curl, etc). `sxng extract` uses linkedom + Mozilla Readability internally.
+Extract full article content from web pages. You can use `sxng extract` or any other fetch tool (MCP, WebFetch, curl). `sxng extract` uses linkedom + Mozilla Readability internally.
 
 ```bash
-# Extract from specific URLs
-sxng extract --urls "https://example.com/article1,https://example.com/article2"
-
-# Extract from search results JSON file
+sxng extract --urls "https://example.com/a,https://example.com/b"
 sxng extract --from-json <session-name> search.json
-
-# Or just use any other fetch tool you have available
+sxng extract --session <session-name>
 ```
 
-> **Note**: Content extraction is not limited to `sxng extract`. Any web fetch tool (MCP, browser, curl) can extract content. `sxng extract` is just one option — use whatever works best for the target URL.
-
-## Utility Commands
-
-```bash
-sxng --engines-list    # List available engines
-sxng --categories-list # List available categories
-sxng --health          # Check server status
-sxng init              # Interactive setup
-```
+> **Note**: `sxng extract` is one option — any web fetch tool works for content extraction.
 
 ## Deep Search
 
-Deep search enables multi-round iterative research: search → extract → analyze → search again, with results accumulating in a session directory. The session stores three files:
+Deep search enables multi-round iterative research with quality assessment, recovery strategies, and knowledge graph navigation.
 
-- **`results.json`** — Accumulated search result pool (URL dedup, multi-round accumulation)
+Session stores three files:
+- **`results.json`** — Accumulated search results (URL dedup, multi-round accumulation)
 - **`graph.json`** — Knowledge graph (structural + semantic layers)
 - **`meta.json`** — Session metadata (owner, description, timestamps)
 
-> **For detailed workflows and decision frameworks, read `references/SOP.md`** — it contains:
-> - L1/L2/L3 complexity levels and when to use each
-> - Complete SOP for deep research (intent analysis → query planning → evidence standards)
-> - Tool selection matrix (scenario → command mapping)
-> - Source quality guidelines (whitelist/graylist/blacklist)
-> - Self-checklist before delivering answers
+> **For detailed SOP including L1/L2/L3 complexity levels and evidence standards, read `skills/references/SOP.md`**
+
+### 8-Phase Agent Workflow
+
+```
+Phase 1: Initial search
+  sxng "initial query" --search-session <name> --owner <agent-id> --desc <topic>
+
+Phase 2: Preprocess & entity discovery
+  sxng graph-preprocess <session>
+  [LLM] → Select high-value entities from TF-IDF / co-occurrence results
+
+Phase 3: Build knowledge graph
+  sxng graph-add <session> --data '{"entities":[...],"edges":[...]}'
+
+Phase 4: Quality assessment
+  sxng --search-session <name> --quality
+  [LLM] → Is verdict "good"?
+
+Phase 5: Query suggestions (if quality not met)
+  sxng suggest-queries <session>
+  [LLM] → Select next queries from topEntities / unexploredDomains
+
+Phase 6: Continue search (with redundancy check)
+  sxng "follow-up query" --search-session <name> --redundancy warn
+  → Loop back to Phase 2 until quality is satisfactory
+
+Phase 7: Recovery analysis (if consecutive poor rounds)
+  sxng recovery-analysis <session>
+  [LLM] → Choose: reformulate / engine_rotation / category_shift / backtrack
+
+Phase 8: Graph exploration (after quality is good)
+  sxng graph-search <session> --keyword <term>
+  sxng graph-explore <session> --seed <entity>
+  sxng graph-drill <session> --seed <entity> --relations <list>
+  sxng graph-traverse <session> --path <path-id>
+```
 
 ### Session Management
 
-Sessions are stored under `~/sxng-cli/sessions/` by default. Each agent should create its own session to avoid mixing results.
+Sessions stored under `~/sxng-cli/sessions/` by default.
 
 ```bash
-# Create a new auto-named session (avoids collisions between agents)
-sxng --session new --owner "agent-1" --desc "async ecosystem research" "rust async"
+# Create new auto-named session
+sxng --search-session new --owner "agent-1" --desc "async ecosystem research" "rust async"
 
-# List all sessions (shows owner, rounds, stats)
+# List all sessions
 sxng session-list
 
-# Delete specific sessions
+# Delete sessions
 sxng session-delete <session-name>
-
-# Delete sessions older than N hours
 sxng session-delete --older 24
 ```
 
-When using `--session new`, the CLI auto-generates a unique directory name (e.g. `<session-name>`) and returns the path in the output. Use that path for subsequent `--session`, `extract --session`, `graph-add`, and `query-graph` calls.
+With `--search-session new`, CLI auto-generates a unique directory name and returns the path. Use that path for subsequent commands.
 
-`--owner` and `--desc` are stored in `meta.json` for identification. Set them when creating a session so you can tell which session belongs to which agent.
+### Quality Assessment
 
-### How It Works
-
-The deep search flow is an iterative loop. Each round follows the same pattern:
-
-```
-┌──────────┐     ┌──────────┐     ┌──────────┐     ┌──────────────┐
-│  Search   │────→│  Extract  │────→│  Analyze  │────→│  graph-add   │
-│ (--session)│     │  Content  │     │  (LLM)   │     │  (entities)  │
-└──────────┘     └──────────┘     └──────────┘     └──────────────┘
-      │                                                    │
-      │          Decide: need more info?                   │
-      │          ┌───────────────────────┐                 │
-      │          │  Yes → next round      │←────────────────┘
-      │          │  No  → synthesize answer│
-      │          └───────────────────────┘
-```
-
-**Step-by-step:**
-
-1. **Search** — `sxng --session <session-name> <query>` runs a search, results accumulate in session
-2. **Extract** — Get content from top results. Use `sxng extract --session <session-name>` or any fetch tool
-3. **Analyze** — As LLM, read the results/extracted content, identify entities and gaps
-4. **Build graph** — `sxng graph-add <session-name> --data '...'` adds entities and relationships
-5. **Decide** — Check `sxng query-graph <session-name> --seeds ...` to see what's connected. If gaps remain, loop back to step 1 with refined queries
-6. **Synthesize** — When enough information is gathered, produce the final answer
-
-### Session (--session)
-
-Each `sxng --session <session-name> <query>` automatically:
-1. Deduplicates and accumulates results into `results.json`
-2. Builds structural graph edges (query→result→domain) in `graph.json`
-3. Returns RRF-fused display of all accumulated results
+After each search round, assess result quality:
 
 ```bash
-sxng --session <session-name> "rust async ecosystem"          # Round 1
-sxng --session <session-name> --queries "tokio vs async-std,rust async benchmark"  # Round 2
+sxng --search-session <session> --quality
 ```
 
-### Extract with Session
+Returns 5 independent indicators:
 
-`extract --session` reads URLs from session results and merges extracted content back:
+| Indicator | Measures | Default Threshold |
+|-----------|----------|-------------------|
+| resultCount | Number of unique results | >= 5 |
+| contentDepth | Avg content length of extracted results | >= 150 chars |
+| entityRichness | Agent-added entity count in graph | >= 2 |
+| sourceDiversity | Distinct domains | >= 3 |
+| novelty | Fraction of new results not similar to existing | >= 0.3 |
+
+**Verdict logic**: good (all pass) / acceptable (<=2 fail) / poor (>=3 fail)
+
+Override thresholds:
+```bash
+sxng --search-session <session> --quality --threshold-override '{"resultCount":3}'
+```
+
+### Decision: What to Do Based on Quality
+
+| Verdict | Action |
+|---------|--------|
+| good | Enter Phase 8 (graph exploration) or synthesize answer |
+| acceptable | Run `suggest-queries`, target failed indicators |
+| poor | Run `recovery-analysis`, consider strategy shift |
+
+### Recovery Strategies
+
+When quality is poor, `recovery-analysis` suggests strategies:
+
+| Strategy | When to Use | Action |
+|----------|-------------|--------|
+| reformulate | Query too specific | Remove qualifiers, broader terms |
+| engine_rotation | Current engine missed results | Switch engines (e.g. google → arxiv+github) |
+| category_shift | Category results are poor | Switch category (e.g. general → it) |
+| backtrack | >=2 consecutive poor rounds | Return to last good round, explore different direction |
+
+### Search Strategy
+
+`sxng strategy-info <session>` tells you the current search stage:
+
+- **broad_exploration** (first 2-3 rounds): Use general engines (google, bing)
+- **targeted_deep_dive** (after growth slows): Use specialized sources (arxiv, github, semantic_scholar)
+
+Transition signal: entity growth rate drops below threshold (default 0.2).
+
+### Redundancy Check
+
+Before searching, check if a query is too similar to previous ones:
 
 ```bash
-sxng extract --session <session-name>   # Extract from all session URLs, merge content into results.json
+sxng "query" --search-session <session> --redundancy warn   # Warn but continue
+sxng "query" --search-session <session> --redundancy adjust  # Auto-adjust query
+sxng "query" --search-session <session> --redundancy skip    # Skip redundant query
 ```
-
-Or use any external fetch tool to extract content — just read the URLs from session output.
 
 ### Knowledge Graph
-
-The graph has two layers:
 
 **Structural Layer** (auto-built by CLI every search):
 
@@ -153,26 +216,36 @@ The graph has two layers:
 | query | `q:` | label, query, round |
 | result | `r:` | label, url, title, rank |
 | domain | `d:` | label, domain |
+| path | `p:` | pathType, hops, entities |
 
-Edges: `yields` (query→result, weight=1/(rank+1)), `belongs_to` (result→domain, weight=1)
+Edges: `yields` (query→result), `belongs_to` (result→domain), `includes` (path→entity)
 
 **Semantic Layer** (added by you via graph-add after analysis):
 
 | Node type | Prefix | Attributes |
 |-----------|--------|------------|
-| entity | `e:` | label, entityType, score |
+| entity | `e:` | label, entityType, score, obfuscatedLabel |
 
 Edges: any relation type between entity↔entity or entity→result, with custom weights
 
-### graph-add
+### Graph Commands
 
-Add entities and semantic edges after you analyze the search results:
+#### graph-preprocess — Analyze session for entities
 
 ```bash
-sxng graph-add <session-name> --data '{
+sxng graph-preprocess <session>                    # Default: top 30 terms, JSON
+sxng graph-preprocess <session> --top 50 --format md
+```
+
+Returns: TF-IDF terms, co-occurrence pairs, existing entities, coverage stats.
+
+#### graph-add — Add entities and edges
+
+```bash
+sxng graph-add <session> --data '{
   "entities": [
-    {"label": "tokio", "entityType": "technology", "score": 0.9},
-    {"label": "async-std", "entityType": "technology", "score": 0.8}
+    {"label": "tokio", "entityType": "runtime", "score": 0.95},
+    {"label": "async-std", "entityType": "runtime", "score": 0.85}
   ],
   "edges": [
     {"source": "e:tokio", "target": "e:async_std", "relation": "alternative_to", "weight": 0.9},
@@ -183,18 +256,58 @@ sxng graph-add <session-name> --data '{
 
 Edge source/target must reference existing node IDs. Invalid references are skipped and reported in `skippedEdges`.
 
-### query-graph
-
-Explore the graph to decide whether to continue searching or synthesize an answer:
+#### graph-search — Discover entities by keyword
 
 ```bash
-sxng query-graph <session-name> --seeds "tokio" --depth 3          # human-readable
-sxng query-graph <session-name> --seeds "tokio" --depth 3 -f json  # raw data
+sxng graph-search <session> --keyword "async"
+sxng graph-search <session> --keyword "tokio" --limit 5 --format json
 ```
 
-Seed matching: exact ID → prefix match → label match (case-insensitive).
+Returns matching entity IDs, labels, scores, and degrees. Use this to find entities before exploring them.
 
-Default output (md) shows relationships in readable format. `-f json` returns raw graphology data.
+#### graph-explore — View entity relations
+
+```bash
+sxng graph-explore <session> --seed "tokio"
+sxng graph-explore <session> --seed "tokio" --format json
+```
+
+Lists all outgoing/incoming relations for a seed entity, with suggested next steps.
+
+#### graph-drill — Follow specific relation types
+
+```bash
+sxng graph-drill <session> --seed "tokio" --relations "alternative_to"
+sxng graph-drill <session> --seed "tokio" --relations "alternative_to,depends_on" --format json
+```
+
+Returns triples for specified relation types, with next step suggestions.
+
+#### graph-traverse — Traverse a reasoning path
+
+```bash
+sxng graph-traverse <session> --path "p:chain_001"
+sxng graph-traverse <session> --path "p:chain_001" --format json
+```
+
+Walks a reasoning path node hop by hop, with source information. Path nodes are created by `graph-preprocess`.
+
+#### graph-obfuscate — Entity obfuscation (experimental)
+
+```bash
+sxng graph-obfuscate <session> --list           # List obfuscation candidates
+sxng graph-obfuscate <session> --fallback-rules  # Apply rule-based obfuscation
+```
+
+> **Note**: `--fallback-rules` is experimental. Recommended workflow: use `--list` to get candidates, have LLM generate obfuscated labels, then write them back via `graph-add`.
+
+#### query-graph (DEPRECATED)
+
+```bash
+sxng query-graph <session> --seeds "tokio" --depth 3
+```
+
+> **Deprecated**: Use `graph-explore` + `graph-drill` instead.
 
 ### Complete Example
 
@@ -202,18 +315,23 @@ Research "Rust async ecosystem differences and recommendations":
 
 ```bash
 # Round 1: Create session and search
-sxng --session new --owner "agent-1" --desc "async ecosystem" "rust async ecosystem"
-# Output includes session path, e.g. ~/sxng-cli/sessions/<session-name>
+sxng --search-session new --owner "agent-1" --desc "async ecosystem" "rust async ecosystem"
+# Output includes session path, e.g. ~/sxng-cli/sessions/ds_1234567890_abc
 
-# Extract content from results (or use MCP fetch / any tool you prefer)
-sxng extract --session ~/sxng-cli/sessions/<session-name>
+SESSION="ds_1234567890_abc"
 
-# After reading results, identify key entities and add them
-sxng graph-add ~/sxng-cli/sessions/<session-name> --data '{
+# Extract content from results
+sxng extract --session $SESSION
+
+# Preprocess: get TF-IDF terms and co-occurrences
+sxng graph-preprocess $SESSION --format json
+
+# After reading results, add key entities to graph
+sxng graph-add $SESSION --data '{
   "entities": [
-    {"label": "tokio", "entityType": "technology"},
-    {"label": "async-std", "entityType": "technology"},
-    {"label": "smol", "entityType": "technology"}
+    {"label": "tokio", "entityType": "technology", "score": 0.9},
+    {"label": "async-std", "entityType": "technology", "score": 0.8},
+    {"label": "smol", "entityType": "technology", "score": 0.7}
   ],
   "edges": [
     {"source": "e:tokio", "target": "e:async_std", "relation": "alternative_to"},
@@ -221,31 +339,43 @@ sxng graph-add ~/sxng-cli/sessions/<session-name> --data '{
   ]
 }'
 
-# Check what we know so far
-sxng query-graph ~/sxng-cli/sessions/<session-name> --seeds "tokio" --depth 2
+# Assess quality
+sxng --search-session $SESSION --quality
 
-# Gap found: need comparison details → Round 2 with focused queries
-sxng --session ~/sxng-cli/sessions/<session-name> --queries "tokio vs async-std comparison,rust async runtime benchmark 2024"
+# If quality is acceptable/poor, get query suggestions
+sxng suggest-queries $SESSION --format json
+
+# Round 2: Focused search with redundancy check
+sxng --search-session $SESSION --queries "tokio vs async-std comparison,rust async runtime benchmark 2024" --redundancy warn
 
 # Extract again
-sxng extract --session ~/sxng-cli/sessions/<session-name>
+sxng extract --session $SESSION
 
-# Add new findings to graph
-sxng graph-add ~/sxng-cli/sessions/<session-name> --data '{"entities":[...],"edges":[...]}'
+# Add new findings
+sxng graph-add $SESSION --data '{"entities":[...],"edges":[...]}'
 
-# Check coverage — enough info? If yes, synthesize answer. If not, another round.
-sxng query-graph ~/sxng-cli/sessions/<session-name> --seeds "tokio" --depth 3
+# Check quality again
+sxng --search-session $SESSION --quality
 
-# When done, clean up old sessions
+# If good — explore the graph
+sxng graph-search $SESSION --keyword "async"
+sxng graph-explore $SESSION --seed "tokio" --format json
+sxng graph-drill $SESSION --seed "tokio" --relations "alternative_to,depends_on" --format json
+
+# If poor for multiple rounds — get recovery advice
+sxng recovery-analysis $SESSION --format json
+
+# When done, clean up
 sxng session-delete --older 24
 ```
 
 ### When to Stop
 
-- New unique results < 3 per round
+- Quality verdict is "good"
 - Already 3+ search rounds
-- Entity graph covers the topic sufficiently (check with `query-graph`)
+- Entity graph covers the topic sufficiently (check with `graph-explore`)
 - All follow-up angles exhausted
+- New unique results < 3 per round
 
 ## When to Use
 
@@ -256,8 +386,8 @@ sxng session-delete --older 24
 - The question has a definitive answer, solvable with 1-2 results
 - Finding official docs or GitHub repo addresses
 
-**Use Deep Search (`--session` workflow) when:**
-- Multi-dimensional information integration needed (tech selection, market analysis, framework comparison)
+**Use Deep Search (`--search-session` workflow) when:**
+- Multi-dimensional information integration needed (tech selection, market analysis)
 - Information is scattered across sources requiring cross-validation
 - Tracking evolution of a topic (ecosystem changes, version updates)
 - Output is a research report, tech survey, or decision analysis
@@ -268,30 +398,41 @@ sxng session-delete --older 24
 | Your Need | Recommended Approach | Command Example |
 |---------|---------------------|-----------------|
 | "Python dict get method usage" | Simple search | `sxng "python dict get method"` |
-| "Compare PostgreSQL vs MySQL performance" | **Deep Search** | `sxng --session new --owner "agent-1" "PostgreSQL vs MySQL performance benchmark 2024"` |
+| "Compare PostgreSQL vs MySQL performance" | **Deep Search** | `sxng --search-session new --owner "agent-1" "PostgreSQL vs MySQL benchmark"` |
 | "React latest version features" | Simple search | `sxng "React 19 new features" --time month` |
-| "Frontend build tools ecosystem survey" | **Deep Search** | `sxng --session new --owner "agent-1" "frontend build tools ecosystem vite webpack parcel"` |
+| "Frontend build tools ecosystem survey" | **Deep Search** | `sxng --search-session new --owner "agent-1" "frontend build tools ecosystem"` |
 | "Fix Docker port already allocated error" | Simple search | `sxng "docker port already allocated fix"` |
 
-### Deep Search Workflow
+## Command Reference
 
-Deep search follows an iterative research process:
-
-1. **Create Session** — Start a new research session
-2. **Search** — Execute queries, results auto-deduplicate and accumulate
-3. **Extract** — Get full content from key pages
-4. **Analyze** — Identify entities, discover information gaps
-5. **Build Knowledge Graph** — Use `graph-add` to record key findings
-6. **Decide** — Use `query-graph` to check coverage, decide to continue searching or synthesize answer
-
-See "Deep Search" section below for complete examples.
+| Command | Purpose | Key Output |
+|---------|---------|------------|
+| `sxng <query>` | Search the web | results, suggestions |
+| `sxng extract` | Extract page content | extracted text |
+| `sxng graph-preprocess` | TF-IDF + co-occurrence analysis | tfidfTerms, coOccurrences, existingEntities |
+| `sxng graph-add` | Add entities/edges to graph | (updates graph.json) |
+| `sxng graph-search` | Discover entities by keyword | id, label, score, degree |
+| `sxng graph-explore` | View entity relations | outgoingRelations, incomingRelations, suggestedNextSteps |
+| `sxng graph-drill` | Follow specific relations | triples, nextSteps |
+| `sxng graph-traverse` | Traverse reasoning path | hops, sources |
+| `sxng graph-obfuscate` | Entity obfuscation (experimental) | candidates / fallback labels |
+| `sxng suggest-queries` | Query suggestions for next round | topEntities, unexploredDomains, qualityLastRound |
+| `sxng strategy-info` | Current search stage | currentStage, recommendedEngines, recommendedCategories |
+| `sxng recovery-analysis` | Recovery strategy analysis | availableStrategies, roundQualityHistory |
+| `sxng session-report` | Full session history | quality, strategy, suggestions, recovery |
+| `sxng session-list` | List all sessions | session names, stats |
+| `sxng session-delete` | Delete sessions | (removes session dirs) |
+| `sxng init` | Interactive setup | (writes config) |
 
 ## Tips
 
-- Default format is md (compact, low token cost). Use `-f json` only when needed.
+- Default format: search & graph nav commands → md; analysis commands (graph-preprocess, suggest-queries, strategy-info, recovery-analysis, session-report, graph-obfuscate) → json. Override with `--output-format json` on main program, `-f md`/`-f json` on subcommands.
 - Use `-c` or `-e` to target specific sources
 - Use `--time week/day` for recent information
 - Run `sxng --health` first if searches fail
 - Content extraction: use `sxng extract` or any other fetch tool — both work
-- `graph-add` accepts session directory path directly (resolves to `graph.json` inside)
-- `query-graph` default output is md; `-f json` for raw graphology data
+- `graph-add` accepts session name or directory path
+- Use `--redundancy warn` to avoid repeating similar queries
+- Use `--quality` after each round to decide whether to continue
+- `query-graph` is deprecated — use `graph-explore` + `graph-drill` instead
+- `graph-obfuscate --fallback-rules` is experimental — prefer LLM-generated labels
