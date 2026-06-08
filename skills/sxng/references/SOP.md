@@ -376,8 +376,7 @@ Sources:
 | `-e google,github` | 指定搜索引擎 |
 | `-c it,science` | 指定分类 |
 | `--time week` | 时间过滤 |
-| `--output-format json` | JSON 输出（主程序） |
-| `-f json` | JSON 输出（子命令） |
+| `--format json` / `-f json` | JSON 输出 |
 | `-l 20` / `--search-limit 20` | 结果数量 |
 | `--lang zh` | 语言过滤 |
 

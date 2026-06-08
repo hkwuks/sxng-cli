@@ -34,7 +34,7 @@
 - 🔄 **Dynamic Discovery** — Auto-fetches available engines and categories from your SearXNG server
 - 📄 **Multiple Formats** — Markdown (LLM-optimized) or JSON output
 - 🧠 **Deep Search** — Multi-round iterative research with session accumulation and knowledge graph
-- 🔍 **Content Extraction** — Extract full article content from search results
+- 🔍 **Content Extraction** — Extract full article content from search results, with Obscura fallback for JS-heavy pages
 - 🗂️ **Session Management** — Accumulate search results across multiple rounds with deduplication
 - 🕸️ **Knowledge Graph** — Build semantic graphs of entities and relationships
 - ⚡ **Fast & Lightweight** — Built with TypeScript, minimal dependencies
@@ -528,6 +528,30 @@ npm run build
 npm link
 ```
 
+### Obscura (Optional — for JS-heavy pages)
+
+[sxng extract](#-usage) uses **Defuddle + linkedom** by default for lightweight content extraction. When a page requires JavaScript rendering (SPAs, dynamic content), enable [Obscura](https://github.com/h4ckf0r0day/obscura) as a fallback:
+
+```bash
+# Linux x86_64
+curl -LO https://github.com/h4ckf0r0day/obscura/releases/latest/download/obscura-x86_64-linux.tar.gz
+tar xzf obscura-x86_64-linux.tar.gz
+cp obscura ~/.local/bin/
+
+# macOS Apple Silicon
+curl -LO https://github.com/h4ckf0r0day/obscura/releases/latest/download/obscura-aarch64-macos.tar.gz
+tar xzf obscura-aarch64-macos.tar.gz
+cp obscura /usr/local/bin/
+
+# Docker
+docker run -d --name obscura -p 127.0.0.1:9222:9222 h4ckf0r0day/obscura
+
+# Verify
+obscura --version
+```
+
+No extra npm dependencies needed — Obscura is called via CLI. Auto-detected from `PATH`, `~/.local/bin/obscura`, or `/usr/local/bin/obscura`.
+
 ---
 
 ## 🚀 Quick Start
@@ -563,6 +587,7 @@ npm link
 | `sxng <query>` | Perform a web search |
 | `sxng --queries "q1,q2"` | Multi-query search with RRF fusion |
 | `sxng extract --urls <urls>` | Extract content from web pages |
+| `sxng extract --obscura` | Extract with Obscura JS-rendering fallback |
 | `sxng --session new` | Create deep search session |
 | `sxng session-list` | List all sessions |
 | `sxng session-delete <session-name>` | Delete a session |
@@ -738,6 +763,35 @@ Each session stores three files in `~/sxng-cli/sessions/<session-name>/`:
 
 ## 🏗️ Architecture
 
+### Content Extraction
+
+`sxng extract` uses a two-tier extraction strategy:
+
+1. **Defuddle + linkedom** (default, lightweight) — Parses raw HTML with linkedom, extracts readable content with Defuddle. Fast, no browser needed.
+2. **Obscura** (optional fallback) — When Defuddle extracts too little content (< 50 chars), Obscura renders the page with V8 JS engine and re-extracts. Use `--obscura` to enable.
+
+```bash
+# Default: Defuddle only (fast)
+sxng extract --urls "https://example.com"
+
+# With Obscura fallback for JS-heavy pages
+sxng extract --urls "https://spa-site.com" --obscura
+
+# Obscura direct markdown output (skip Defuddle re-parse)
+sxng extract --urls "https://spa-site.com" --obscura --obscura-dump markdown
+
+# Custom Obscura binary path
+sxng extract --urls "https://spa-site.com" --obscura --obscura-path /path/to/obscura
+```
+
+Extraction options:
+
+| Option | Description |
+|--------|-------------|
+| `--obscura` | Enable Obscura fallback for JS-rendered pages |
+| `--obscura-path <path>` | Path to Obscura binary (auto-detected if omitted) |
+| `--obscura-dump <format>` | Obscura output format: `html` (default) or `markdown` |
+
 ### Dynamic Engine/Category Discovery
 
 Unlike other CLI tools that hardcode supported engines and categories, this tool dynamically fetches them from your SearXNG server's `/config` endpoint:
@@ -807,6 +861,8 @@ npm run dev
 # Run locally
 npm start -- "search query"
 ```
+
+> ⚠️ **Skill 同步**：更新时，务必同步更新 `sxng` skill。
 
 ---
 

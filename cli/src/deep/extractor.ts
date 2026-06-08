@@ -1,21 +1,35 @@
 /**
- * Content extraction: Defuddle (linkedom) → Playwright fallback
+ * Content extraction: Defuddle (linkedom) → Obscura fallback
  */
 
 import { parseHTML } from 'linkedom';
 import { Defuddle } from 'defuddle/node';
+import { execFile } from 'child_process';
+import { promisify } from 'util';
+import { homedir } from 'os';
+import { join } from 'path';
+
+const execFileAsync = promisify(execFile);
 
 const DEFAULT_TIMEOUT_MS = 10_000;
 const DEFAULT_CONCURRENCY = 3;
 const MAX_RESPONSE_BYTES = 5 * 1024 * 1024;
 const MIN_CONTENT_LENGTH = 100;
-const PW_THRESHOLD = 50;
+const OBSCURA_THRESHOLD = 50;
+
+const OBSCURA_SEARCH_PATHS = [
+    'obscura',
+    join(homedir(), '.local/bin/obscura'),
+    '/usr/local/bin/obscura',
+];
 
 export interface ExtractorOptions {
     timeoutMs?: number;
     concurrency?: number;
     maxResponseBytes?: number;
-    playwright?: boolean;
+    obscura?: boolean;
+    obscuraPath?: string;
+    obscuraDumpFormat?: 'html' | 'markdown';
 }
 
 export interface ExtractedContent {
@@ -28,34 +42,28 @@ export interface ExtractedContent {
     length: number;
     extractedAt: number;
     error?: string;
-    method?: 'defuddle' | 'playwright';
+    method?: 'defuddle' | 'obscura';
 }
 
-type PwBrowser = any;
-type PwPage = any;
+let _obscuraAvailable: boolean | null = null;
 
-let _browser: PwBrowser | null = null;
-let _pwModule: any = null;
-
-async function loadPlaywright() {
-    if (_pwModule) return _pwModule;
-    try {
-        // @ts-ignore — playwright is an optional peer dependency
-        _pwModule = await import('playwright');
-        return _pwModule;
-    } catch { return null; }
+async function findObscura(path?: string): Promise<string | null> {
+    const candidates = path ? [path] : OBSCURA_SEARCH_PATHS;
+    for (const candidate of candidates) {
+        try {
+            await execFileAsync(candidate, ['--version'], { timeout: 5_000 });
+            return candidate;
+        } catch { continue; }
+    }
+    return null;
 }
 
-async function getBrowser(): Promise<PwBrowser | null> {
-    if (_browser) return _browser;
-    const pw = await loadPlaywright();
-    if (!pw) return null;
-    _browser = await pw.chromium.launch({ headless: true });
-    return _browser;
-}
-
-async function closeBrowser() {
-    if (_browser) { await _browser.close(); _browser = null; }
+async function isObscuraAvailable(path?: string): Promise<boolean> {
+    if (_obscuraAvailable !== null && !path) return _obscuraAvailable;
+    const found = await findObscura(path);
+    const available = found !== null;
+    if (!path) _obscuraAvailable = available;
+    return available;
 }
 
 async function defuddleExtract(html: string, url: string): Promise<ExtractedContent> {
@@ -107,17 +115,59 @@ async function defuddleExtract(html: string, url: string): Promise<ExtractedCont
     }
 }
 
+async function obscuraExtract(
+    url: string,
+    options: { timeoutMs: number; obscuraPath?: string; dumpFormat?: 'html' | 'markdown' }
+): Promise<ExtractedContent | null> {
+    const obscuraBin = await findObscura(options.obscuraPath);
+    if (!obscuraBin) return null;
+
+    try {
+        const dumpFormat = options.dumpFormat ?? 'html';
+        const timeoutSec = Math.ceil(options.timeoutMs / 1000);
+
+        const { stdout } = await execFileAsync(
+            obscuraBin,
+            ['fetch', url, '--dump', dumpFormat, '--timeout', String(timeoutSec)],
+            { timeout: options.timeoutMs + 5_000, maxBuffer: 10 * 1024 * 1024 }
+        );
+
+        if (!stdout || !stdout.trim()) return null;
+
+        if (dumpFormat === 'markdown') {
+            return {
+                title: '',
+                content: stdout.trim(),
+                excerpt: '',
+                url,
+                length: stdout.trim().length,
+                extractedAt: Date.now(),
+                method: 'obscura',
+            };
+        }
+
+        const html = stdout.trim();
+        const result = await defuddleExtract(html, url);
+        result.method = 'obscura';
+        return result;
+    } catch { return null; }
+}
+
 export class ContentExtractor {
     private timeoutMs: number;
     private concurrency: number;
     private maxResponseBytes: number;
-    private usePlaywright: boolean;
+    private useObscura: boolean;
+    private obscuraPath?: string;
+    private obscuraDumpFormat: 'html' | 'markdown';
 
     constructor(options?: ExtractorOptions) {
         this.timeoutMs = options?.timeoutMs ?? DEFAULT_TIMEOUT_MS;
         this.concurrency = options?.concurrency ?? DEFAULT_CONCURRENCY;
         this.maxResponseBytes = options?.maxResponseBytes ?? MAX_RESPONSE_BYTES;
-        this.usePlaywright = options?.playwright ?? false;
+        this.useObscura = options?.obscura ?? false;
+        this.obscuraPath = options?.obscuraPath;
+        this.obscuraDumpFormat = options?.obscuraDumpFormat ?? 'html';
     }
 
     async extract(url: string): Promise<ExtractedContent> {
@@ -127,10 +177,14 @@ export class ContentExtractor {
 
             if (result.content.length >= MIN_CONTENT_LENGTH) return result;
 
-            // Defuddle insufficient → Playwright fallback
-            if (this.usePlaywright && result.content.length < PW_THRESHOLD) {
-                const pwResult = await this.playwrightExtract(url);
-                if (pwResult && pwResult.content.length > result.content.length) return pwResult;
+            // Defuddle insufficient → Obscura fallback
+            if (this.useObscura && result.content.length < OBSCURA_THRESHOLD) {
+                const obsResult = await obscuraExtract(url, {
+                    timeoutMs: this.timeoutMs,
+                    obscuraPath: this.obscuraPath,
+                    dumpFormat: this.obscuraDumpFormat,
+                });
+                if (obsResult && obsResult.content.length > result.content.length) return obsResult;
             }
 
             if (result.content.length < MIN_CONTENT_LENGTH && !result.error) {
@@ -175,37 +229,8 @@ export class ContentExtractor {
         return html;
     }
 
-    // Sync wrapper for backward compat — uses Defuddle with useAsync:false
-    // Note: still async internally because defuddle/node export is async
     async extractFromHtml(html: string, url: string): Promise<ExtractedContent> {
         return defuddleExtract(html, url);
-    }
-
-    private async playwrightExtract(url: string): Promise<ExtractedContent | null> {
-        const browser = await getBrowser();
-        if (!browser) return null;
-
-        try {
-            const page = await browser.newPage();
-            await page.setExtraHTTPHeaders({ 'User-Agent': 'Mozilla/5.0 (compatible; SxngDeepSearch/1.0)' });
-
-            const response = await page.goto(url, {
-                waitUntil: 'networkidle',
-                timeout: this.timeoutMs,
-            });
-            if (!response || !response.ok()) {
-                await page.close();
-                return null;
-            }
-
-            await page.waitForTimeout(1000);
-            const html = await page.content();
-            await page.close();
-
-            const result = await defuddleExtract(html, url);
-            result.method = 'playwright';
-            return result;
-        } catch { return null; }
     }
 
     async extractBatch(urls: string[]): Promise<ExtractedContent[]> {
@@ -215,7 +240,6 @@ export class ContentExtractor {
             const batchResults = await Promise.all(batch.map(u => this.extract(u)));
             results.push(...batchResults);
         }
-        await closeBrowser();
         return results;
     }
 }

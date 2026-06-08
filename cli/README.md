@@ -28,7 +28,7 @@
 - 🔄 **Dynamic Discovery** — Auto-fetches available engines and categories from your SearXNG server
 - 📄 **Multiple Formats** — Markdown (LLM-optimized), JSON, CSV, or HTML output
 - 🧠 **Deep Search** — Multi-round iterative research with session accumulation and knowledge graph
-- 🔍 **Content Extraction** — Extract full article content from search results
+- 🔍 **Content Extraction** — Extract full article content from search results, with Obscura fallback for JS-heavy pages
 - 🗂️ **Session Management** — Accumulate search results across multiple rounds with deduplication
 - 🕸️ **Knowledge Graph** — Build semantic graphs of entities and relationships
 - ⚡ **Fast & Lightweight** — Built with TypeScript, minimal dependencies
@@ -54,6 +54,20 @@ cd sxng-cli/cli
 npm install
 npm run build
 npm link
+```
+
+### Obscura (Optional — for JS-heavy pages)
+
+Content extraction uses **Defuddle + linkedom** by default. For JS-rendered pages (SPAs), enable [Obscura](https://github.com/h4ckf0r0day/obscura):
+
+```bash
+# Linux x86_64
+curl -LO https://github.com/h4ckf0r0day/obscura/releases/latest/download/obscura-x86_64-linux.tar.gz
+tar xzf obscura-x86_64-linux.tar.gz
+cp obscura ~/.local/bin/
+
+# Verify
+obscura --version
 ```
 
 ## 🚀 Quick Start
@@ -82,6 +96,7 @@ npm link
 | `sxng <query>` | Perform a web search |
 | `sxng --queries "q1,q2"` | Multi-query search with RRF fusion |
 | `sxng extract --urls <urls>` | Extract content from web pages |
+| `sxng extract --obscura` | Extract with Obscura JS-rendering fallback |
 | `sxng --session new` | Create deep search session |
 | `sxng session-list` | List all sessions |
 | `sxng session-delete <session-name>` | Delete a session |
@@ -231,6 +246,8 @@ sxng --session <session-name> --queries "tokio vs async-std,benchmark 2024"
 - **GitHub:** https://github.com/hkwuks/sxng-cli
 - **npm:** https://www.npmjs.com/package/sxng-cli
 - **SearXNG:** https://github.com/searxng/searxng
+
+> ⚠️ **Skill 同步**：更新时，务必同步更新 `sxng` skill。
 
 ## 📄 License
 

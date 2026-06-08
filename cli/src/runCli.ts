@@ -744,7 +744,7 @@ export function createProgram(): Command {
         .option('-p, --page <n>', 'Page number for pagination', val => parseInt(val, 10))
         .option('--lang <code>', 'Language code (e.g., en, zh, ja)')
         .option('--time <range>', 'Time range: day, week, month, year, all')
-        .option('--output-format <fmt>', 'Output format: md (default), json')
+        .option('-f, --format <fmt>', 'Output format: md (default), json')
         .option('--queries <q1,q2,q3>', 'Multi-query with RRF fusion')
         .option('--merge <file>', 'Merge new results with previous search JSON')
         .option('--search-session <dir|new>', 'Session dir, or "new" to auto-create')
@@ -773,8 +773,15 @@ export function createProgram(): Command {
         .option('--urls <url1,url2>', 'URLs to extract content from')
         .option('--from-json <file>', 'Extract from search results JSON file')
         .option('--session <dir>', 'Extract from session results and merge content back')
+        .option('--obscura', 'Use Obscura as fallback for JS-heavy pages')
+        .option('--obscura-path <path>', 'Path to Obscura binary')
+        .option('--obscura-dump <format>', 'Obscura dump format: html, markdown', 'html')
         .action(async (opts) => {
-            const extractor = new ContentExtractor();
+            const extractor = new ContentExtractor({
+                obscura: opts.obscura ?? false,
+                obscuraPath: opts.obscuraPath,
+                obscuraDumpFormat: opts.obscuraDump === 'markdown' ? 'markdown' : 'html',
+            });
             const extractOptions: ExtractOptions = {
                 urls: opts.urls?.split(',').map((u: string) => u.trim()).filter(Boolean),
                 fromJson: opts.fromJson,
@@ -1145,7 +1152,7 @@ export async function runCli(args: string[], service: SearXNGService): Promise<n
                 thresholdOverride
             );
 
-            const outputFormat = (opts.outputFormat || config.defaultFormat) as 'json' | 'md';
+            const outputFormat = (opts.format || config.defaultFormat) as 'json' | 'md';
             if (outputFormat === 'md') {
                 console.log(formatQualityAsMarkdown(quality));
             } else {
@@ -1221,7 +1228,7 @@ export async function runCli(args: string[], service: SearXNGService): Promise<n
             page: opts.page,
             language: opts.lang,
             timeRange: opts.time,
-            format: opts.outputFormat,
+            format: opts.format,
             session: opts.searchSession,
             owner: opts.owner,
             desc: opts.desc,

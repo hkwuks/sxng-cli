@@ -1,18 +1,18 @@
 ---
 name: sxng
-description: "Web search using SearXNG CLI. Use when you need to search the web for current information, documentation, or research. Supports deep multi-round search with knowledge graph, quality assessment, recovery strategies, and content extraction. Triggers: 'search for', 'look up', 'find information', 'web search', 'deep search', 'deep dive', or any request needing up-to-date information."
+description: "Web search using SearXNG CLI. Use when you need to search the web for current information, documentation, or research. Supports deep multi-round search with knowledge graph, quality assessment, recovery strategies, and content extraction (including Obscura JS-rendering fallback for SPA/dynamic pages). Triggers: 'search for', 'look up', 'find information', 'web search', 'deep search', 'deep dive', 'extract content', 'JS rendering', 'SPA page', or any request needing up-to-date information."
 ---
 
 # SearXNG Web Search
 
-Use `sxng` CLI to search the web. Default output format: **md** for search & graph navigation commands (graph-search/explore/drill/traverse); **json** for analysis commands (graph-preprocess, suggest-queries, strategy-info, recovery-analysis, session-report, graph-obfuscate). Use `--output-format json` on main program or `-f json`/`-f md` on subcommands to override.
+Use `sxng` CLI to search the web. Default output format: **md** for search & graph navigation commands (graph-search/explore/drill/traverse); **json** for analysis commands (graph-preprocess, suggest-queries, strategy-info, recovery-analysis, session-report, graph-obfuscate). Use `-f` or `--format` to override.
 
 ## Quick Reference
 
 ```bash
 # Simple search
 sxng <query>                                # Search (markdown output)
-sxng --output-format json <query>           # Search (JSON output)
+sxng --format json <query>                  # Search (JSON output)
 sxng --queries "q1,q2,q3"                  # Multi-query with RRF fusion & dedup
 
 # Deep search session
@@ -22,6 +22,7 @@ sxng --search-session <session> "more queries"
 # Content extraction
 sxng extract --urls "url1,url2"             # Extract from URLs
 sxng extract --session <session>            # Extract session results
+sxng extract --urls "url1" --obscura        # Extract with JS-rendering fallback
 
 # Quality & iteration
 sxng --search-session <session> --quality   # Assess result quality
@@ -58,7 +59,7 @@ sxng --health                               # Check server status
 | `-p, --page` | `-p 2` | Pagination |
 | `--lang` | `--lang zh` | Result language (en, zh, ja, etc.) |
 | `--time` | `--time week` | Filter: day/week/month/year/all |
-| `--output-format` | `--output-format json` | Output format: md (default), json |
+| `--format` | `--format json` | Output format: md (default), json |
 | `--queries` | `--queries "q1,q2,q3"` | Multi-query with RRF fusion |
 | `--search-session` | `--search-session new` | Session dir or "new" to auto-create |
 | `--owner` | `--owner "agent-1"` | Session owner (stored in meta.json) |
@@ -69,15 +70,33 @@ sxng --health                               # Check server status
 
 ## Extract
 
-Extract full article content from web pages. You can use `sxng extract` or any other fetch tool (MCP, WebFetch, curl). `sxng extract` uses linkedom + Mozilla Readability internally.
+Extract full article content from web pages. Two-tier strategy: **Defuddle + linkedom** (fast, no browser) → **Obscura** (V8 JS rendering fallback for SPAs/dynamic pages).
 
 ```bash
 sxng extract --urls "https://example.com/a,https://example.com/b"
 sxng extract --from-json <session-name> search.json
 sxng extract --session <session-name>
+
+# With Obscura fallback for JS-heavy pages
+sxng extract --urls "https://spa-site.com" --obscura
+
+# Obscura direct markdown output (skips Defuddle re-parse, faster but no title/byline)
+sxng extract --urls "https://spa-site.com" --obscura --obscura-dump markdown
+
+# Custom Obscura path (auto-detected from PATH, ~/.local/bin/obscura, /usr/local/bin/obscura)
+sxng extract --urls "https://spa-site.com" --obscura --obscura-path /path/to/obscura
+
+# Session extract with Obscura fallback
+sxng extract --session <session> --obscura
 ```
 
-> **Note**: `sxng extract` is one option — any web fetch tool works for content extraction.
+| Option | Description |
+|--------|-------------|
+| `--obscura` | Enable Obscura JS-rendering fallback |
+| `--obscura-path <path>` | Path to Obscura binary (auto-detected if omitted) |
+| `--obscura-dump <format>` | `html` (default, re-parsed by Defuddle) or `markdown` (direct output, faster but no metadata) |
+
+> **Note**: `--session` (extract subcommand) vs `--search-session` (main command) — different flags for different commands.
 
 ## Deep Search
 
@@ -426,11 +445,13 @@ sxng session-delete --older 24
 
 ## Tips
 
-- Default format: search & graph nav commands → md; analysis commands (graph-preprocess, suggest-queries, strategy-info, recovery-analysis, session-report, graph-obfuscate) → json. Override with `--output-format json` on main program, `-f md`/`-f json` on subcommands.
+- Default format: search & graph nav commands → md; analysis commands (graph-preprocess, suggest-queries, strategy-info, recovery-analysis, session-report, graph-obfuscate) → json. Override with `-f` or `--format` on all commands.
 - Use `-c` or `-e` to target specific sources
 - Use `--time week/day` for recent information
 - Run `sxng --health` first if searches fail
 - Content extraction: use `sxng extract` or any other fetch tool — both work
+- `--session` (extract subcommand) vs `--search-session` (main search command) — different flags, different commands
+- Obscura auto-detects from PATH, `~/.local/bin/obscura`, `/usr/local/bin/obscura` — no `--obscura-path` needed if installed there
 - `graph-add` accepts session name or directory path
 - Use `--redundancy warn` to avoid repeating similar queries
 - Use `--quality` after each round to decide whether to continue
