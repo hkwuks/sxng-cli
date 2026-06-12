@@ -5,6 +5,8 @@
 import axios, { AxiosInstance } from 'axios';
 import { HttpsProxyAgent } from 'https-proxy-agent';
 import { config } from './config.js';
+import { normalizeUrl } from './deep/dedupe.js';
+import { SimHash } from './deep/simhash.js';
 
 export interface SearchOptions {
     query: string;
@@ -41,6 +43,40 @@ export interface SearchResponse {
         engine: string;
     }>;
     unresponsiveEngines: string[];
+}
+
+function dedupeResults(results: SearchResult[], simThreshold = 0.85): SearchResult[] {
+    // URL dedup — keeps first (highest score) per normalized URL
+    const urlSeen = new Map<string, SearchResult>();
+    for (const r of results) {
+        const norm = normalizeUrl(r.url);
+        if (!urlSeen.has(norm)) {
+            urlSeen.set(norm, r);
+        }
+    }
+    let out = Array.from(urlSeen.values());
+
+    // SimHash dedup — keeps first (highest score) per content similarity
+    const simhash = new SimHash();
+    const hashes: bigint[] = [];
+    const kept: SearchResult[] = [];
+    for (const r of out) {
+        const text = `${r.title} ${r.content}`;
+        const h = simhash.hash(text);
+        let isDuplicate = false;
+        for (const existing of hashes) {
+            if (simhash.similarity(h, existing) >= simThreshold) {
+                isDuplicate = true;
+                break;
+            }
+        }
+        if (!isDuplicate) {
+            kept.push(r);
+            hashes.push(h);
+        }
+    }
+
+    return kept;
 }
 
 export class SearXNGService {
@@ -141,9 +177,13 @@ export class SearXNGService {
                 return scoreB - scoreA;
             });
 
+            // Deduplicate: SimHash removes near-duplicate content,
+            // URL dedup catches what SearXNG missed (e.g. trailing slash variants)
+            const deduped = dedupeResults(results);
+
             const limitedResults = options.limit && options.limit > 0
-                ? results.slice(0, options.limit)
-                : results;
+                ? deduped.slice(0, options.limit)
+                : deduped;
 
             return {
                 query: data.query || options.query,

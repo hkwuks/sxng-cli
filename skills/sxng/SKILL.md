@@ -5,7 +5,7 @@ description: "Web search using SearXNG CLI. Use when you need to search the web 
 
 # SearXNG Web Search
 
-Use `sxng` CLI to search the web. Default output format: **md** for search & graph navigation commands (graph-search/explore/drill/traverse); **json** for analysis commands (graph-preprocess, suggest-queries, strategy-info, recovery-analysis, session-report, graph-obfuscate). Use `-f` or `--format` to override.
+Use `sxng` CLI to search the web. Results are automatically deduplicated: URL normalization (trailing slash, fragments, query param order) removes exact duplicates, then SimHash removes near-duplicate content (e.g. mirrors, reprints). Default output format: **md** for search & graph navigation commands (graph-search/explore/drill/traverse); **json** for analysis commands (graph-preprocess, suggest-queries, strategy-info, recovery-analysis, session-report, graph-obfuscate). Use `-f` or `--format` to override.
 
 ## Quick Reference
 
@@ -59,6 +59,7 @@ sxng --health                               # Check server status
 | `-p, --page` | `-p 2` | Pagination |
 | `--lang` | `--lang zh` | Result language (en, zh, ja, etc.) |
 | `--time` | `--time week` | Filter: day/week/month/year/all |
+| `--merge` | `--merge results.json` | Merge new results with previous search JSON |
 | `--format` | `--format json` | Output format: md (default), json |
 | `--queries` | `--queries "q1,q2,q3"` | Multi-query with RRF fusion |
 | `--search-session` | `--search-session new` | Session dir or "new" to auto-create |
@@ -107,7 +108,7 @@ Session stores three files:
 - **`graph.json`** — Knowledge graph (structural + semantic layers)
 - **`meta.json`** — Session metadata (owner, description, timestamps)
 
-> **For detailed SOP including L1/L2/L3 complexity levels and evidence standards, read `skills/references/SOP.md`**
+> **For detailed SOP including L1/L2/L3 complexity levels and evidence standards, read `skills/sxng/references/SOP.md`**
 
 ### 8-Phase Agent Workflow
 
@@ -320,14 +321,6 @@ sxng graph-obfuscate <session> --fallback-rules  # Apply rule-based obfuscation
 
 > **Note**: `--fallback-rules` is experimental. Recommended workflow: use `--list` to get candidates, have LLM generate obfuscated labels, then write them back via `graph-add`.
 
-#### query-graph (DEPRECATED)
-
-```bash
-sxng query-graph <session> --seeds "tokio" --depth 3
-```
-
-> **Deprecated**: Use `graph-explore` + `graph-drill` instead.
-
 ### Complete Example
 
 Research "Rust async ecosystem differences and recommendations":
@@ -455,5 +448,4 @@ sxng session-delete --older 24
 - `graph-add` accepts session name or directory path
 - Use `--redundancy warn` to avoid repeating similar queries
 - Use `--quality` after each round to decide whether to continue
-- `query-graph` is deprecated — use `graph-explore` + `graph-drill` instead
 - `graph-obfuscate --fallback-rules` is experimental — prefer LLM-generated labels
