@@ -3,6 +3,12 @@
  */
 
 import { Command } from 'commander';
+import { readFileSync } from 'fs';
+import { fileURLToPath } from 'url';
+import { dirname, join } from 'path';
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const pkg = JSON.parse(readFileSync(join(__dirname, '../package.json'), 'utf-8'));
 import { SearXNGService, SearchOptions, SearchResult, SearchResponse } from './service.js';
 import { createSuccessEnvelope, createErrorEnvelope } from './protocol.js';
 import { config } from './config.js';
@@ -29,7 +35,7 @@ import { runGraphDrill } from './commands/graph-drill.js';
 import { runGraphTraverse } from './commands/graph-traverse.js';
 import { runGraphSearch } from './commands/graph-search.js';
 import { DirectedGraph } from 'graphology';
-import { readFileSync, writeFileSync, existsSync } from 'fs';
+import { writeFileSync, existsSync } from 'fs';
 
 function formatAsMarkdown(data: any): string {
     const lines: string[] = [];
@@ -736,7 +742,7 @@ export function createProgram(): Command {
     program
         .name('sxng')
         .description('SearXNG CLI - Web Search Tool')
-        .version('1.0.9')
+        .version(pkg.version)
         .argument('[query]', 'Search query')
         .option('-e, --engines <engines>', 'Comma-separated list of search engines')
         .option('-c, --categories <cats>', 'Comma-separated list of categories')
