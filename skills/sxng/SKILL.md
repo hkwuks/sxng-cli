@@ -55,7 +55,7 @@ sxng --health                               # Check server status
 |--------|---------|---------|
 | `-e, --engines` | `-e google,github` | Specific search engines |
 | `-c, --categories` | `-c it,science` | Filter by category |
-| `-l, --search-limit` | `-l 20` | Max results (default: 10) |
+| `-l, --limit` | `-l 20` | Max results (default: 10) |
 | `-p, --page` | `-p 2` | Pagination |
 | `--lang` | `--lang zh` | Result language |
 | `--time` | `--time week` | Filter: day/week/month/year/all |

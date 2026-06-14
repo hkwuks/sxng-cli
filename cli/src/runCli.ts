@@ -746,7 +746,7 @@ export function createProgram(): Command {
         .argument('[query]', 'Search query')
         .option('-e, --engines <engines>', 'Comma-separated list of search engines')
         .option('-c, --categories <cats>', 'Comma-separated list of categories')
-        .option('-l, --search-limit <n>', 'Maximum number of results', val => parseInt(val, 10))
+        .option('-l, --limit <n>', 'Maximum number of results', val => parseInt(val, 10))
         .option('-p, --page <n>', 'Page number for pagination', val => parseInt(val, 10))
         .option('--lang <code>', 'Language code (e.g., en, zh, ja)')
         .option('--time <range>', 'Time range: day, week, month, year, all')
@@ -1077,7 +1077,7 @@ the command will list available path node IDs.`)
         .argument('<session>', 'Session directory or name')
         .description('Keyword search across entity labels (discover entities before exploring)')
         .requiredOption('--keyword <term>', 'Search keyword')
-        .option('--limit <n>', 'Max results', val => parseInt(val, 10), 10)
+        .option('-l, --limit <n>', 'Max results', val => parseInt(val, 10), 10)
         .option('-f, --format <fmt>', 'Output format: md (default), json')
         .addHelpText('after', `
 Examples:
@@ -1236,7 +1236,7 @@ export async function runCli(args: string[], service: SearXNGService): Promise<n
             queries,
             engines: opts.engines?.split(',').map((e: string) => e.trim()).filter(Boolean),
             categories: opts.categories?.split(',').map((c: string) => c.trim()).filter(Boolean),
-            limit: opts.searchLimit,
+            limit: opts.limit,
             page: opts.page,
             language: opts.lang,
             timeRange: opts.time,
