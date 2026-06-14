@@ -46,6 +46,10 @@
 npm install -g sxng-cli
 ```
 
+```bash
+npx skills add hkwuks/sxng-cli
+```
+
 Or from source:
 
 ```bash

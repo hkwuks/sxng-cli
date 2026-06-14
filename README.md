@@ -518,6 +518,10 @@ services:
 npm install -g sxng-cli
 ```
 
+```bash
+npx skills add hkwuks/sxng-cli
+```
+
 ### From Source
 
 ```bash

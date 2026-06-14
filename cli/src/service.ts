@@ -45,6 +45,10 @@ export interface SearchResponse {
     unresponsiveEngines: string[];
 }
 
+function filterEmptyResults(results: SearchResult[]): SearchResult[] {
+    return results.filter(r => r.title.trim().length > 0 && r.content.trim().length > 0);
+}
+
 function dedupeResults(results: SearchResult[], simThreshold = 0.85): SearchResult[] {
     // URL dedup — keeps first (highest score) per normalized URL
     const urlSeen = new Map<string, SearchResult>();
@@ -177,9 +181,12 @@ export class SearXNGService {
                 return scoreB - scoreA;
             });
 
+            // Filter out results with empty title or content
+            const filtered = filterEmptyResults(results);
+
             // Deduplicate: SimHash removes near-duplicate content,
             // URL dedup catches what SearXNG missed (e.g. trailing slash variants)
-            const deduped = dedupeResults(results);
+            const deduped = dedupeResults(filtered);
 
             const limitedResults = options.limit && options.limit > 0
                 ? deduped.slice(0, options.limit)

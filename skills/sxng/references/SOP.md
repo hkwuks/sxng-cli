@@ -1,88 +1,92 @@
 # SXNG DeepSearch SOP
 
-> 标准操作流程 for 多轮深度调研（Session + Knowledge Graph + Quality Assessment + Recovery）
+> Standard Operating Procedure for multi-round deep research (Session + Knowledge Graph + Quality Assessment + Recovery)
 
-## 一、核心理念
+> **Flag distinction**: `--search-session` is for the main search command; `--session` is for the extract subcommand. Do not mix them.
 
-**搜索 ≠ 答案**。单次搜索返回的是原始信息，不是验证过的事实。本 SOP 通过**多轮迭代 + 知识图谱 + 质量评估 + 恢复策略**确保输出质量。
+## 1. Core Philosophy
 
-**工作流程**：
+**Search ≠ Answer**. A single search returns raw information, not verified facts. This SOP ensures output quality through **multi-round iteration + knowledge graph + quality assessment + recovery strategies**.
+
+**Workflow**:
 
 ```
-意图分析 → 查询规划 → 多源搜索 → 内容提取 → 图谱构建 → 质量评估 → 恢复/建议 → (循环或输出)
+Intent Analysis → Query Planning → Multi-source Search → Content Extraction → Graph Building → Quality Assessment → Recovery/Suggestions → (Loop or Output)
 ```
 
 ---
 
-## 二、触发条件
+## 2. Trigger Conditions
 
-### 何时使用 Deep Search（`--search-session`）
+### When to Use Deep Search (`--search-session`)
 
-| 场景 | 示例 |
-|------|------|
-| 多维度信息整合 | "2026 年主流向量数据库对比" |
-| 信息分散需交叉验证 | "PostgreSQL vs MySQL 性能基准" |
-| 技术选型/调研报告 | "Rust async 生态系统分析" |
-| 追踪话题演变 | "AI 推理模型发展历程" |
-| 初始搜索信息不足 | 返回结果 < 5 条相关 |
+| Scenario | Example |
+|----------|---------|
+| Multi-dimensional information synthesis | "2026 mainstream vector database comparison" |
+| Scattered information requiring cross-validation | "PostgreSQL vs MySQL performance benchmarks" |
+| Tech selection / research report | "Rust async ecosystem analysis" |
+| Tracking topic evolution | "AI reasoning model development history" |
+| Initial search yields insufficient results | Fewer than 5 relevant results |
 
-### 何时使用简单搜索（无 `--search-session`）
+### When to Use Simple Search (no `--search-session`)
 
-| 场景 | 示例 |
-|------|------|
-| 具体事实查询 | "Python dict get 方法用法" |
-| 定位官方文档 | "FastAPI 官方文档地址" |
-| 错误解决方案 | "Docker port already allocated 解决" |
-| 最新版本号 | "React 最新版本" |
+| Scenario | Example |
+|----------|---------|
+| Specific fact lookup | "Python dict get method usage" |
+| Locating official docs | "FastAPI official documentation URL" |
+| Error resolution | "Docker port already allocated fix" |
+| Latest version number | "React latest version" |
 
 ---
 
-## 三、复杂度分级（L1/L2/L3）
+## 3. Complexity Levels (L1/L2/L3)
 
-根据问题复杂度选择工具序列：
+Choose tool sequences based on problem complexity:
 
-### L1：单一事实（1-2 轮搜索）
+### L1: Single Fact (1-2 search rounds)
 
-**特征**：
-- 答案唯一、无争议
-- 1-2 个关键词即可覆盖
-- 无需深度比较
+**Characteristics**:
+- Unique, uncontroversial answer
+- 1-2 keywords cover the topic
+- No deep comparison needed
 
-**工具序列**：
+**Tool Sequence**:
 
 ```bash
-# Step 1: 单次搜索
+# Step 1: Single search
 sxng "FastAPI latest version" --search-limit 5
 
-# Step 2（可选）：提取官方页面验证
+# Step 2 (optional): Extract official page for verification
 sxng extract --urls "https://pypi.org/project/fastapi/"
 ```
 
-**停止条件**：
-- [x] 找到 >= 1 个权威来源（官方文档/PyPI/GitHub）
-- [x] 信息无矛盾
+**Stop Conditions**:
+- [x] Found >= 1 authoritative source (official docs / PyPI / GitHub)
+- [x] No conflicting information
 
 ---
 
-### L2：多角度比较（2-4 轮搜索）
+### L2: Multi-angle Comparison (2-4 search rounds)
 
-**特征**：
-- 2-5 个候选对象对比
-- 需要多个维度（性能/功能/定价）
-- 信息需交叉验证
+**Characteristics**:
+- Comparing 2-5 candidates
+- Multiple dimensions needed (performance / features / pricing)
+- Information requires cross-validation
 
-**工具序列**：
+**Tool Sequence**:
 
 ```bash
-# Step 1: 创建 Session
+# Step 1: Create Session
 sxng --search-session new --owner "agent-1" --desc "Vector DB comparison" \
      "vector database 2026 Pinecone Weaviate Qdrant comparison"
 
-# Step 2: 预处理 + 提取
+# Step 2: Preprocess + extract
 sxng graph-preprocess <session> --format json
 sxng extract --session <session>
+# For JS-heavy pages (SPAs), add --obscura fallback:
+# sxng extract --session <session> --obscura
 
-# Step 3: 构建知识图谱
+# Step 3: Build knowledge graph
 sxng graph-add <session> --data '{
   "entities": [
     {"label": "Pinecone", "entityType": "product", "score": 0.9},
@@ -94,62 +98,63 @@ sxng graph-add <session> --data '{
   ]
 }'
 
-# Step 4: 质量评估
+# Step 4: Quality assessment
 sxng --search-session <session> --quality
 
-# Step 5: 如质量未达标，获取建议 + 补充搜索
+# Step 5: If quality not met, get suggestions + supplementary search
 sxng suggest-queries <session> --format json
 sxng --search-session <session> --queries \
      "Pinecone pricing 2026,Weaviate vs Qdrant benchmark" --redundancy warn
 
-# Step 6: 探索图谱验证覆盖度
+# Step 6: Explore graph to verify coverage
 sxng graph-explore <session> --seed "Pinecone" --format json
 ```
 
-**停止条件**：
-- [x] 质量评估 verdict 为 good 或 acceptable
-- [x] 每个候选对象 >= 2 个独立来源
-- [x] 图谱关键实体已连接
+**Stop Conditions**:
+- [x] Quality assessment verdict is good or acceptable
+- [x] Each candidate has >= 2 independent sources
+- [x] Key entities connected in graph
 
 ---
 
-### L3：深度调研（4+ 轮搜索）
+### L3: Deep Research (4+ search rounds)
 
-**特征**：
-- 研究级报告
-- 需系统性地覆盖子话题
-- 信息可能冲突需裁决
+**Characteristics**:
+- Research-grade report
+- Systematic coverage of subtopics required
+- Information may conflict, requiring adjudication
 
-**标准操作流程（8 Phase SOP）**：
+**Standard Operating Procedure (8-Phase SOP)**:
 
-#### Phase 1: 意图分析与初始搜索
+#### Phase 1: Intent Analysis & Initial Search
 
-**产出**：
-- 核心问题一句话
-- 拆解为 3-7 个子查询
+Sessions are stored under `~/sxng-cli/sessions/` by default.
+
+**Output**:
+- Core question in one sentence
+- Decomposed into 3-7 sub-queries
 
 ```bash
-# 创建 Session 并首轮搜索
 sxng --search-session new --owner "researcher" --desc "RAG Vector DB deep research" \
      --queries "vector database 2026 ranking,vector DB for RAG comparison"
 ```
 
-#### Phase 2: 预处理与实体发现
+#### Phase 2: Preprocessing & Entity Discovery
 
 ```bash
-# 获取 TF-IDF 词项、共现对、已有实体
+# Get TF-IDF terms, co-occurrence pairs, existing entities
 sxng graph-preprocess <session> --format json
 
-# 提取关键页面内容
+# Extract key page content
 sxng extract --session <session>
 ```
 
-**Agent 判断逻辑**：
-- 选择 tfidf > 阈值 且未在已有实体列表中的词项
-- 优先选择与其他词项共现次数高的词（连接度高）
-- 避免选择过于宽泛的词
+**Agent Decision Logic**:
+- Select terms with tfidf > threshold that are not in existing entity list
+- Prioritize terms with high co-occurrence count (high connectivity)
+- Avoid overly broad terms
 
-#### Phase 3: 构建知识图谱
+#### Phase 3: Build Knowledge Graph
 
 ```bash
 sxng graph-add <session> --data '{
@@ -158,93 +163,101 @@ sxng graph-add <session> --data '{
 }'
 ```
 
-#### Phase 4: 质量评估
+The knowledge graph has two layers:
+- **Structural** (auto-built): query→result→domain nodes and edges
+- **Semantic** (added by you via `graph-add`): entity nodes with custom relation edges
+
+When adding edges, `source`/`target` must reference existing node IDs. Node ID prefix rules:
+
+| Prefix | Type | Format | Example |
+|--------|------|--------|---------|
+| `e:` | Entity | `e:<label>` | `e:tokio` |
+| `r:` | Result | `r:<url>` | `r:https_tokio_rs_` |
+| `q:` | Query | `q:<query>` | `q:rust_async` |
+| `d:` | Domain | `d:<domain>` | `d:github_com` |
+| `p:` | Path | `p:<type>_<num>` | `p:chain_001` |
+
+References to non-existent nodes are skipped and reported in `skippedEdges`.
+
+#### Phase 4: Quality Assessment
 
 ```bash
 sxng --search-session <session> --quality
 ```
 
-5 个独立指标：
+5 independent indicators (resultCount, contentDepth, entityRichness, sourceDiversity, novelty), each with its own threshold.
 
-| 指标 | 阈值 | 含义 |
-|------|------|------|
-| resultCount | >= 5 | 结果数量 |
-| contentDepth | >= 150 chars | 已提取内容平均长度 |
-| entityRichness | >= 2 | Agent 添加的实体数 |
-| sourceDiversity | >= 3 | 不同域名数 |
-| novelty | >= 0.3 | 新颖结果比例 |
+| Verdict | Action |
+|---------|--------|
+| good | Enter Phase 8 (graph exploration) or synthesize output |
+| acceptable | Enter Phase 5 (query suggestions), targeted supplementation |
+| poor | Enter Phase 7 (recovery analysis) |
 
-| verdict | 动作 |
-|---------|------|
-| good | 进入 Phase 8（图谱探索）或综合输出 |
-| acceptable | 进入 Phase 5（查询建议），针对性补充 |
-| poor | 进入 Phase 7（恢复分析） |
-
-#### Phase 5: 查询建议
+#### Phase 5: Query Suggestions
 
 ```bash
 sxng suggest-queries <session> --format json
 ```
 
-**Agent 判断逻辑**：
-- `topEntities` 中有高 degree × frequency 但未充分探索的实体 → 以其为关键词搜索
-- `unexploredDomains` 非空 → 选择新域名相关的查询词
-- `qualityLastRound.failedIndicators` 包含 "sourceDiversity" → 添加 `-e` 参数使用不同引擎
+**Agent Decision Logic**:
+- `topEntities` has high degree × frequency but unexplored entities → search using them as keywords
+- `unexploredDomains` is non-empty → choose query terms related to new domains
+- `qualityLastRound.failedIndicators` contains "sourceDiversity" → add `-e` flag to use different engines
 
-#### Phase 6: 继续搜索（带冗余检查）
+#### Phase 6: Continue Search (with Redundancy Check)
 
 ```bash
 sxng "follow-up query" --search-session <session> --redundancy warn
 ```
 
-→ 回到 Phase 2，循环直到质量满意
+→ Return to Phase 2, loop until quality is satisfactory
 
-#### Phase 7: 恢复分析（连续质量不佳时）
+#### Phase 7: Recovery Analysis (when consecutive poor quality)
 
 ```bash
 sxng recovery-analysis <session> --format json
 ```
 
-| 策略 | 适用场景 | Agent 动作 |
-|------|----------|-----------|
-| reformulate | 查询过于具体，结果太少 | 移除限定词，使用更宽泛表达 |
-| engine_rotation | 当前引擎未返回结果 | 更换引擎组合（如从 google 换到 arxiv+github） |
-| category_shift | 当前分类结果质量差 | 切换到不同分类（如从 general 到 it） |
-| backtrack | 连续 >=2 轮 poor | 回到最近 good 质量的轮次，沿不同方向继续 |
+| Strategy | Applicable Scenario | Agent Action |
+|----------|---------------------|-------------|
+| reformulate | Query too specific, too few results | Remove qualifiers, use broader terms |
+| engine_rotation | Current engine missed results | Switch engine combination (e.g., google → arxiv+github) |
+| category_shift | Current category has poor results | Switch to different category (e.g., general → it) |
+| backtrack | >=2 consecutive poor rounds | Return to last good quality round, explore different direction |
 
-也可查看搜索阶段建议：
+Also check search stage suggestions:
 
 ```bash
 sxng strategy-info <session> --format json
 ```
 
-- `broad_exploration`：前 2-3 轮，使用通用引擎
-- `targeted_deep_dive`：实体增长放缓后，切换到专业引擎（arxiv, github, semantic_scholar）
+- `broad_exploration`: First 2-3 rounds, use general engines
+- `targeted_deep_dive`: After entity growth slows, switch to specialized engines (arxiv, github, semantic_scholar)
 
-#### Phase 8: 图谱探索（质量达标后导航知识空间）
+#### Phase 8: Graph Exploration (navigate knowledge space after quality is good)
 
 ```bash
-# 发现实体
+# Discover entities
 sxng graph-search <session> --keyword <term> --format json
 
-# 查看实体关系
+# View entity relations
 sxng graph-explore <session> --seed <entity> --format json
 
-# 深入特定关系
+# Drill into specific relations
 sxng graph-drill <session> --seed <entity> --relations <list> --format json
 
-# 遍历推理路径
+# Traverse reasoning paths
 sxng graph-traverse <session> --path <path-id> --format json
 ```
 
-**Agent 判断逻辑**：
-1. 检查 `suggestedNextSteps` 中的推荐命令
-2. 评估各关系的 weight 和 target 的 score
-3. 选择 weight 最高且未访问过的关系方向
-4. 使用 `graph-drill` 获取具体三元组
-5. 如遇到 dead end，使用 alternativePaths 建议
+**Agent Decision Logic**:
+1. Check recommended commands in `suggestedNextSteps`
+2. Evaluate weight and target score of each relation
+3. Choose the relation direction with highest weight that hasn't been visited
+4. Use `graph-drill` to get specific triples
+5. If dead end, use alternativePaths suggestions
 
-#### 查看完整会话报告
+#### View Full Session Report
 
 ```bash
 sxng session-report <session> --format json
@@ -252,168 +265,162 @@ sxng session-report <session> --format json
 
 ---
 
-## 四、搜索规划框架
+## 4. Search Planning Framework
 
-### 4.1 意图分析
+### 4.1 Intent Analysis
 
-从用户问题中提取：
+Extract from user question:
 
-| 字段 | 说明 | 示例 |
-|------|------|------|
-| `core_question` | 一句话重述 | "2026 Q2 最适合 RAG 的向量数据库？" |
+| Field | Description | Example |
+|-------|-------------|---------|
+| `core_question` | One-sentence restatement | "Best vector DB for RAG in 2026 Q2?" |
 | `query_type` | factual/comparative/exploratory | "comparative" |
 | `time_sensitivity` | realtime/recent/historical | "recent" |
-| `terms_to_verify` | 需先验证的术语 | ["RAG workload", "HNSW"] |
+| `terms_to_verify` | Terms to verify first | ["RAG workload", "HNSW"] |
 
-### 4.2 查询拆解原则
+### 4.2 Query Decomposition Principles
 
-- **非重叠**：子查询之间不重复
-- **依赖标注**：B 依赖 A 的结果时标注 `depends_on: [A]`
-- **数量上限**：3-7 个子查询，超过需拆分课题
+- **Non-overlapping**: Sub-queries should not duplicate each other
+- **Dependency annotation**: When B depends on A's results, annotate `depends_on: [A]`
+- **Quantity limit**: 3-7 sub-queries; if exceeded, split the topic
 
-### 4.3 策略选择
+### 4.3 Strategy Selection
 
-| 策略 | 适用场景 |
-|------|----------|
-| `broad_exploration` | 探索型（"有哪些选项"）— 前 2-3 轮 |
-| `targeted_deep_dive` | 分析型（候选已定，需细节）— 实体增长放缓后 |
+| Strategy | Applicable Scenario |
+|----------|---------------------|
+| `broad_exploration` | Exploratory ("what are the options") — first 2-3 rounds |
+| `targeted_deep_dive` | Analytical (candidates identified, need details) — after entity growth slows |
 
-使用 `strategy-info` 命令判断当前阶段：
-
-```bash
-sxng strategy-info <session> --format json
-```
+Use `strategy-info` command to determine current stage.
 
 ---
 
-## 五、证据标准
+## 5. Evidence Standards
 
-### 5.1 来源质量
+### 5.1 Source Quality
 
-**白名单（倾向信任）**：
-- 官方文档（docs.*, README, 官方站点）
-- 包管理器（PyPI, npm, crates.io）
-- 标准文档（PEP, RFC, W3C）
-- 学术来源（arxiv.org, ACM, IEEE）
+**White List (trust by default)**:
+- Official documentation (docs.*, README, official sites)
+- Package managers (PyPI, npm, crates.io)
+- Standards documents (PEP, RFC, W3C)
+- Academic sources (arxiv.org, ACM, IEEE)
 
-**灰区（谨慎使用）**：
-- 技术博客（看作者权威性）
-- Stack Overflow（看投票和采纳）
-- GitHub Issues（取趋势信号，不当定论）
+**Grey Zone (use cautiously)**:
+- Tech blogs (check author authority)
+- Stack Overflow (check votes and accepted answers)
+- GitHub Issues (take trend signals, not as conclusions)
 
-**黑名单（避免）**：
-- SEO 农场（关键词堆砌、机器生成）
-- AI 机翻聚合站
-- 无发布时间的内容
+**Black List (avoid)**:
+- SEO farms (keyword stuffing, machine-generated)
+- AI-translated aggregator sites
+- Content without publication dates
 
-### 5.2 交叉验证
+> When presenting search results, follow the Result Quality Filtering principle: keep liberally, filter conservatively — when uncertain, keep rather than delete (see Section 5.1).
 
-**硬性要求**：
-- 每个事实性结论 >= 2 个独立来源
-- "独立" = 不同域名 + 不同作者 + 非相互转载
+### 5.2 Cross-Validation
 
-**单一权威来源不需要 Low 标注**：
+**Hard Requirement**:
+- Each factual conclusion needs >= 2 independent sources
+- "Independent" = different domain + different author + not cross-posted
+
+**Single authoritative source does not need Low annotation**:
 ```
-FastAPI 0.136.0 发布于 2026-04-16。
+FastAPI 0.136.0 was released on 2026-04-16.
 Sources:
 - [fastapi - PyPI](https://pypi.org/project/fastapi/)
 ```
-**单一非权威来源需标注**：
+**Single non-authoritative source needs annotation**:
 ```
-某公司计划开源其内部框架（置信度: Low，单一非官方来源）
-— 仅一家科技媒体报道，公司官方未确认。
+A company plans to open-source its internal framework (Confidence: Low, single non-official source)
+— Only one tech media report, company has not confirmed.
 
 Sources:
-- [某科技媒体报道](https://example.com/article)
+- [Tech media report](https://example.com/article)
 ```
 
-### 5.3 冲突处理
+### 5.3 Conflict Resolution
 
-当来源说法不一致时：
+When sources disagree:
 
-1. **不隐藏分歧** — 展示双方证据
-2. **评估权威性** — 官方 > 主流媒体 > 自媒体
-3. **评估时效性** — 近期 > 远期
-4. **给出判断** — 说明依据或诚实标注不确定
+1. **Don't hide disagreements** — present evidence from both sides
+2. **Assess authority** — official > mainstream media > self-media
+3. **Assess timeliness** — recent > older
+4. **Give judgment** — explain reasoning or honestly mark as uncertain
 
-### 5.4 引用格式
+### 5.4 Citation Format
 
-- 每条来源使用 markdown 链接：`[标题](URL)`
-- 禁止：编造 URL、只给标题不给链接、使用"多个来源显示"等无证据措辞
-
----
-
-## 六、工具速查表
-
-### 场景 → 工具映射
-
-| 场景 | 命令 | 备注 |
-|------|------|------|
-| 单一事实查询 | `sxng "query"` | 不需要 `--search-session` |
-| 创建深度研究 | `sxng --search-session new --owner "x" --desc "y" "query"` | 返回 session 路径 |
-| 多查询并行 | `sxng --search-session x --queries "q1,q2,q3"` | RRF 融合去重 |
-| 提取内容 | `sxng extract --session x` | 批量提取 URL |
-| 预处理分析 | `sxng graph-preprocess x` | TF-IDF + 共现 + 实体上下文 |
-| 添加图谱实体 | `sxng graph-add x --data '...'` | JSON 格式 |
-| 质量评估 | `sxng --search-session x --quality` | 5 指标独立判定 |
-| 查询建议 | `sxng suggest-queries x` | topEntities + unexploredDomains |
-| 搜索阶段 | `sxng strategy-info x` | broad vs targeted |
-| 恢复分析 | `sxng recovery-analysis x` | 4 种恢复策略 |
-| 会话报告 | `sxng session-report x` | 质量 + 策略 + 建议 |
-| 发现实体 | `sxng graph-search x --keyword "k" [--limit N]` | 按 score×degree 排名 |
-| 探索关系 | `sxng graph-explore x --seed "e"` | 出入边 + 下一步建议 |
-| 深入关系 | `sxng graph-drill x --seed "e" --relations "r1,r2"` | 三元组 + 下一步 |
-| 推理路径 | `sxng graph-traverse x --path "p:chain_001"` | 按跳数遍历 |
-| 混淆实体 | `sxng graph-obfuscate x --list` | 实验性 |
-| 冗余检查 | `--redundancy warn` | warn/adjust/skip |
-| 列出 Sessions | `sxng session-list` | 查看统计 |
-| 清理旧数据 | `sxng session-delete --older 24` | 删除 24h 前 |
-
-### 常用参数
-
-| 参数 | 用途 |
-|------|------|
-| `-e google,github` | 指定搜索引擎 |
-| `-c it,science` | 指定分类 |
-| `--time week` | 时间过滤 |
-| `--format json` / `-f json` | JSON 输出 |
-| `-l 20` / `--search-limit 20` | 结果数量 |
-| `--lang zh` | 语言过滤 |
+- Each source uses markdown link: `[Title](URL)`
+- Forbidden: fabricating URLs, title without link, using evidence-free phrases like "multiple sources indicate"
 
 ---
 
-## 七、自检清单
+## 6. Tool Quick Reference
 
-在输出最终答案前检查：
+### Scenario → Tool Mapping
 
-- [ ] 每个事实性结论都有 `[标题](URL)` 引用
-- [ ] 单一来源结论标注了 **置信度: Low**
-- [ ] 来源分歧处展示了双方证据
-- [ ] 使用了 `sxng extract` 提取关键页面内容
-- [ ] L2/L3 级别使用了 `--search-session` 和知识图谱
-- [ ] L3 级别使用了 `--quality` 评估并据此决定下一步
-- [ ] 没有使用"一般认为/据报道"等无来源措辞
-- [ ] 图谱覆盖度已通过 `graph-explore` 验证
+| Scenario | Command | Notes |
+|----------|---------|-------|
+| Single fact lookup | `sxng "query"` | No `--search-session` needed |
+| Create deep research | `sxng --search-session new --owner "x" --desc "y" "query"` | Returns session path |
+| Multi-query parallel | `sxng --search-session x --queries "q1,q2,q3"` | RRF fusion & dedup |
+| Extract content | `sxng extract --session x` | Batch extract URLs |
+| Preprocessing analysis | `sxng graph-preprocess x` | TF-IDF + co-occurrence + entity context |
+| Add graph entities | `sxng graph-add x --data '...'` | JSON format |
+| Quality assessment | `sxng --search-session x --quality` | 5 independent indicators |
+| Query suggestions | `sxng suggest-queries x` | topEntities + unexploredDomains |
+| Search stage | `sxng strategy-info x` | broad vs targeted |
+| Recovery analysis | `sxng recovery-analysis x` | 4 recovery strategies |
+| Session report | `sxng session-report x` | Quality + strategy + suggestions |
+| Discover entities | `sxng graph-search x --keyword "k" [--limit N]` | Ranked by score×degree |
+| Explore relations | `sxng graph-explore x --seed "e"` | In/out edges + next step suggestions |
+| Drill into relations | `sxng graph-drill x --seed "e" --relations "r1,r2"` | Triples + next steps |
+| Reasoning paths | `sxng graph-traverse x --path "p:chain_001"` | Traverse by hops |
+| Obfuscate entities | `sxng graph-obfuscate x --list` | List entities with PII risk for label replacement |
+| Redundancy check | `--redundancy warn` | warn/adjust/skip |
+| List sessions | `sxng session-list` | View statistics |
+| Clean old data | `sxng session-delete --older 24` | Delete older than 24h |
+
+### Common Parameters
+
+| Parameter | Purpose |
+|-----------|---------|
+| `-e google,github` | Specify search engines |
+| `-c it,science` | Specify categories |
+| `--time week` | Time filter |
+| `--format json` / `-f json` | JSON output |
+| `-l 20` / `--search-limit 20` | Result count |
+| `--lang zh` | Language filter |
 
 ---
 
-## 八、完整示例
+## 7. Self-Check List
 
-### L3 示例："2026 年向量数据库深度对比"
+Before outputting final answer, verify:
+
+- [ ] Every factual conclusion has `[Title](URL)` citation
+- [ ] Single-source conclusions are marked **Confidence: Low**
+- [ ] Source disagreements show evidence from both sides
+- [ ] Used `sxng extract` to extract key page content
+- [ ] L2/L3 levels used `--search-session` and knowledge graph
+- [ ] L3 level used `--quality` assessment and decided next steps accordingly
+- [ ] No evidence-free phrases like "it is generally believed" / "reports indicate"
+- [ ] Graph coverage verified via `graph-explore`
+
+---
+
+## 8. Complete Example
+
+### L3 Example: "2026 Vector Database Deep Comparison"
 
 ```bash
-# === Phase 1: 创建 Session ===
+# Phase 1: Create Session
 sxng --search-session new --owner "researcher" --desc "Vector DB deep research 2026" \
      --queries "vector database 2026 ranking,vector DB for RAG comparison"
-# 输出: Session created at ~/sxng-cli/sessions/ds_1234567890_abcdef
-
 SESSION="ds_1234567890_abcdef"
 
-# === Phase 2: 预处理 + 提取 ===
+# Phase 2-3: Preprocess + extract + build graph
 sxng graph-preprocess $SESSION --format json
 sxng extract --session $SESSION
-
-# === Phase 3: 构建知识图谱 ===
 sxng graph-add $SESSION --data '{
   "entities": [
     {"label": "Pinecone", "entityType": "managed_service", "score": 0.95},
@@ -427,47 +434,45 @@ sxng graph-add $SESSION --data '{
   ]
 }'
 
-# === Phase 4: 质量评估 ===
+# Phase 4: Quality assessment
 sxng --search-session $SESSION --quality
 
-# === Phase 5: 查询建议（如质量未达 good）===
+# Phase 5-6: If quality not met, supplementary search
 sxng suggest-queries $SESSION --format json
-
-# === Phase 6: 第二轮搜索（带冗余检查）===
 sxng --search-session $SESSION --queries \
      "Qdrant rust implementation,HNSW vs IVF performance" --redundancy warn
 
-# === 再次提取 + 构建图谱 + 评估 ===
+# Re-extract + build graph + assess
 sxng extract --session $SESSION
 sxng graph-add $SESSION --data '{"entities":[...],"edges":[...]}'
 sxng --search-session $SESSION --quality
 
-# === Phase 7: 恢复分析（如连续 poor）===
+# Phase 7: Recovery when consecutive poor rounds
 sxng recovery-analysis $SESSION --format json
 sxng strategy-info $SESSION --format json
 
-# === Phase 8: 图谱探索（质量达标后）===
+# Phase 8: Graph exploration
 sxng graph-search $SESSION --keyword "vector"
 sxng graph-explore $SESSION --seed "Pinecone" --format json
 sxng graph-drill $SESSION --seed "Pinecone" --relations "uses,competitor" --format json
 
-# === 清理 ===
-sxng session-delete $SESSION  # 完成后删除
+# Cleanup
+sxng session-delete $SESSION
 ```
 
-## 九、反模式（Don'ts）
+## 9. Anti-Patterns (Don'ts)
 
-| 反模式 | 正确做法 |
-|--------|----------|
-| 单次搜索就给出结论 | L2/L3 使用 `--search-session` 多轮迭代 |
-| 只用一个来源 | 每个事实 >= 2 独立来源交叉验证 |
-| 忽略来源质量 | 区分白名单/灰区/黑名单来源 |
-| 隐藏信息分歧 | 展示分歧并说明判断依据 |
-| 编造引用链接 | 只使用真实访问过的 URL |
-| 不提取内容只读摘要 | 对关键来源使用 `extract` |
-| 知识图谱建完不查询 | 使用 `graph-explore` 验证覆盖度 |
-| 不评估质量就继续搜索 | 每轮用 `--quality` 评估，据此决策 |
-| 重复查询浪费轮次 | 使用 `--redundancy warn` 检查冗余 |
-| 连续 poor 不恢复 | 使用 `recovery-analysis` 获取策略建议 |
-| Session 用完不清理 | 定期 `session-delete --older` |
-| 使用 `query-graph` | 已废弃，使用 `graph-explore` + `graph-drill` |
+| Anti-Pattern | Correct Approach |
+|-------------|-----------------|
+| Drawing conclusions from a single search | Use `--search-session` multi-round iteration for L2/L3 |
+| Using only one source | Cross-validate each fact with >= 2 independent sources |
+| Ignoring source quality | Distinguish white list / grey zone / black list sources |
+| Hiding information disagreements | Present disagreements and explain judgment basis |
+| Fabricating citation links | Only use URLs actually visited |
+| Reading summaries without extracting content | Use `extract` for key sources |
+| Building knowledge graph without querying it | Use `graph-explore` to verify coverage |
+| Continuing search without quality assessment | Use `--quality` each round, decide accordingly |
+| Repeating queries wasting rounds | Use `--redundancy warn` to check redundancy |
+| Not recovering from consecutive poor rounds | Use `recovery-analysis` for strategy suggestions |
+| Not cleaning up sessions after use | Regularly run `session-delete --older` |
+| Using `query-graph` | Deprecated, use `graph-explore` + `graph-drill` |
