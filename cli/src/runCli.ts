@@ -1100,6 +1100,12 @@ export async function runCli(args: string[], service: SearXNGService): Promise<n
     program.action(async (query, opts) => {
         const queryString = query || '';
 
+        if (opts.version) {
+            console.log(program.version());
+            process.exit(0);
+            return;
+        }
+
         if (opts.health) {
             const health = await service.healthCheck();
             const envelope = health.status === 'healthy'
