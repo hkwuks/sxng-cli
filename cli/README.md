@@ -50,6 +50,12 @@ npm install -g sxng-cli
 npx skills add hkwuks/sxng-cli
 ```
 
+> ⚠️ **Skill 同步**：更新 `sxng-cli` 后，请同步更新 `sxng` skill 以保持功能一致：
+>
+> ```bash
+> npx skills update hkwuks/sxng-cli
+> ```
+
 Or from source:
 
 ```bash
@@ -250,8 +256,6 @@ sxng --session <session-name> --queries "tokio vs async-std,benchmark 2024"
 - **GitHub:** https://github.com/hkwuks/sxng-cli
 - **npm:** https://www.npmjs.com/package/sxng-cli
 - **SearXNG:** https://github.com/searxng/searxng
-
-> ⚠️ **Skill 同步**：更新时，务必同步更新 `sxng` skill。
 
 ## 📄 License
 

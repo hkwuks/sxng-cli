@@ -522,6 +522,12 @@ npm install -g sxng-cli
 npx skills add hkwuks/sxng-cli
 ```
 
+> ⚠️ **Skill 同步**：更新 `sxng-cli` 后，请同步更新 `sxng` skill 以保持功能一致：
+>
+> ```bash
+> npx skills update hkwuks/sxng-cli
+> ```
+
 ### From Source
 
 ```bash
@@ -854,19 +860,6 @@ Engine: google | Category: general | Score: 1
 ---
 
 ## 🛠️ Development
-
-```bash
-# Build
-npm run build
-
-# Watch mode
-npm run dev
-
-# Run locally
-npm start -- "search query"
-```
-
-> ⚠️ **Skill 同步**：更新时，务必同步更新 `sxng` skill。
 
 ---
 
