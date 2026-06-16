@@ -1,6 +1,6 @@
 ---
 name: sxng
-description: "Web search using SearXNG CLI. Use when you need to search the web for current information, documentation, or research. Supports deep multi-round search with knowledge graph, quality assessment, recovery strategies, and content extraction (including Obscura JS-rendering fallback for SPA/dynamic pages). Triggers: 'search for', 'look up', 'find information', 'web search', 'deep search', 'deep dive', 'extract content', 'JS rendering', 'SPA page', or any request needing up-to-date information."
+description: "Web search using SXNG CLI. Use when you need to search the web for current information, documentation, or research. Supports deep multi-round search with knowledge graph, quality assessment, recovery strategies, and content extraction (including Obscura JS-rendering fallback for SPA/dynamic pages). Triggers: 'search for', 'look up', 'find information', 'web search', 'deep search', 'deep dive', 'extract content', 'JS rendering', 'SPA page', or any request needing up-to-date information."
 ---
 
 # SearXNG Web Search
