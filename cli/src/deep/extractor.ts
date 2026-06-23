@@ -1,13 +1,14 @@
 /**
- * Content extraction: Defuddle (linkedom) → Obscura fallback
+ * Content extraction: Defuddle (linkedom) → Obscura → Jina Reader fallback
  */
 
 import { parseHTML } from 'linkedom';
 import { Defuddle } from 'defuddle/node';
 import { execFile } from 'child_process';
 import { promisify } from 'util';
-import { homedir } from 'os';
+import { homedir, arch, platform } from 'os';
 import { join } from 'path';
+import { mkdir, chmod, writeFile, rm } from 'fs/promises';
 
 const execFileAsync = promisify(execFile);
 
@@ -23,6 +24,14 @@ const OBSCURA_SEARCH_PATHS = [
     '/usr/local/bin/obscura',
 ];
 
+const OBSCURA_INSTALL_DIR = join(homedir(), '.local', 'bin');
+const OBSCURA_INSTALL_PATH = join(OBSCURA_INSTALL_DIR, 'obscura');
+const OBSCURA_RELEASE_BASE = 'https://github.com/h4ckf0r0day/obscura/releases/latest/download';
+
+const JINA_READER_BASE = 'https://r.jina.ai';
+const JINA_RPM = 20; // ponytail: free tier rate limit, 1 request per 3s average
+const JINA_WINDOW_MS = 60_000;
+
 export interface ExtractorOptions {
     timeoutMs?: number;
     concurrency?: number;
@@ -30,6 +39,7 @@ export interface ExtractorOptions {
     obscura?: boolean;
     obscuraPath?: string;
     obscuraDumpFormat?: 'html' | 'markdown';
+    jina?: boolean;
 }
 
 export interface ExtractedContent {
@@ -42,10 +52,64 @@ export interface ExtractedContent {
     length: number;
     extractedAt: number;
     error?: string;
-    method?: 'defuddle' | 'obscura';
+    method?: 'defuddle' | 'obscura' | 'jina';
 }
 
 let _obscuraAvailable: boolean | null = null;
+let _obscuraInstallAttempted = false;
+
+function getObscuraTarballName(): string | null {
+    const p = platform();
+    const a = arch();
+    if (p === 'linux' && a === 'x64') return 'obscura-x86_64-linux.tar.gz';
+    if (p === 'linux' && a === 'arm64') return 'obscura-aarch64-linux.tar.gz';
+    if (p === 'darwin' && a === 'x64') return 'obscura-x86_64-macos.tar.gz';
+    if (p === 'darwin' && a === 'arm64') return 'obscura-aarch64-macos.tar.gz';
+    return null;
+}
+
+async function installObscura(): Promise<string | null> {
+    if (_obscuraInstallAttempted) return null;
+    _obscuraInstallAttempted = true;
+
+    const tarball = getObscuraTarballName();
+    if (!tarball) return null;
+
+    const url = `${OBSCURA_RELEASE_BASE}/${tarball}`;
+
+    try {
+        await mkdir(OBSCURA_INSTALL_DIR, { recursive: true });
+
+        const tmpTarball = join(OBSCURA_INSTALL_DIR, `${tarball}.downloading`);
+        const response = await fetch(url, { signal: AbortSignal.timeout(60_000) });
+        if (!response.ok) return null;
+
+        const arrayBuf = await response.arrayBuffer();
+        await writeFile(tmpTarball, Buffer.from(arrayBuf));
+
+        await execFileAsync('tar', ['-xzf', tmpTarball, '-C', OBSCURA_INSTALL_DIR], { timeout: 15_000 });
+        await rm(tmpTarball, { force: true });
+
+        await chmod(OBSCURA_INSTALL_PATH, 0o755);
+        // ponytail: chmod worker best-effort, may not exist in future releases
+        await chmod(join(OBSCURA_INSTALL_DIR, 'obscura-worker'), 0o755).catch(() => {});
+
+        await execFileAsync(OBSCURA_INSTALL_PATH, ['--version'], { timeout: 5_000 });
+
+        _obscuraAvailable = true;
+        return OBSCURA_INSTALL_PATH;
+    } catch {
+        // Clean up partial artifacts
+        try {
+            await rm(OBSCURA_INSTALL_PATH, { force: true });
+            const tmpTarball = join(OBSCURA_INSTALL_DIR, `${tarball}.downloading`);
+            await rm(tmpTarball, { force: true });
+        } catch { /* best-effort */ }
+
+        _obscuraAvailable = false;
+        return null;
+    }
+}
 
 async function findObscura(path?: string): Promise<string | null> {
     const candidates = path ? [path] : OBSCURA_SEARCH_PATHS;
@@ -55,6 +119,13 @@ async function findObscura(path?: string): Promise<string | null> {
             return candidate;
         } catch { continue; }
     }
+
+    // Auto-install if no explicit path was given and not already attempted
+    if (!path && !_obscuraInstallAttempted) {
+        const installed = await installObscura();
+        if (installed) return installed;
+    }
+
     return null;
 }
 
@@ -153,6 +224,66 @@ async function obscuraExtract(
     } catch { return null; }
 }
 
+// --- Jina Reader (r.jina.ai) with 20rpm rate limiting ---
+
+const _jinaTimestamps: number[] = [];
+
+async function jinaAcquireSlot(): Promise<boolean> {
+    const now = Date.now();
+    // Prune timestamps outside the window
+    while (_jinaTimestamps.length > 0 && _jinaTimestamps[0] <= now - JINA_WINDOW_MS) {
+        _jinaTimestamps.shift();
+    }
+    if (_jinaTimestamps.length >= JINA_RPM) return false;
+    _jinaTimestamps.push(now);
+    return true;
+}
+
+async function jinaExtract(
+    url: string,
+    options: { timeoutMs: number }
+): Promise<ExtractedContent | null> {
+    if (!await jinaAcquireSlot()) return null;
+
+    try {
+        const response = await fetch(`${JINA_READER_BASE}/${url}`, {
+            headers: {
+                'Accept': 'text/plain',
+                'X-Respond-With': 'frontmatter',
+            },
+            signal: AbortSignal.timeout(options.timeoutMs),
+        });
+
+        if (!response.ok) return null;
+
+        const text = await response.text();
+        if (!text.trim()) return null;
+
+        // Parse frontmatter: ---\nkey: value\n---\ncontent
+        let title = '';
+        let content = text.trim();
+        const fmMatch = content.match(/^---\n([\s\S]*?)\n---\n([\s\S]*)$/);
+        if (fmMatch) {
+            const meta = fmMatch[1];
+            content = fmMatch[2].trim();
+            const titleMatch = meta.match(/^title:\s*"?(.+?)"?\s*$/m);
+            if (titleMatch) title = titleMatch[1];
+        }
+
+        if (!content) return null;
+
+        return {
+            title,
+            content,
+            excerpt: '',
+            url,
+            length: content.length,
+            extractedAt: Date.now(),
+            method: 'jina',
+        };
+    } catch { return null; }
+}
+
 export class ContentExtractor {
     private timeoutMs: number;
     private concurrency: number;
@@ -160,6 +291,7 @@ export class ContentExtractor {
     private useObscura: boolean;
     private obscuraPath?: string;
     private obscuraDumpFormat: 'html' | 'markdown';
+    private useJina: boolean;
 
     constructor(options?: ExtractorOptions) {
         this.timeoutMs = options?.timeoutMs ?? DEFAULT_TIMEOUT_MS;
@@ -168,31 +300,17 @@ export class ContentExtractor {
         this.useObscura = options?.obscura ?? false;
         this.obscuraPath = options?.obscuraPath;
         this.obscuraDumpFormat = options?.obscuraDumpFormat ?? 'html';
+        this.useJina = options?.jina ?? false;
     }
 
     async extract(url: string): Promise<ExtractedContent> {
+        let result: ExtractedContent | null = null;
+
         try {
             const html = await this.fetchHtml(url);
-            const result = await defuddleExtract(html, url);
-
-            if (result.content.length >= MIN_CONTENT_LENGTH) return result;
-
-            // Defuddle insufficient → Obscura fallback
-            if (this.useObscura && result.content.length < OBSCURA_THRESHOLD) {
-                const obsResult = await obscuraExtract(url, {
-                    timeoutMs: this.timeoutMs,
-                    obscuraPath: this.obscuraPath,
-                    dumpFormat: this.obscuraDumpFormat,
-                });
-                if (obsResult && obsResult.content.length > result.content.length) return obsResult;
-            }
-
-            if (result.content.length < MIN_CONTENT_LENGTH && !result.error) {
-                result.error = 'Extracted content too short';
-            }
-            return result;
+            result = await defuddleExtract(html, url);
         } catch (error) {
-            return {
+            result = {
                 title: '',
                 content: '',
                 excerpt: '',
@@ -202,6 +320,29 @@ export class ContentExtractor {
                 error: error instanceof Error ? error.message : String(error),
             };
         }
+
+        if (result.content.length >= MIN_CONTENT_LENGTH) return result;
+
+        // Defuddle insufficient → Obscura fallback
+        if (this.useObscura && result.content.length < OBSCURA_THRESHOLD) {
+            const obsResult = await obscuraExtract(url, {
+                timeoutMs: this.timeoutMs,
+                obscuraPath: this.obscuraPath,
+                dumpFormat: this.obscuraDumpFormat,
+            });
+            if (obsResult && obsResult.content.length > result.content.length) return obsResult;
+        }
+
+        // Obscura insufficient → Jina Reader fallback (also works when fetchHtml itself failed)
+        if (this.useJina && result.content.length < MIN_CONTENT_LENGTH) {
+            const jinaResult = await jinaExtract(url, { timeoutMs: this.timeoutMs });
+            if (jinaResult && jinaResult.content.length > result.content.length) return jinaResult;
+        }
+
+        if (result.content.length < MIN_CONTENT_LENGTH && !result.error) {
+            result.error = 'Extracted content too short';
+        }
+        return result;
     }
 
     private async fetchHtml(url: string): Promise<string> {

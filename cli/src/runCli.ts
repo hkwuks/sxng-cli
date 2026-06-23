@@ -782,11 +782,13 @@ export function createProgram(): Command {
         .option('--obscura', 'Use Obscura as fallback for JS-heavy pages')
         .option('--obscura-path <path>', 'Path to Obscura binary')
         .option('--obscura-dump <format>', 'Obscura dump format: html, markdown', 'html')
+        .option('--jina', 'Use Jina Reader (r.jina.ai) as fallback')
         .action(async (opts) => {
             const extractor = new ContentExtractor({
                 obscura: opts.obscura ?? false,
                 obscuraPath: opts.obscuraPath,
                 obscuraDumpFormat: opts.obscuraDump === 'markdown' ? 'markdown' : 'html',
+                jina: opts.jina ?? false,
             });
             const extractOptions: ExtractOptions = {
                 urls: opts.urls?.split(',').map((u: string) => u.trim()).filter(Boolean),
