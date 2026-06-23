@@ -39,6 +39,7 @@ export interface GraphNodeAttrs {
     url?: string;
     rank?: number;
     title?: string;
+    source?: string; // "sxng" | "tavily" | "exa" | "open-web-search" | ... — which tool produced this result
     // Query-specific
     query?: string;
     round?: number;
@@ -125,7 +126,7 @@ function extractDomain(url: string): string {
 export function buildStructuralEdges(
     graph: DirectedGraph<GraphNodeAttrs, GraphEdgeAttrs>,
     query: string,
-    results: Array<{ url: string; title: string; rank?: number }>,
+    results: Array<{ url: string; title: string; rank?: number; source?: string }>,
     round?: number
 ): void {
     const qId = queryId(query);
@@ -152,6 +153,7 @@ export function buildStructuralEdges(
                 url: r.url,
                 title: r.title,
                 rank: r.rank ?? i + 1,
+                source: r.source ?? 'sxng',
             });
         }
 

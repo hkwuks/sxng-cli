@@ -22,6 +22,7 @@ export interface SessionResult {
     category?: string;
     score?: number;
     publishedDate?: string;
+    source?: string; // "sxng" | "tavily" | "exa" | "open-web-search" | ... — which tool produced this result
     [key: string]: unknown;
 }
 
@@ -171,7 +172,7 @@ export function saveSessionGraph(sessionDir: string, graph: DirectedGraph<GraphN
 export function updateSessionGraph(
     sessionDir: string,
     query: string,
-    results: Array<{ url: string; title: string; rank?: number }>,
+    results: Array<{ url: string; title: string; rank?: number; source?: string }>,
     round?: number
 ): { nodesAdded: number; edgesAdded: number } {
     const graph = loadSessionGraph(sessionDir);

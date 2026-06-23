@@ -51,6 +51,7 @@ interface ResultInput {
     url: string;
     title: string;
     rank?: number;
+    source?: string; // "sxng" | "tavily" | "exa" | "open-web-search" | ... — marks which tool produced this result
 }
 
 interface EdgeInput {
@@ -160,15 +161,17 @@ export async function runGraphAdd(options: GraphAddOptions): Promise<number> {
                 url: result.url,
                 title: result.title,
                 rank: result.rank,
+                source: result.source,
             });
             resultsAdded++;
         } else {
-            // Update rank if better
+            // Update rank if better, merge source if provided
             const existing = graph.getNodeAttributes(id);
             if (result.rank !== undefined) {
                 graph.mergeNode(id, {
                     ...existing,
                     rank: result.rank < (existing.rank ?? Infinity) ? result.rank : existing.rank,
+                    source: result.source ?? existing.source,
                 });
             }
         }

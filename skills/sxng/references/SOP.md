@@ -54,7 +54,7 @@ Choose tool sequences based on problem complexity:
 
 ```bash
 # Step 1: Single search
-sxng "FastAPI latest version" --search-limit 5
+sxng "FastAPI latest version" -l 5
 
 # Step 2 (optional): Extract official page for verification
 sxng extract --urls "https://pypi.org/project/fastapi/"
@@ -178,6 +178,27 @@ When adding edges, `source`/`target` must reference existing node IDs. Node ID p
 | `p:` | Path | `p:<type>_<num>` | `p:chain_001` |
 
 References to non-existent nodes are skipped and reported in `skippedEdges`.
+
+**External Search Results Integration**: When you use other search tools (tavily, exa, open-web-search, etc.) during a deep search session, you **must** inject their results into the knowledge graph via `graph-add`. This ensures the graph reflects all discovered information, not just sxng results.
+
+```bash
+# After running tavily/exa/open-web-search, inject results:
+sxng graph-add <session> --data '{
+  "results": [
+    {"url": "https://...", "title": "...", "rank": 1, "source": "tavily"},
+    {"url": "https://...", "title": "...", "rank": 2, "source": "exa"}
+  ],
+  "entities": [
+    {"label": "EntityName", "entityType": "concept", "score": 0.8}
+  ],
+  "edges": [
+    {"source": "r:https_...", "target": "e:EntityName", "relation": "mentions", "weight": 1},
+    {"source": "e:EntityA", "target": "e:EntityB", "relation": "depends_on", "weight": 0.9}
+  ]
+}'
+```
+
+The `source` field (`"sxng"` | `"tavily"` | `"exa"` | `"open-web-search"` | ...) marks which tool produced each result. sxng-native results default to `"sxng"`. External results participate equally in quality assessment, path discovery, and domain diversity — the graph treats them identically regardless of source.
 
 #### Phase 4: Quality Assessment
 
@@ -388,7 +409,7 @@ When sources disagree:
 | `-c it,science` | Specify categories |
 | `--time week` | Time filter |
 | `--format json` / `-f json` | JSON output |
-| `-l 20` / `--search-limit 20` | Result count |
+| `-l 20` / `--limit 20` | Result count |
 | `--lang zh` | Language filter |
 
 ---

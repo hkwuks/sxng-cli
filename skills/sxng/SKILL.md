@@ -1,6 +1,6 @@
 ---
 name: sxng
-description: "Web search using SXNG CLI. Use when you need to search the web for current information, documentation, or research. Supports deep multi-round search with knowledge graph, quality assessment, recovery strategies, and content extraction (including Obscura JS-rendering fallback for SPA/dynamic pages). Triggers: 'search for', 'look up', 'find information', 'web search', 'deep search', 'deep dive', 'extract content', 'JS rendering', 'SPA page', or any request needing up-to-date information."
+description: "Search the web for current information, facts, docs, or research. Use when the user asks to search, look up, find, check, verify, or investigate anything — including current events, latest versions, comparisons, how-tos, troubleshooting, or any topic needing up-to-date info. Use deep search (--search-session) when comparing options, writing research reports, thoroughly investigating a topic, or when simple search is insufficient — watch for 'comprehensive comparison', 'detailed analysis', 'help me decide', 'which is better', 'write a report on', 'look into this thoroughly', 'cross-validate', or multi-dimensional questions. Also use when extracting web page content, or when a question cannot be answered from training data alone. Use this skill even if the user doesn't explicitly say 'search' — any question about current state of the world should trigger a web search."
 ---
 
 # SearXNG Web Search
@@ -143,6 +143,8 @@ Returns 5 independent indicators: resultCount, contentDepth, entityRichness, sou
 Two layers:
 - **Structural** (auto-built): query→result→domain nodes and edges
 - **Semantic** (added by you via `graph-add`): entity nodes with custom relation edges
+
+**External search results**: When using other search tools (tavily, exa, open-web-search, etc.) during a deep search session, inject their results into the graph via `graph-add` with the `source` field. This ensures the graph reflects all discoveries, not just sxng results. Result nodes carry a `source` field (`"sxng"` | `"tavily"` | `"exa"` | ...) — sxng-native results default to `"sxng"`.
 
 When adding edges, `source`/`target` must reference existing node IDs. Node ID prefixes:
 
