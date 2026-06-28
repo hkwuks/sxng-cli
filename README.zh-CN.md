@@ -1,8 +1,8 @@
 # 🔍 SXNG CLI
 
 <p align="center">
-  <b>A powerful command-line interface for <a href="https://github.com/searxng/searxng">SearXNG</a></b><br>
-  Privacy-respecting web search from your terminal
+  <b>SearXNG 的命令行工具</b><br>
+  终端中的隐私优先网页搜索
 </p>
 
 <p align="center">
@@ -19,49 +19,45 @@
 </p>
 
 <p align="center">
-  <a href="#-features">Features</a> •
-  <a href="#-installation">Installation</a> •
-  <a href="#-quick-start">Quick Start</a> •
-  <a href="#-usage">Usage</a> •
-  <a href="#-configuration">Configuration</a>
-</p>
-
-<p align="center">
-  <a href="./README.zh-CN.md">🌏 中文</a>
+  <a href="#-特色功能">特色功能</a> •
+  <a href="#-安装">安装</a> •
+  <a href="#-快速开始">快速开始</a> •
+  <a href="#-使用指南">使用指南</a> •
+  <a href="#-配置">配置</a>
 </p>
 
 ---
 
-## ✨ Features
+## ✨ 特色功能
 
-- 🔎 **Multi-Engine Search** — Search across Google, Bing, DuckDuckGo, GitHub, StackOverflow, and 30+ engines simultaneously
-- 🔄 **Dynamic Discovery** — Auto-fetches available engines and categories from your SearXNG server
-- 📄 **Multiple Formats** — Markdown (LLM-optimized) or JSON output
-- 🧠 **Deep Search** — Multi-round iterative research with session accumulation and knowledge graph
-- 🔍 **Content Extraction** — Extract full article content from search results, with Obscura fallback for JS-heavy pages
-- 🗂️ **Session Management** — Accumulate search results across multiple rounds with deduplication
-- 🕸️ **Knowledge Graph** — Build semantic graphs of entities and relationships
-- ⚡ **Fast & Lightweight** — Built with TypeScript, minimal dependencies
-- 🔧 **Flexible Config** — Environment variables, config file, or interactive setup
-- 🏥 **Health Check** — Verify server connectivity instantly
-- 🌐 **Proxy Support** — HTTP/HTTPS proxy configuration
+- 🔎 **多引擎搜索** — 同时搜索 Google、Bing、DuckDuckGo、GitHub、StackOverflow 等 30+ 搜索引擎
+- 🔄 **动态发现** — 自动从 SearXNG 服务器获取可用引擎和分类
+- 📄 **多格式输出** — Markdown（LLM 优化）或 JSON 格式
+- 🧠 **深度搜索** — 多轮迭代研究，支持会话累积和知识图谱
+- 🔍 **内容提取** — 提取搜索结果页面的完整文章内容，JS 密集页面自动回退到 Obscura
+- 🗂️ **会话管理** — 跨多轮搜索累积结果，自动去重
+- 🕸️ **知识图谱** — 构建实体和关系的语义图
+- ⚡ **快速轻量** — TypeScript 构建，最小依赖
+- 🔧 **灵活配置** — 环境变量、配置文件或交互式设置
+- 🏥 **健康检查** — 即时验证服务器连接
+- 🌐 **代理支持** — HTTP/HTTPS 代理配置
 
 ---
 
-## 📦 Installation
+## 📦 安装
 
-### Self-host SearXNG
+### 自托管 SearXNG
 
-**For WSL**
+**WSL 用户注意**
 
-WSL2 will automatically shut itself down after you exit all the connections. I suggest you use https://github.com/gardengim/keepwsl to keep it alive.
+WSL2 会在所有连接退出后自动关闭。建议使用 https://github.com/gardengim/keepwsl 保持其运行。
 
-Before starting the searXNG container, you must create a `settings.yml` file in the `./searxng` directory. You can visit https://github.com/searxng/searxng for specific configuration methods.
+启动 SearXNG 容器前，必须在 `./searxng` 目录下创建 `settings.yml` 文件。具体配置方法请访问 https://github.com/searxng/searxng。
 
-An example of `settings.yml` is just like below.
+以下是一个 `settings.yml` 示例。
 
 <details>
-<summary>📋 Click to expand full settings.yml (30+ search engines)</summary>
+<summary>📋 点击展开完整 settings.yml 配置（30+ 搜索引擎）</summary>
 
 ```yml
 use_default_settings: true
@@ -71,7 +67,7 @@ server:
   limiter: false
 
 outgoing:
-  request_timeout: 10.0 # 全局默认超时
+  request_timeout: 10.0
   max_request_timeout: 10.0
   pool_connections: 200
   pool_maxsize: 20
@@ -247,7 +243,6 @@ engines:
     base_url: "https://wiki.gentoo.org/"
     api_path: "api.php"
     search_type: text
-    
 
   - name: lobste.rs
     engine: xpath
@@ -258,7 +253,6 @@ engines:
     content_xpath: .//a[@class="domain"]
     categories: it
     shortcut: lo
-    
     disabled: false
 
   # ==================== 知识/问答 ====================
@@ -271,7 +265,6 @@ engines:
   - name: wikidata
     engine: wikidata
     shortcut: wd
-    
     weight: 2
     display_type: ["infobox"]
     categories: [general]
@@ -488,7 +481,7 @@ engines:
 
 </details>
 
-An example of `docker-compose.yml` is just like below.
+以下是一个 `docker-compose.yml` 示例。
 
 ```yml
 services:
@@ -516,7 +509,7 @@ services:
             - ./valkey:/data/
 ```
 
-### From npm (Recommended)
+### 通过 npm 安装（推荐）
 
 ```bash
 npm install -g sxng-cli
@@ -526,13 +519,13 @@ npm install -g sxng-cli
 npx skills add hkwuks/sxng-cli
 ```
 
-> ⚠️ **Skill Sync**: After updating `sxng-cli`, also update `sxng` skill to keep them in sync:
+> ⚠️ **Skill 同步**：更新 `sxng-cli` 后，请同步更新 `sxng` skill 以保持功能一致：
 >
 > ```bash
 > npx skills update hkwuks/sxng-cli
 > ```
 
-### From Source
+### 从源码构建
 
 ```bash
 git clone https://github.com/hkwuks/sxng-cli.git
@@ -542,9 +535,9 @@ npm run build
 npm link
 ```
 
-### Obscura (Optional — for JS-heavy pages)
+### Obscura（可选 — 用于 JS 密集页面）
 
-[sxng extract](#-usage) uses **Defuddle + linkedom** by default for lightweight content extraction. When a page requires JavaScript rendering (SPAs, dynamic content), enable [Obscura](https://github.com/h4ckf0r0day/obscura) as a fallback:
+[sxng extract](#-使用指南) 默认使用 **Defuddle + linkedom** 进行轻量级内容提取。当页面需要 JavaScript 渲染（SPA、动态内容）时，可启用 [Obscura](https://github.com/h4ckf0r0day/obscura) 作为回退：
 
 ```bash
 # Linux x86_64
@@ -560,136 +553,136 @@ cp obscura /usr/local/bin/
 # Docker
 docker run -d --name obscura -p 127.0.0.1:9222:9222 h4ckf0r0day/obscura
 
-# Verify
+# 验证
 obscura --version
 ```
 
-No extra npm dependencies needed — Obscura is called via CLI. Auto-detected from `PATH`, `~/.local/bin/obscura`, or `/usr/local/bin/obscura`.
+无需额外 npm 依赖 — Obscura 通过 CLI 调用。自动检测 `PATH`、`~/.local/bin/obscura` 或 `/usr/local/bin/obscura`。
 
 ---
 
-## 🚀 Quick Start
+## 🚀 快速开始
 
-1. **Install the CLI:**
+1. **安装 CLI：**
    ```bash
    npm install -g sxng-cli
    ```
 
-2. **Configure the CLI:**
+2. **配置 CLI：**
    ```bash
    sxng init
    ```
-   Or set environment variable:
+   或设置环境变量：
    ```bash
    export SEARXNG_BASE_URL=http://your-searxng-instance:8080
    ```
 
-3. **Perform a search:**
+3. **执行搜索：**
    ```bash
    sxng "TypeScript tutorial"
    ```
 
 ---
 
-## 📖 Usage
+## 📖 使用指南
 
-### Commands
+### 命令
 
-| Command | Description |
-|---------|-------------|
-| `sxng init` | Interactive configuration setup |
-| `sxng <query>` | Perform a web search |
-| `sxng --queries "q1,q2"` | Multi-query search with RRF fusion |
-| `sxng extract --urls <urls>` | Extract content from web pages |
-| `sxng extract --obscura` | Extract with Obscura JS-rendering fallback |
-| `sxng --session new` | Create deep search session |
-| `sxng session-list` | List all sessions |
-| `sxng session-delete <session-name>` | Delete a session |
-| `sxng graph-add <session>` | Add entities to knowledge graph |
-| `sxng query-graph <session>` | Query knowledge graph |
-| `sxng --health` | Check SearXNG server health |
-| `sxng --engines-list` | List available search engines from server |
-| `sxng --categories-list` | List available categories from server |
-| `sxng --help` | Show help message |
+| 命令 | 说明 |
+|------|------|
+| `sxng init` | 交互式配置设置 |
+| `sxng <query>` | 执行网页搜索 |
+| `sxng --queries "q1,q2"` | 多查询搜索（RRF 融合排序） |
+| `sxng extract --urls <urls>` | 提取网页内容 |
+| `sxng extract --obscura` | 使用 Obscura JS 渲染回退提取 |
+| `sxng --session new` | 创建深度搜索会话 |
+| `sxng session-list` | 列出所有会话 |
+| `sxng session-delete <session-name>` | 删除指定会话 |
+| `sxng graph-add <session>` | 向知识图谱添加实体 |
+| `sxng query-graph <session>` | 查询知识图谱 |
+| `sxng --health` | 检查 SearXNG 服务器健康状态 |
+| `sxng --engines-list` | 列出服务器可用搜索引擎 |
+| `sxng --categories-list` | 列出服务器可用分类 |
+| `sxng --help` | 显示帮助信息 |
 
-### Search Options
+### 搜索选项
 
-| Option | Description |
-|--------|-------------|
-| `-e, --engines <list>` | Comma-separated list of search engines (e.g., `google,github`) |
-| `-c, --categories <list>` | Comma-separated list of categories (e.g., `it,science`) |
-| `-l, --limit <n>` | Maximum number of results (default: 10) |
-| `-p, --page <n>` | Page number for pagination |
-| `--lang <code>` | Language code (e.g., `en`, `zh`, `ja`) |
-| `--time <range>` | Time range: `day`, `week`, `month`, `year`, `all` |
-| `-f, --format <fmt>` | Output format: `md`, `json`, `csv`, `html` (default: md) |
-| `--queries <list>` | Multi-query with RRF fusion (e.g., `q1,q2,q3`) |
-| `--session <session-name>` | Session directory or `new` for deep search |
-| `--owner <session-name>` | Session owner identifier |
-| `--desc <text>` | Session description |
+| 选项 | 说明 |
+|------|------|
+| `-e, --engines <list>` | 逗号分隔的搜索引擎列表（如 `google,github`） |
+| `-c, --categories <list>` | 逗号分隔的分类列表（如 `it,science`） |
+| `-l, --limit <n>` | 最大结果数（默认：10） |
+| `-p, --page <n>` | 翻页页码 |
+| `--lang <code>` | 语言代码（如 `en`、`zh`、`ja`） |
+| `--time <range>` | 时间范围：`day`、`week`、`month`、`year`、`all` |
+| `-f, --format <fmt>` | 输出格式：`md`、`json`、`csv`、`html`（默认：md） |
+| `--queries <list>` | RRF 融合多查询（如 `q1,q2,q3`） |
+| `--session <session-name>` | 会话目录或 `new` 创建深度搜索会话 |
+| `--owner <session-name>` | 会话所有者标识 |
+| `--desc <text>` | 会话描述 |
 
-### Examples
+### 示例
 
 ```bash
-# Basic search (outputs Markdown by default)
+# 基本搜索（默认 Markdown 输出）
 sxng "machine learning"
 
-# Output as JSON
+# JSON 输出
 sxng --format json "machine learning"
 
-# Search with specific engines
+# 指定引擎搜索
 sxng --engines google,duckduckgo "privacy tools"
 
-# Search IT and Science categories
+# 搜索 IT 和科学分类
 sxng --categories it,science "kubernetes tutorial"
 
-# Limit results and filter by time
+# 限制结果数并按时间过滤
 sxng --limit 5 --time week "latest AI news"
 
-# Output as CSV
+# CSV 输出
 sxng --format csv "python tutorial" > results.csv
 
-# Multi-query search with RRF fusion
+# 多查询 RRF 融合搜索
 sxng --queries "tokio tutorial,rust async basics,async-std guide"
 
-# List available engines (fetched from server)
+# 列出可用引擎（从服务器获取）
 sxng --engines-list
 
-# List available categories (fetched from server)
+# 列出可用分类（从服务器获取）
 sxng --categories-list
 ```
 
 ---
 
-## ⚙️ Configuration
+## ⚙️ 配置
 
-Configuration priority (highest to lowest):
-1. Environment variables
-2. Local config file (`./sxng.config.json`)
-3. Global config file (`~/sxng-cli/sxng.config.json`)
-4. Default values
+配置优先级（从高到低）：
+1. 环境变量
+2. 本地配置文件（`./sxng.config.json`）
+3. 全局配置文件（`~/sxng-cli/sxng.config.json`）
+4. 默认值
 
-### Environment Variables
+### 环境变量
 
-| Variable | Description | Default |
-|----------|-------------|---------|
-| `SEARXNG_BASE_URL` | SearXNG server URL | *(required)* |
-| `SEARXNG_DEFAULT_ENGINE` | Default search engine | *(none)* |
-| `SEARXNG_ALLOWED_ENGINES` | Comma-separated allowed engines | *(all)* |
-| `SEARXNG_DEFAULT_LIMIT` | Default result limit | `10` |
-| `SEARXNG_DEFAULT_FORMAT` | Default output format (`md`, `json`, `csv`, `html`) | `md` |
-| `SEARXNG_USE_PROXY` | Use proxy (`true`/`false`) | `false` |
-| `SEARXNG_PROXY_URL` | Proxy URL | *(none)* |
-| `SEARXNG_TIMEOUT` | Request timeout in ms | `10000` |
+| 变量 | 说明 | 默认值 |
+|------|------|--------|
+| `SEARXNG_BASE_URL` | SearXNG 服务器 URL | *（必填）* |
+| `SEARXNG_DEFAULT_ENGINE` | 默认搜索引擎 | *（无）* |
+| `SEARXNG_ALLOWED_ENGINES` | 逗号分隔的允许引擎列表 | *（全部）* |
+| `SEARXNG_DEFAULT_LIMIT` | 默认结果数限制 | `10` |
+| `SEARXNG_DEFAULT_FORMAT` | 默认输出格式（`md`、`json`、`csv`、`html`） | `md` |
+| `SEARXNG_USE_PROXY` | 是否使用代理（`true`/`false`） | `false` |
+| `SEARXNG_PROXY_URL` | 代理 URL | *（无）* |
+| `SEARXNG_TIMEOUT` | 请求超时时间（毫秒） | `10000` |
 
-### Config File
+### 配置文件
 
-Config file search order (first found wins):
+配置文件搜索顺序（先找到的优先）：
 
-1. **Local config** - `./sxng.config.json` (current working directory, for project-specific settings)
-2. **Global config** - `~/sxng-cli/sxng.config.json` (user home directory, for global defaults)
+1. **本地配置** - `./sxng.config.json`（当前工作目录，用于项目级设置）
+2. **全局配置** - `~/sxng-cli/sxng.config.json`（用户主目录，用于全局默认值）
 
-Create `sxng.config.json`:
+创建 `sxng.config.json`：
 
 ```json
 {
@@ -706,22 +699,22 @@ Create `sxng.config.json`:
 
 ---
 
-## 🧠 Deep Search
+## 🧠 深度搜索
 
-Deep search enables multi-round iterative research with session accumulation and knowledge graph building.
+深度搜索支持多轮迭代研究，具备会话累积和知识图谱构建能力。
 
-### Quick Example
+### 快速示例
 
 ```bash
-# Create a session and search
+# 创建会话并搜索
 sxng --session new --owner "researcher" --desc "Rust async study" "rust async ecosystem"
-# Session created: ~/sxng-cli/sessions/<session-name>
+# 已创建会话：~/sxng-cli/sessions/<session-name>
 
-# Extract content from results (by name or path)
+# 从结果中提取内容（按名称或路径）
 sxng extract --session <session-name>
-# or: sxng extract --session ~/sxng-cli/sessions/<session-name>
+# 或：sxng extract --session ~/sxng-cli/sessions/<session-name>
 
-# Add knowledge graph entities (by name or path)
+# 添加知识图谱实体（按名称或路径）
 sxng graph-add <session-name> --data '{
   "entities": [
     {"label": "tokio", "entityType": "runtime", "score": 0.95},
@@ -732,101 +725,101 @@ sxng graph-add <session-name> --data '{
   ]
 }'
 
-# Query the graph (by name or path)
+# 查询图谱（按名称或路径）
 sxng query-graph <session-name> --seeds "tokio" --depth 2
 
-# Continue research (results accumulate)
+# 继续研究（结果会累积）
 sxng --session <session-name> --queries "tokio vs async-std,benchmark 2024"
 ```
 
-### Session Management
+### 会话管理
 
-| Command | Description |
-|---------|-------------|
-| `sxng --session new` | Create new auto-named session |
-| `sxng --session <session-name>` | Use session by name (auto-resolves to `~/sxng-cli/sessions/<session-name>`) |
-| `sxng --session <path>` | Use session by full path |
-| `sxng session-list` | List all sessions with stats |
-| `sxng session-delete <session-name>` | Delete specific session |
-| `sxng session-delete --older <hours>` | Delete old sessions |
+| 命令 | 说明 |
+|------|------|
+| `sxng --session new` | 创建自动命名的会话 |
+| `sxng --session <session-name>` | 按名称使用会话（自动解析为 `~/sxng-cli/sessions/<session-name>`） |
+| `sxng --session <path>` | 按完整路径使用会话 |
+| `sxng session-list` | 列出所有会话及统计信息 |
+| `sxng session-delete <session-name>` | 删除指定会话 |
+| `sxng session-delete --older <hours>` | 删除超过指定小时的旧会话 |
 
-**Session Path Resolution:**
-- Pure name (e.g., `my-session`) → `~/sxng-cli/sessions/my-session`
-- Full path (e.g., `/custom/path/session`) → used as-is
-- `new` → auto-generate unique name under `~/sxng-cli/sessions/`
+**会话路径解析：**
+- 纯名称（如 `my-session`）→ `~/sxng-cli/sessions/my-session`
+- 完整路径（如 `/custom/path/session`）→ 直接使用
+- `new` → 在 `~/sxng-cli/sessions/` 下自动生成唯一名称
 
-### Session Data Structure
+### 会话数据结构
 
-Each session stores three files in `~/sxng-cli/sessions/<session-name>/`:
+每个会话在 `~/sxng-cli/sessions/<session-name>/` 下存储三个文件：
 
-- **`results.json`** — Accumulated search results (URL dedup, multi-round)
-- **`graph.json`** — Knowledge graph (structural + semantic layers)
-- **`meta.json`** — Session metadata (owner, description, timestamps)
+- **`results.json`** — 累积的搜索结果（URL 去重，多轮搜索）
+- **`graph.json`** — 知识图谱（结构层 + 语义层）
+- **`meta.json`** — 会话元数据（所有者、描述、时间戳）
 
-### Knowledge Graph
+### 知识图谱
 
-**Structural Layer** (auto-built):
-- `q:` — Query nodes
-- `r:` — Result nodes
-- `d:` — Domain nodes
+**结构层**（自动构建）：
+- `q:` — 查询节点
+- `r:` — 结果节点
+- `d:` — 域名节点
 
-**Semantic Layer** (via `graph-add`):
-- `e:` — Entity nodes with type and score
+**语义层**（通过 `graph-add`）：
+- `e:` — 实体节点，包含类型和评分
 
 ---
 
-## 🏗️ Architecture
+## 🏗️ 架构
 
-### Content Extraction
+### 内容提取
 
-`sxng extract` uses a two-tier extraction strategy:
+`sxng extract` 使用双层提取策略：
 
-1. **Defuddle + linkedom** (default, lightweight) — Parses raw HTML with linkedom, extracts readable content with Defuddle. Fast, no browser needed.
-2. **Obscura** (optional fallback) — When Defuddle extracts too little content (< 50 chars), Obscura renders the page with V8 JS engine and re-extracts. Use `--obscura` to enable.
+1. **Defuddle + linkedom**（默认，轻量）— 使用 linkedom 解析原始 HTML，通过 Defuddle 提取可读内容。速度快，无需浏览器。
+2. **Obscura**（可选回退）— 当 Defuddle 提取内容过少（< 50 字符）时，Obscura 使用 V8 JS 引擎渲染页面并重新提取。使用 `--obscura` 启用。
 
 ```bash
-# Default: Defuddle only (fast)
+# 默认：仅 Defuddle（快速）
 sxng extract --urls "https://example.com"
 
-# With Obscura fallback for JS-heavy pages
+# 为 JS 密集页面启用 Obscura 回退
 sxng extract --urls "https://spa-site.com" --obscura
 
-# Obscura direct markdown output (skip Defuddle re-parse)
+# Obscura 直接 Markdown 输出（跳过 Defuddle 重新解析）
 sxng extract --urls "https://spa-site.com" --obscura --obscura-dump markdown
 
-# Custom Obscura binary path
+# 自定义 Obscura 二进制路径
 sxng extract --urls "https://spa-site.com" --obscura --obscura-path /path/to/obscura
 ```
 
-Extraction options:
+提取选项：
 
-| Option | Description |
-|--------|-------------|
-| `--obscura` | Enable Obscura fallback for JS-rendered pages |
-| `--obscura-path <path>` | Path to Obscura binary (auto-detected if omitted) |
-| `--obscura-dump <format>` | Obscura output format: `html` (default) or `markdown` |
+| 选项 | 说明 |
+|------|------|
+| `--obscura` | 为 JS 渲染页面启用 Obscura 回退 |
+| `--obscura-path <path>` | Obscura 二进制路径（省略则自动检测） |
+| `--obscura-dump <format>` | Obscura 输出格式：`html`（默认）或 `markdown` |
 
-### Dynamic Engine/Category Discovery
+### 动态引擎/分类发现
 
-Unlike other CLI tools that hardcode supported engines and categories, this tool dynamically fetches them from your SearXNG server's `/config` endpoint:
+与其他硬编码引擎和分类的 CLI 工具不同，本工具动态从 SearXNG 服务器的 `/config` 接口获取信息：
 
-- Engines and categories are retrieved at runtime from the server
-- This ensures compatibility with any SearXNG instance configuration
-- Adding new engines to your SearXNG instance automatically makes them available in the CLI
+- 运行时从服务器获取引擎和分类
+- 确保与任何 SearXNG 实例配置兼容
+- 向 SearXNG 实例添加新引擎会自动在 CLI 中生效
 
-Use `sxng --engines-list` and `sxng --categories-list` to see what's available on your server.
+使用 `sxng --engines-list` 和 `sxng --categories-list` 查看服务器可用项。
 
-### Output Format
+### 输出格式
 
-The CLI supports multiple output formats:
+CLI 支持多种输出格式：
 
-- **Markdown (default)** - Optimized for LLM context windows, saves ~50% tokens vs JSON
-- **JSON** - Structured envelope format for programmatic use
+- **Markdown（默认）** — 针对 LLM 上下文窗口优化，比 JSON 节省约 50% token
+- **JSON** — 结构化信封格式，适合程序化使用
 
 <details>
-<summary>📝 Click to expand output format examples</summary>
+<summary>📝 点击展开输出格式示例</summary>
 
-#### Markdown Format (Default)
+#### Markdown 格式（默认）
 
 ```markdown
 ## Search: machine learning
@@ -848,7 +841,7 @@ Engine: google | Category: general | Score: 1
 - neural networks
 ```
 
-#### JSON Envelope Format
+#### JSON 信封格式
 
 ```json
 {
@@ -863,10 +856,10 @@ Engine: google | Category: general | Score: 1
 
 ---
 
-## 🛠️ Development
+## 🛠️ 开发
 
 ---
 
-## ⭐ Star History
+## ⭐ Star 历史
 
 [![Star History Chart](https://api.star-history.com/svg?repos=hkwuks/sxng-cli&type=date&legend=top-left)](https://www.star-history.com/?repos=hkwuks%2Fsxng-cli&type=date&legend=top-left)
