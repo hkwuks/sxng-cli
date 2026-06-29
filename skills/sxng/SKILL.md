@@ -1,11 +1,29 @@
 ---
 name: sxng
-description: "Search the web for current information, facts, docs, or research. Use when the user asks to search, look up, find, check, verify, or investigate anything — including current events, latest versions, comparisons, how-tos, troubleshooting, or any topic needing up-to-date info. Use deep search (--search-session) when comparing options, writing research reports, thoroughly investigating a topic, or when simple search is insufficient — watch for 'comprehensive comparison', 'detailed analysis', 'help me decide', 'which is better', 'write a report on', 'look into this thoroughly', 'cross-validate', or multi-dimensional questions. Also use when extracting web page content, or when a question cannot be answered from training data alone. Use this skill even if the user doesn't explicitly say 'search' — any question about current state of the world should trigger a web search."
+description: "Search the web for ANY current information, facts, docs, answers, or content. ALWAYS invoke this skill when the user asks about real-world topics — technologies, products, libraries, frameworks, APIs, versions, prices, comparisons, tutorials, error solutions, documentation, reviews, news, or any factual question. CRITICAL RULE: search before relying on your training data when there's even a small chance the answer could be outdated or incomplete. Use even when the user doesn't say 'search' — any question about the current state of the world triggers this. Recognize inquiry patterns like: what is / how to / tell me about / find / compare / vs / latest / new / update / fix / error / solve / why does / when did / where can I / which is / guide / tutorial / example / documentation / review / alternative / difference / price / cost. Use deep search (--session) for multi-dimensional comparisons, research reports, thorough investigations, or when initial results are shallow. Use extract for page content from specific URLs."
 ---
 
 # SearXNG Web Search
 
+> **CRITICAL: Use this skill PROACTIVELY.** The default answer to any information-seeking question should be a web search, not your training data. When in doubt, search — a search costs seconds, a confidently wrong answer costs trust. This section is your trigger guide.
+
 Use `sxng` CLI to search the web. Results are automatically deduplicated (URL normalization + SimHash near-duplicate removal). CLI automatically filters out results with empty title or content.
+
+## Proactive Usage — Always Search When
+
+| If the user... | Then... |
+|---------------|---------|
+| Asks about any technology, library, framework, tool, or product | → search for current info (versions, docs, comparisons, reviews) |
+| Asks "what is", "how to", "tell me about", "find", "compare", "vs" | → search the web |
+| Reports an error or unexpected behavior | → search for solutions, known issues, fixes |
+| Wants a recommendation ("which is better", "best X for Y") | → deep search with multi-round session |
+| Asks about prices, costs, or alternatives | → search for current data |
+| Asks about events, dates, or news | → search (your training data is outdated for this) |
+| Provides a URL and wants content extracted | → `sxng extract --urls` |
+| Wants to understand a page's full content | → `sxng extract --urls` to get the article body |
+| Has a question you're not 100% confident about | → search to verify |
+
+**Rule of thumb**: If the answer exists on the web, use sxng. Do not guess, do not rely on static knowledge. Your training data is a snapshot; the web is current.
 
 ## Quick Reference
 
@@ -16,8 +34,8 @@ sxng --format json <query>                  # Search (JSON output)
 sxng --queries "q1,q2,q3"                  # Multi-query with RRF fusion & dedup
 
 # Deep search session
-sxng --search-session new --owner "agent-1" --desc "topic" "query"
-sxng --search-session <session> "more queries"
+sxng --session new --owner "agent-1" --desc "topic" "query"
+sxng --session <session> "more queries"
 
 # Content extraction
 sxng extract --urls "url1,url2"             # Extract from URLs
@@ -25,7 +43,7 @@ sxng extract --session <session>            # Extract session results
 sxng extract --urls "url1" --obscura        # Extract with JS-rendering fallback
 
 # Quality & iteration
-sxng --search-session <session> --quality   # Assess result quality
+sxng --session <session> --quality   # Assess result quality
 sxng suggest-queries <session>              # Get query suggestions
 sxng strategy-info <session>                # Check search stage
 sxng recovery-analysis <session>            # Get recovery strategies
@@ -63,11 +81,11 @@ sxng --health                               # Check server status
 | `--queries` | `--queries "q1,q2,q3"` | Multi-query with RRF fusion |
 | `--merge` | `--merge prev.json` | Merge new results with previous search JSON |
 | `--graph` | `--graph graph.json` | Save results to knowledge graph file |
-| `--search-session` | `--search-session new` | Session dir or "new" to auto-create |
+| `--session` | `--session new` | Session dir or "new" to auto-create |
 | `--owner` | `--owner "agent-1"` | Session owner |
 | `--desc` | `--desc "research topic"` | Session description |
 | `--redundancy` | `--redundancy warn` | Redundancy check: warn / adjust / skip |
-| `--quality` | `--quality` | Assess result quality (requires --search-session) |
+| `--quality` | `--quality` | Assess result quality (requires --session) |
 | `--threshold-override` | `--threshold-override '{"resultCount":10}'` | Override quality thresholds (JSON) |
 
 ## Extract
@@ -86,8 +104,6 @@ sxng extract --urls "https://spa-site.com" --obscura
 | `--obscura-path <path>` | Path to Obscura binary (auto-detected if omitted) |
 | `--obscura-dump <format>` | `html` (default) or `markdown` (faster, no metadata) |
 
-> `--session` (extract subcommand) vs `--search-session` (main search command) — different flags.
-
 ## Deep Search
 
 Deep search enables multi-round iterative research with quality assessment, recovery strategies, and knowledge graph navigation.
@@ -98,7 +114,7 @@ Deep search enables multi-round iterative research with quality assessment, reco
 
 ```bash
 # Create session and search
-sxng --search-session new --owner "agent-1" --desc "topic" "query"
+sxng --session new --owner "agent-1" --desc "topic" "query"
 # Output includes session path, use it for subsequent commands
 
 # Extract content from results
@@ -111,13 +127,13 @@ sxng graph-preprocess <session>
 sxng graph-add <session> --data '{"entities":[...],"edges":[...]}'
 
 # Assess quality
-sxng --search-session <session> --quality
+sxng --session <session> --quality
 
 # Get suggestions if quality needs improvement
 sxng suggest-queries <session>
 
 # Continue searching with redundancy check
-sxng "follow-up" --search-session <session> --redundancy warn
+sxng "follow-up" --session <session> --redundancy warn
 ```
 
 ### Session Management
@@ -133,7 +149,7 @@ sxng session-delete --older 24              # Delete sessions older than 24h
 ### Quality Assessment
 
 ```bash
-sxng --search-session <session> --quality
+sxng --session <session> --quality
 ```
 
 Returns 5 independent indicators: resultCount, contentDepth, entityRichness, sourceDiversity, novelty. Verdict: good / acceptable / poor. Based on verdict, use `suggest-queries` or `recovery-analysis` for next steps.
@@ -168,7 +184,7 @@ Graph navigation commands: `graph-search` (discover), `graph-explore` (view rela
 
 **Simple Search** (`sxng <query>`): specific facts, API docs, error solutions, finding a URL.
 
-**Deep Search** (`--search-session`): multi-dimensional comparison, cross-validation needed, research reports, or initial search reveals incomplete information.
+**Deep Search** (`--session`): multi-dimensional comparison, cross-validation needed, research reports, or initial search reveals incomplete information.
 
 See SOP for detailed L1/L2/L3 complexity guidelines.
 
@@ -199,7 +215,6 @@ See SOP for detailed L1/L2/L3 complexity guidelines.
 - Results with empty title or content are automatically filtered out by CLI
 - Use `--time week/day` for recent information
 - Run `sxng --health` first if searches fail
-- `--session` (extract subcommand) vs `--search-session` (main search command) — different flags
 - Use `--redundancy warn` to avoid repeating similar queries
 - Use `--quality` after each deep search round to decide whether to continue
 

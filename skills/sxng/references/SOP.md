@@ -1,8 +1,8 @@
 # SXNG DeepSearch SOP
 
-> Standard Operating Procedure for multi-round deep research (Session + Knowledge Graph + Quality Assessment + Recovery)
+> **Proactive Deep Search**: When the user asks a question that requires multi-angle comparison, research, cross-validation, or any topic where simple search might not suffice — go straight to `--session` deep search. Do not start with simple search and "upgrade" later; creating a session from the first round costs nothing and gives you quality assessment, redundancy checks, and knowledge graph from the start. When uncertain between L1 and L2, choose L2.
 
-> **Flag distinction**: `--search-session` is for the main search command; `--session` is for the extract subcommand. Do not mix them.
+> Standard Operating Procedure for multi-round deep research (Session + Knowledge Graph + Quality Assessment + Recovery)
 
 ## 1. Core Philosophy
 
@@ -18,7 +18,7 @@ Intent Analysis → Query Planning → Multi-source Search → Content Extractio
 
 ## 2. Trigger Conditions
 
-### When to Use Deep Search (`--search-session`)
+### When to Use Deep Search (`--session`)
 
 | Scenario | Example |
 |----------|---------|
@@ -28,7 +28,9 @@ Intent Analysis → Query Planning → Multi-source Search → Content Extractio
 | Tracking topic evolution | "AI reasoning model development history" |
 | Initial search yields insufficient results | Fewer than 5 relevant results |
 
-### When to Use Simple Search (no `--search-session`)
+### When to Use Simple Search (no `--session`)
+
+**Only use simple search when the question is a trivial single-fact lookup with no need for cross-validation.** If there's any chance more depth is needed, start with `--session` — it doesn't cost extra and preserves options.
 
 | Scenario | Example |
 |----------|---------|
@@ -77,7 +79,7 @@ sxng extract --urls "https://pypi.org/project/fastapi/"
 
 ```bash
 # Step 1: Create Session
-sxng --search-session new --owner "agent-1" --desc "Vector DB comparison" \
+sxng --session new --owner "agent-1" --desc "Vector DB comparison" \
      "vector database 2026 Pinecone Weaviate Qdrant comparison"
 
 # Step 2: Preprocess + extract
@@ -99,11 +101,11 @@ sxng graph-add <session> --data '{
 }'
 
 # Step 4: Quality assessment
-sxng --search-session <session> --quality
+sxng --session <session> --quality
 
 # Step 5: If quality not met, get suggestions + supplementary search
 sxng suggest-queries <session> --format json
-sxng --search-session <session> --queries \
+sxng --session <session> --queries \
      "Pinecone pricing 2026,Weaviate vs Qdrant benchmark" --redundancy warn
 
 # Step 6: Explore graph to verify coverage
@@ -135,7 +137,7 @@ Sessions are stored under `~/sxng-cli/sessions/` by default.
 - Decomposed into 3-7 sub-queries
 
 ```bash
-sxng --search-session new --owner "researcher" --desc "RAG Vector DB deep research" \
+sxng --session new --owner "researcher" --desc "RAG Vector DB deep research" \
      --queries "vector database 2026 ranking,vector DB for RAG comparison"
 ```
 
@@ -203,7 +205,7 @@ The `source` field (`"sxng"` | `"tavily"` | `"exa"` | `"open-web-search"` | ...)
 #### Phase 4: Quality Assessment
 
 ```bash
-sxng --search-session <session> --quality
+sxng --session <session> --quality
 ```
 
 5 independent indicators (resultCount, contentDepth, entityRichness, sourceDiversity, novelty), each with its own threshold.
@@ -228,7 +230,7 @@ sxng suggest-queries <session> --format json
 #### Phase 6: Continue Search (with Redundancy Check)
 
 ```bash
-sxng "follow-up query" --search-session <session> --redundancy warn
+sxng "follow-up query" --session <session> --redundancy warn
 ```
 
 → Return to Phase 2, loop until quality is satisfactory
@@ -372,46 +374,6 @@ When sources disagree:
 
 - Each source uses markdown link: `[Title](URL)`
 - Forbidden: fabricating URLs, title without link, using evidence-free phrases like "multiple sources indicate"
-
----
-
-## 6. Tool Quick Reference
-
-### Scenario → Tool Mapping
-
-| Scenario | Command | Notes |
-|----------|---------|-------|
-| Single fact lookup | `sxng "query"` | No `--search-session` needed |
-| Create deep research | `sxng --search-session new --owner "x" --desc "y" "query"` | Returns session path |
-| Multi-query parallel | `sxng --search-session x --queries "q1,q2,q3"` | RRF fusion & dedup |
-| Extract content | `sxng extract --session x` | Batch extract URLs |
-| Preprocessing analysis | `sxng graph-preprocess x` | TF-IDF + co-occurrence + entity context |
-| Add graph entities | `sxng graph-add x --data '...'` | JSON format |
-| Quality assessment | `sxng --search-session x --quality` | 5 independent indicators |
-| Query suggestions | `sxng suggest-queries x` | topEntities + unexploredDomains |
-| Search stage | `sxng strategy-info x` | broad vs targeted |
-| Recovery analysis | `sxng recovery-analysis x` | 4 recovery strategies |
-| Session report | `sxng session-report x` | Quality + strategy + suggestions |
-| Discover entities | `sxng graph-search x --keyword "k" [--limit N]` | Ranked by score×degree |
-| Explore relations | `sxng graph-explore x --seed "e"` | In/out edges + next step suggestions |
-| Drill into relations | `sxng graph-drill x --seed "e" --relations "r1,r2"` | Triples + next steps |
-| Reasoning paths | `sxng graph-traverse x --path "p:chain_001"` | Traverse by hops |
-| Obfuscate entities | `sxng graph-obfuscate x --list` | List entities with PII risk for label replacement |
-| Redundancy check | `--redundancy warn` | warn/adjust/skip |
-| List sessions | `sxng session-list` | View statistics |
-| Clean old data | `sxng session-delete --older 24` | Delete older than 24h |
-
-### Common Parameters
-
-| Parameter | Purpose |
-|-----------|---------|
-| `-e google,github` | Specify search engines |
-| `-c it,science` | Specify categories |
-| `--time week` | Time filter |
-| `--format json` / `-f json` | JSON output |
-| `-l 20` / `--limit 20` | Result count |
-| `--lang zh` | Language filter |
-
 ---
 
 ## 7. Self-Check List
@@ -422,7 +384,7 @@ Before outputting final answer, verify:
 - [ ] Single-source conclusions are marked **Confidence: Low**
 - [ ] Source disagreements show evidence from both sides
 - [ ] Used `sxng extract` to extract key page content
-- [ ] L2/L3 levels used `--search-session` and knowledge graph
+- [ ] L2/L3 levels used `--session` and knowledge graph
 - [ ] L3 level used `--quality` assessment and decided next steps accordingly
 - [ ] No evidence-free phrases like "it is generally believed" / "reports indicate"
 - [ ] Graph coverage verified via `graph-explore`
@@ -435,7 +397,7 @@ Before outputting final answer, verify:
 
 ```bash
 # Phase 1: Create Session
-sxng --search-session new --owner "researcher" --desc "Vector DB deep research 2026" \
+sxng --session new --owner "researcher" --desc "Vector DB deep research 2026" \
      --queries "vector database 2026 ranking,vector DB for RAG comparison"
 SESSION="ds_1234567890_abcdef"
 
@@ -456,17 +418,17 @@ sxng graph-add $SESSION --data '{
 }'
 
 # Phase 4: Quality assessment
-sxng --search-session $SESSION --quality
+sxng --session $SESSION --quality
 
 # Phase 5-6: If quality not met, supplementary search
 sxng suggest-queries $SESSION --format json
-sxng --search-session $SESSION --queries \
+sxng --session $SESSION --queries \
      "Qdrant rust implementation,HNSW vs IVF performance" --redundancy warn
 
 # Re-extract + build graph + assess
 sxng extract --session $SESSION
 sxng graph-add $SESSION --data '{"entities":[...],"edges":[...]}'
-sxng --search-session $SESSION --quality
+sxng --session $SESSION --quality
 
 # Phase 7: Recovery when consecutive poor rounds
 sxng recovery-analysis $SESSION --format json
@@ -485,7 +447,7 @@ sxng session-delete $SESSION
 
 | Anti-Pattern | Correct Approach |
 |-------------|-----------------|
-| Drawing conclusions from a single search | Use `--search-session` multi-round iteration for L2/L3 |
+| Drawing conclusions from a single search | Use `--session` multi-round iteration for L2/L3 |
 | Using only one source | Cross-validate each fact with >= 2 independent sources |
 | Ignoring source quality | Distinguish white list / grey zone / black list sources |
 | Hiding information disagreements | Present disagreements and explain judgment basis |

@@ -753,7 +753,7 @@ export function createProgram(): Command {
         .option('-f, --format <fmt>', 'Output format: md (default), json')
         .option('--queries <q1,q2,q3>', 'Multi-query with RRF fusion')
         .option('--merge <file>', 'Merge new results with previous search JSON')
-        .option('--search-session <dir|new>', 'Session dir, or "new" to auto-create')
+        .option('--session <dir|new>', 'Session dir, or "new" to auto-create')
         .option('--owner <name>', 'Session owner (stored in meta.json)')
         .option('--desc <text>', 'Session description (stored in meta.json)')
         .option('--graph <file>', 'Save search result metadata to knowledge graph file')
@@ -1129,7 +1129,7 @@ export async function runCli(args: string[], service: SearXNGService): Promise<n
         }
 
         if (opts.quality) {
-            if (!opts.searchSession) {
+            if (!opts.session) {
                 const envelope = createErrorEnvelope(
                     'QUALITY_NO_SESSION',
                     '--quality requires --session',
@@ -1139,7 +1139,7 @@ export async function runCli(args: string[], service: SearXNGService): Promise<n
                 process.exit(1);
                 return;
             }
-            const sessionDir = resolveSessionPath(opts.searchSession);
+            const sessionDir = resolveSessionPath(opts.session);
             const sessionResults = loadSessionResults(sessionDir);
             const sessionGraph = loadSessionGraph(sessionDir);
 
@@ -1243,7 +1243,7 @@ export async function runCli(args: string[], service: SearXNGService): Promise<n
             language: opts.lang,
             timeRange: opts.time,
             format: opts.format,
-            session: opts.searchSession,
+            session: opts.session,
             owner: opts.owner,
             desc: opts.desc,
             graph: opts.graph,
