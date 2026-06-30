@@ -60,7 +60,7 @@ sxng graph-traverse <session> --path "p:chain_001"  # Traverse reasoning paths
 sxng graph-obfuscate <session> --list       # List obfuscation candidates
 
 # Utility
-sxng session-list                           # List all sessions
+sxng session-list                           # List workspace sessions
 sxng session-delete --older 24              # Delete old sessions
 sxng --engines-list                         # List available engines
 sxng --categories-list                      # List available categories
@@ -138,7 +138,7 @@ sxng "follow-up" --session <session> --redundancy warn
 
 ### Session Management
 
-Sessions stored under `~/sxng-cli/sessions/` by default.
+Sessions are stored under `.sxng/sessions/` in the current working directory. 
 
 ```bash
 sxng session-list                           # List all sessions
@@ -214,7 +214,7 @@ See SOP for detailed L1/L2/L3 complexity guidelines.
 - Default format: search & graph nav → md; analysis commands → json. Override with `-f` or `--format`.
 - Results with empty title or content are automatically filtered out by CLI
 - Use `--time week/day` for recent information
-- Run `sxng --health` first if searches fail
+- If searches fail, retry the same command with the required sandbox/network permission before using fallback tools
 - Use `--redundancy warn` to avoid repeating similar queries
 - Use `--quality` after each deep search round to decide whether to continue
 

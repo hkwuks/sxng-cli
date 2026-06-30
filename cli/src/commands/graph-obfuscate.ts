@@ -9,15 +9,15 @@
 
 import { readFileSync, writeFileSync, existsSync, statSync } from 'fs';
 import { join } from 'path';
-import { homedir } from 'os';
 import { deserializeGraph, serializeGraph, graphStats, GraphNodeAttrs, GraphEdgeAttrs } from '../deep/graph.js';
 import { runGraphObfuscate, ObfuscationConfig, ObfuscationResult } from '../deep/graph-obfuscate.js';
 import { DirectedGraph } from 'graphology';
 import { createSuccessEnvelope, createErrorEnvelope } from '../protocol.js';
+import { getDefaultSessionRoot } from './session.js';
 
 function resolveGraphFile(path: string): string {
     if (!path.includes('/') && !path.includes('\\')) {
-        path = join(homedir(), 'sxng-cli', 'sessions', path);
+        path = join(getDefaultSessionRoot(), path);
     }
     try {
         if (statSync(path).isDirectory()) {

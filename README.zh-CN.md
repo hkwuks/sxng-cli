@@ -708,11 +708,11 @@ sxng --categories-list
 ```bash
 # 创建会话并搜索
 sxng --session new --owner "researcher" --desc "Rust async study" "rust async ecosystem"
-# 已创建会话：~/sxng-cli/sessions/<session-name>
+# 已创建会话：.sxng/sessions/<session-name>
 
 # 从结果中提取内容（按名称或路径）
 sxng extract --session <session-name>
-# 或：sxng extract --session ~/sxng-cli/sessions/<session-name>
+# 或：sxng extract --session .sxng/sessions/<session-name>
 
 # 添加知识图谱实体（按名称或路径）
 sxng graph-add <session-name> --data '{
@@ -737,20 +737,20 @@ sxng --session <session-name> --queries "tokio vs async-std,benchmark 2024"
 | 命令 | 说明 |
 |------|------|
 | `sxng --session new` | 创建自动命名的会话 |
-| `sxng --session <session-name>` | 按名称使用会话（自动解析为 `~/sxng-cli/sessions/<session-name>`） |
+| `sxng --session <session-name>` | 按名称使用会话（自动解析为 `.sxng/sessions/<session-name>`） |
 | `sxng --session <path>` | 按完整路径使用会话 |
 | `sxng session-list` | 列出所有会话及统计信息 |
 | `sxng session-delete <session-name>` | 删除指定会话 |
 | `sxng session-delete --older <hours>` | 删除超过指定小时的旧会话 |
 
 **会话路径解析：**
-- 纯名称（如 `my-session`）→ `~/sxng-cli/sessions/my-session`
+- 纯名称（如 `my-session`）→ `.sxng/sessions/my-session`
 - 完整路径（如 `/custom/path/session`）→ 直接使用
-- `new` → 在 `~/sxng-cli/sessions/` 下自动生成唯一名称
+- `new` → 在 `.sxng/sessions/` 下自动生成唯一名称
 
 ### 会话数据结构
 
-每个会话在 `~/sxng-cli/sessions/<session-name>/` 下存储三个文件：
+每个会话在 `.sxng/sessions/<session-name>/` 下存储三个文件：
 
 - **`results.json`** — 累积的搜索结果（URL 去重，多轮搜索）
 - **`graph.json`** — 知识图谱（结构层 + 语义层）

@@ -8,11 +8,10 @@
 
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs';
 import { join } from 'path';
-import { homedir } from 'os';
 import { DirectedGraph } from 'graphology';
 import { deserializeGraph, serializeGraph, graphStats, buildStructuralEdges, GraphNodeAttrs, GraphEdgeAttrs } from './graph.js';
 import { normalizeUrl } from './dedupe.js';
-import { loadSessionMeta, SessionMeta } from '../commands/session.js';
+import { getDefaultSessionRoot, loadSessionMeta, SessionMeta } from '../commands/session.js';
 
 export interface SessionResult {
     url: string;
@@ -36,12 +35,12 @@ export interface SessionResultsFile {
 
 /** Resolve session path. Supports:
  *  - "new": auto-create under default root with unique name
- *  - pure name (no separators): resolve to ~/sxng-cli/sessions/<name>
+ *  - pure name (no separators): resolve to default session root
  *  - full path: return as-is
  */
 export function resolveSessionPath(sessionValue: string): string {
     if (sessionValue === 'new') {
-        const root = join(homedir(), 'sxng-cli', 'sessions');
+        const root = getDefaultSessionRoot();
         if (!existsSync(root)) {
             mkdirSync(root, { recursive: true });
         }
@@ -50,7 +49,7 @@ export function resolveSessionPath(sessionValue: string): string {
     }
     // Pure name without path separators: resolve to default sessions dir
     if (!sessionValue.includes('/') && !sessionValue.includes('\\')) {
-        const root = join(homedir(), 'sxng-cli', 'sessions');
+        const root = getDefaultSessionRoot();
         return join(root, sessionValue);
     }
     return sessionValue;

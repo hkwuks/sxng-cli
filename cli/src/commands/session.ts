@@ -3,9 +3,8 @@
  */
 
 import { readFileSync, readdirSync, rmSync, statSync } from 'fs';
-import { join } from 'path';
+import { join, resolve } from 'path';
 import { createSuccessEnvelope } from '../protocol.js';
-import { homedir } from 'os';
 
 export interface SessionMeta {
     owner: string;
@@ -17,7 +16,7 @@ export interface SessionMeta {
 
 /** Default session root directory */
 export function getDefaultSessionRoot(): string {
-    return join(homedir(), 'sxng-cli', 'sessions');
+    return resolve('.sxng', 'sessions');
 }
 
 /** Load session meta.json */

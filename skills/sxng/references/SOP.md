@@ -130,7 +130,7 @@ sxng graph-explore <session> --seed "Pinecone" --format json
 
 #### Phase 1: Intent Analysis & Initial Search
 
-Sessions are stored under `~/sxng-cli/sessions/` by default.
+Sessions are stored under `.sxng/sessions/` by default.
 
 **Output**:
 - Core question in one sentence

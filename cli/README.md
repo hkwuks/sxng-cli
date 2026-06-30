@@ -237,9 +237,9 @@ sxng --session <session-name> --queries "tokio vs async-std,benchmark 2024"
 | `sxng session-delete --older <hours>` | Delete old sessions |
 
 **Session Path Resolution:**
-- Pure name (e.g., `my-session`) → `~/sxng-cli/sessions/my-session`
+- Pure name (e.g., `my-session`) → `.sxng/sessions/my-session`
 - Full path (e.g., `/custom/path/session`) → used as-is
-- `new` → auto-generate unique name under `~/sxng-cli/sessions/`
+- `new` → auto-generate unique name under `.sxng/sessions/`
 
 ### Knowledge Graph
 

@@ -715,11 +715,11 @@ Deep search enables multi-round iterative research with session accumulation and
 ```bash
 # Create a session and search
 sxng --session new --owner "researcher" --desc "Rust async study" "rust async ecosystem"
-# Session created: ~/sxng-cli/sessions/<session-name>
+# Session created: .sxng/sessions/<session-name>
 
 # Extract content from results (by name or path)
 sxng extract --session <session-name>
-# or: sxng extract --session ~/sxng-cli/sessions/<session-name>
+# or: sxng extract --session .sxng/sessions/<session-name>
 
 # Add knowledge graph entities (by name or path)
 sxng graph-add <session-name> --data '{
@@ -744,20 +744,20 @@ sxng --session <session-name> --queries "tokio vs async-std,benchmark 2024"
 | Command | Description |
 |---------|-------------|
 | `sxng --session new` | Create new auto-named session |
-| `sxng --session <session-name>` | Use session by name (auto-resolves to `~/sxng-cli/sessions/<session-name>`) |
+| `sxng --session <session-name>` | Use session by name (auto-resolves to `.sxng/sessions/<session-name>`) |
 | `sxng --session <path>` | Use session by full path |
 | `sxng session-list` | List all sessions with stats |
 | `sxng session-delete <session-name>` | Delete specific session |
 | `sxng session-delete --older <hours>` | Delete old sessions |
 
 **Session Path Resolution:**
-- Pure name (e.g., `my-session`) → `~/sxng-cli/sessions/my-session`
+- Pure name (e.g., `my-session`) → `.sxng/sessions/my-session`
 - Full path (e.g., `/custom/path/session`) → used as-is
-- `new` → auto-generate unique name under `~/sxng-cli/sessions/`
+- `new` → auto-generate unique name under `.sxng/sessions/`
 
 ### Session Data Structure
 
-Each session stores three files in `~/sxng-cli/sessions/<session-name>/`:
+Each session stores three files in `.sxng/sessions/<session-name>/`:
 
 - **`results.json`** — Accumulated search results (URL dedup, multi-round)
 - **`graph.json`** — Knowledge graph (structural + semantic layers)
