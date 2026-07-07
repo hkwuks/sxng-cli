@@ -22,6 +22,7 @@ export interface SessionResult {
     score?: number;
     publishedDate?: string;
     source?: string; // "sxng" | "tavily" | "exa" | "open-web-search" | ... — which tool produced this result
+    status?: 'pending' | 'approved' | 'rejected'; // Quality assessment status
     [key: string]: unknown;
 }
 
@@ -96,24 +97,34 @@ export function loadSessionResults(sessionDir: string): SessionResult[] {
     }
 }
 
-/** Append new results to session results (dedup by URL) */
+/** Append new results to session results (dedup by title then URL).
+ *  New results are marked as 'pending' and will not be injected into graph
+ *  until approved by Agent quality assessment.
+ */
 export function appendSessionResults(sessionDir: string, newResults: SessionResult[]): { added: number; total: number } {
     const existing = loadSessionResults(sessionDir);
+    const titleMap = new Map<string, SessionResult>();
     const urlMap = new Map<string, SessionResult>();
 
-    // Index existing results by normalized URL
+    // Index existing results by normalized title and URL
     for (const r of existing) {
+        const titleKey = r.title?.toLowerCase().trim();
+        if (titleKey) titleMap.set(titleKey, r);
         urlMap.set(normalizeUrl(r.url), r);
     }
 
     // Add new results (dedup: keep first occurrence)
     let added = 0;
     for (const r of newResults) {
+        const titleKey = r.title?.toLowerCase().trim();
+        if (titleKey && titleMap.has(titleKey)) continue;
         const norm = normalizeUrl(r.url);
-        if (!urlMap.has(norm)) {
-            urlMap.set(norm, r);
-            added++;
-        }
+        if (urlMap.has(norm)) continue;
+        // Mark new results as pending
+        r.status = 'pending';
+        if (titleKey) titleMap.set(titleKey, r);
+        urlMap.set(norm, r);
+        added++;
     }
 
     const all = Array.from(urlMap.values());
@@ -167,7 +178,84 @@ export function saveSessionGraph(sessionDir: string, graph: DirectedGraph<GraphN
     }
 }
 
-/** Update session graph with new search results (structural layer) */
+/** Get pending results (not yet approved by Agent) */
+export function getPendingResults(sessionDir: string): SessionResult[] {
+    const results = loadSessionResults(sessionDir);
+    return results.filter(r => !r.status || r.status === 'pending');
+}
+
+/** Get approved results (ready for graph injection) */
+export function getApprovedResults(sessionDir: string): SessionResult[] {
+    const results = loadSessionResults(sessionDir);
+    return results.filter(r => r.status === 'approved');
+}
+
+/** Approve results by their indices (0-based) in the pending list.
+ *  Returns the number of approved results.
+ */
+export function approveResults(sessionDir: string, indices: number[]): { approved: number; total: number } {
+    const results = loadSessionResults(sessionDir);
+    const pending = results.filter(r => !r.status || r.status === 'pending');
+
+    // Create a set of approved URLs for quick lookup
+    const approvedUrls = new Set<string>();
+    for (const idx of indices) {
+        if (idx >= 0 && idx < pending.length) {
+            approvedUrls.add(normalizeUrl(pending[idx].url));
+        }
+    }
+
+    // Update status
+    let approved = 0;
+    for (const r of results) {
+        if (approvedUrls.has(normalizeUrl(r.url))) {
+            r.status = 'approved';
+            approved++;
+        }
+    }
+
+    // Save back
+    const file = join(sessionDir, 'results.json');
+    const rounds = loadSessionRounds(sessionDir);
+    try {
+        writeFileSync(file, JSON.stringify({
+            status: 'ok',
+            data: { results, rounds },
+        }, null, 2), 'utf-8');
+    } catch (e) {
+        throw new Error(`Failed to write session results to ${file}: ${e instanceof Error ? e.message : String(e)}`);
+    }
+
+    return { approved, total: results.length };
+}
+
+/** Inject approved results into graph (structural layer).
+ *  Uses query from session meta.json if not provided.
+ */
+export function injectApprovedResults(sessionDir: string, query?: string, round?: number): { nodesAdded: number; edgesAdded: number } {
+    const approved = getApprovedResults(sessionDir);
+    if (approved.length === 0) {
+        return { nodesAdded: 0, edgesAdded: 0 };
+    }
+
+    // If no query provided, try to get from meta.json
+    let actualQuery = query;
+    if (!actualQuery) {
+        const meta = loadSessionMeta(sessionDir);
+        actualQuery = meta?.query || 'unknown_query';
+    }
+
+    return updateSessionGraph(sessionDir, actualQuery, approved.map(r => ({
+        url: r.url,
+        title: r.title,
+        source: r.source,
+    })), round);
+}
+
+/** Count pending results */
+export function countPendingResults(sessionDir: string): number {
+    return getPendingResults(sessionDir).length;
+}
 export function updateSessionGraph(
     sessionDir: string,
     query: string,

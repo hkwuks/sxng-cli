@@ -12,6 +12,7 @@ import { deserializeGraph, serializeGraph, graphStats, GraphNodeAttrs, GraphEdge
 import { DirectedGraph } from 'graphology';
 import { createSuccessEnvelope, createErrorEnvelope } from '../protocol.js';
 import { getDefaultSessionRoot } from './session.js';
+import { appendSessionResults, resolveSessionPath } from '../deep/session.js';
 
 /** Resolve graph file path — if directory (session), use graph.json inside it.
  *  Pure name (no separators) is resolved to the default session root.
@@ -210,10 +211,27 @@ export async function runGraphAdd(options: GraphAddOptions): Promise<number> {
         return 1;
     }
 
+    // Also write external results to results.json if this is a session directory
+    let sessionResultsAdded = 0;
+    if (parsed.results && parsed.results.length > 0) {
+        const sessionDir = resolveSessionPath(options.graphFile);
+        if (sessionDir) {
+            const externalResults = parsed.results.map(r => ({
+                url: r.url,
+                title: r.title,
+                source: r.source || 'external',
+                rank: r.rank,
+            }));
+            const result = appendSessionResults(sessionDir, externalResults as any[]);
+            sessionResultsAdded = result.added;
+        }
+    }
+
     const envelope = createSuccessEnvelope({
         entitiesAdded,
         resultsAdded,
         edgesAdded,
+        sessionResultsAdded,
         skippedEdges,
         stats,
     });

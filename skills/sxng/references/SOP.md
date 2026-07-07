@@ -202,13 +202,21 @@ sxng graph-add <session> --data '{
 
 The `source` field (`"sxng"` | `"tavily"` | `"exa"` | `"open-web-search"` | ...) marks which tool produced each result. sxng-native results default to `"sxng"`. External results participate equally in quality assessment, path discovery, and domain diversity — the graph treats them identically regardless of source.
 
-#### Phase 4: Quality Assessment
+> **Note**: Results added via `graph-add` are marked as `pending` and require Agent approval (`--quality --approve`) before they appear in the graph for subsequent commands.
+
+#### Phase 4: Quality Assessment & Approval
 
 ```bash
+# Assess quality and list pending results
 sxng --session <session> --quality
+
+# Approve selected pending results (injects into graph automatically)
+sxng --session <session> --quality --approve "0,1,2"
 ```
 
-5 independent indicators (resultCount, contentDepth, entityRichness, sourceDiversity, novelty), each with its own threshold.
+> **Results are accumulated as `pending`** — they are not in the knowledge graph until approved by the Agent via `--approve`. External results injected via `graph-add` also go through pending first.
+
+4 independent indicators (contentDepth, entityRichness, sourceDiversity, novelty), each with its own threshold.
 
 | Verdict | Action |
 |---------|--------|
@@ -417,18 +425,21 @@ sxng graph-add $SESSION --data '{
   ]
 }'
 
-# Phase 4: Quality assessment
+# Phase 4: Quality assessment + approve
 sxng --session $SESSION --quality
+# Review pending results, then approve and inject into graph:
+sxng --session $SESSION --quality --approve "0,1,2,3,4"
 
 # Phase 5-6: If quality not met, supplementary search
 sxng suggest-queries $SESSION --format json
 sxng --session $SESSION --queries \
      "Qdrant rust implementation,HNSW vs IVF performance" --redundancy warn
 
-# Re-extract + build graph + assess
+# Re-extract + build graph + assess + approve
 sxng extract --session $SESSION
 sxng graph-add $SESSION --data '{"entities":[...],"edges":[...]}'
 sxng --session $SESSION --quality
+sxng --session $SESSION --quality --approve "0,1"
 
 # Phase 7: Recovery when consecutive poor rounds
 sxng recovery-analysis $SESSION --format json

@@ -9,7 +9,7 @@
  * - acceptable: ≤2 indicators fail
  * - poor:    ≥3 indicators fail
  *
- * Novelty uses SimHash similarity < 0.7 as "not similar" threshold
+ * Novelty uses SimHash similarity < 0.75 as "not similar" threshold
  * (paired with dedup threshold of 0.85).
  */
 
@@ -27,7 +27,6 @@ export interface IndicatorResult {
 }
 
 export interface QualityBreakdown {
-    resultCount: IndicatorResult;
     contentDepth: IndicatorResult;
     entityRichness: IndicatorResult;
     sourceDiversity: IndicatorResult;
@@ -41,7 +40,6 @@ export interface QualityScore {
 }
 
 export interface QualityThresholds {
-    resultCount: number;
     contentDepth: number;
     entityRichness: number;
     sourceDiversity: number;
@@ -49,7 +47,6 @@ export interface QualityThresholds {
 }
 
 const DEFAULT_THRESHOLDS: QualityThresholds = {
-    resultCount: 5,
     contentDepth: 150,
     entityRichness: 2,
     sourceDiversity: 3,
@@ -67,15 +64,9 @@ function extractDomain(url: string): string {
     }
 }
 
-/** Compute result count indicator */
-function computeResultCount(newResults: SessionResult[], threshold: number): IndicatorResult {
-    const value = newResults.length;
-    return { value, threshold, pass: value >= threshold };
-}
-
 /** Compute content depth indicator — average content length of extracted results only */
-function computeContentDepth(newResults: SessionResult[], threshold: number): IndicatorResult {
-    const extracted = newResults.filter(r => r.content && r.content.length > 0);
+function computeContentDepth(results: SessionResult[], threshold: number): IndicatorResult {
+    const extracted = results.filter(r => r.content && r.content.length > 0);
     if (extracted.length === 0) {
         return { value: 0, threshold, pass: false };
     }
@@ -108,7 +99,7 @@ function computeSourceDiversity(newResults: SessionResult[], threshold: number):
 }
 
 /** Compute novelty indicator — fraction of new results not similar to existing session results.
- *  Uses SimHash similarity < 0.7 as "not similar" threshold.
+ *  Uses SimHash similarity < 0.75 as "not similar" threshold.
  *  Caches SimHash results for performance. */
 function computeNovelty(
     newResults: SessionResult[],
@@ -136,7 +127,7 @@ function computeNovelty(
         const h = simhash.hash(`${r.title} ${r.content || ''}`);
         let isSimilar = false;
         for (const existing of existingHashes) {
-            if (simhash.similarity(h, existing) >= 0.7) {
+            if (simhash.similarity(h, existing) >= 0.75) {
                 isSimilar = true;
                 break;
             }
@@ -150,10 +141,12 @@ function computeNovelty(
 
 // ── Main assessment ───────────────────────────────────────────────
 
-/** Assess the quality of new search results against session context.
- *  All indicators use independent thresholds — no weighted sum. */
+/** Assess the quality of results against session context.
+ *  All indicators use independent thresholds — no weighted sum.
+ *  Note: resultCount is intentionally excluded — Agent decides how many results to keep.
+ */
 export function assessResultQuality(
-    newResults: SessionResult[],
+    results: SessionResult[],
     sessionResults: SessionResult[],
     graph: DirectedGraph<GraphNodeAttrs, GraphEdgeAttrs>,
     thresholds?: Partial<QualityThresholds>
@@ -161,11 +154,10 @@ export function assessResultQuality(
     const t = { ...DEFAULT_THRESHOLDS, ...thresholds };
 
     const breakdown: QualityBreakdown = {
-        resultCount: computeResultCount(newResults, t.resultCount),
-        contentDepth: computeContentDepth(newResults, t.contentDepth),
+        contentDepth: computeContentDepth(results, t.contentDepth),
         entityRichness: computeEntityRichness(graph, t.entityRichness),
-        sourceDiversity: computeSourceDiversity(newResults, t.sourceDiversity),
-        novelty: computeNovelty(newResults, sessionResults, t.novelty),
+        sourceDiversity: computeSourceDiversity(results, t.sourceDiversity),
+        novelty: computeNovelty(results, sessionResults, t.novelty),
     };
 
     const failedIndicators = Object.entries(breakdown)

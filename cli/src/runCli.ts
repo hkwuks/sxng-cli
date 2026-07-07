@@ -20,8 +20,8 @@ import { runGraphObfuscateCommand, GraphObfuscateOptions } from './commands/grap
 import { ContentExtractor } from './deep/extractor.js';
 import { rrf } from './deep/rrf.js';
 import { normalizeUrl } from './deep/dedupe.js';
-import { deserializeGraph, serializeGraph, graphStats, resultId, GraphNodeAttrs, GraphEdgeAttrs } from './deep/graph.js';
-import { initSessionDir, resolveSessionPath, appendSessionResults, updateSessionGraph, loadSessionResults, loadSessionGraph } from './deep/session.js';
+import { deserializeGraph, graphStats, GraphNodeAttrs, GraphEdgeAttrs } from './deep/graph.js';
+import { initSessionDir, resolveSessionPath, appendSessionResults, loadSessionResults, loadSessionGraph, countPendingResults, getPendingResults, approveResults, injectApprovedResults } from './deep/session.js';
 import { runSessionList, runSessionDelete, getDefaultSessionRoot } from './commands/session.js';
 import { graphPreprocess } from './deep/graph-preprocess.js';
 import { checkQueryRedundancy, RedundancyConfig } from './deep/query-redundancy.js';
@@ -152,9 +152,8 @@ function formatQualityAsMarkdown(data: any): string {
     if (breakdown) {
         lines.push('| Indicator | Value | Threshold | Pass |');
         lines.push('|-----------|-------|-----------|------|');
-        const indicators = ['resultCount', 'contentDepth', 'entityRichness', 'sourceDiversity', 'novelty'];
+        const indicators = ['contentDepth', 'entityRichness', 'sourceDiversity', 'novelty'];
         const labels: Record<string, string> = {
-            resultCount: 'Result Count',
             contentDepth: 'Content Depth',
             entityRichness: 'Entity Richness',
             sourceDiversity: 'Source Diversity',
@@ -299,9 +298,9 @@ function formatSessionReportAsMarkdown(data: any): string {
     lines.push(`### Quality: ${q.verdict.toUpperCase()} ${verdictEmoji[q.verdict] || ''}`);
     lines.push('');
     if (q.breakdown) {
-        const indicators = ['resultCount', 'contentDepth', 'entityRichness', 'sourceDiversity', 'novelty'];
+        const indicators = ['contentDepth', 'entityRichness', 'sourceDiversity', 'novelty'];
         const labels: Record<string, string> = {
-            resultCount: 'Result Count', contentDepth: 'Content Depth',
+            contentDepth: 'Content Depth',
             entityRichness: 'Entity Richness', sourceDiversity: 'Source Diversity', novelty: 'Novelty',
         };
         for (const key of indicators) {
@@ -353,46 +352,6 @@ function loadSessionQueryHistory(sessionDir: string): string[] {
         }
     });
     return queries;
-}
-
-function addToGraph(graphFile: string, results: SearchResult[]): void {
-    let graph: DirectedGraph<GraphNodeAttrs, GraphEdgeAttrs>;
-    if (existsSync(graphFile)) {
-        try {
-            const raw = readFileSync(graphFile, 'utf-8');
-            const parsed = JSON.parse(raw);
-            const graphData = parsed.status === 'ok' && parsed.data?.graph
-                ? parsed.data.graph
-                : (parsed.nodes && parsed.edges ? parsed : null);
-            if (graphData) {
-                graph = deserializeGraph(graphData);
-            } else {
-                graph = new DirectedGraph<GraphNodeAttrs, GraphEdgeAttrs>();
-            }
-        } catch {
-            graph = new DirectedGraph<GraphNodeAttrs, GraphEdgeAttrs>();
-        }
-    } else {
-        graph = new DirectedGraph<GraphNodeAttrs, GraphEdgeAttrs>();
-    }
-
-    for (let i = 0; i < results.length; i++) {
-        const r = results[i];
-        const id = resultId(r.url);
-        if (!graph.hasNode(id)) {
-            graph.mergeNode(id, {
-                type: 'result',
-                label: r.title,
-                url: r.url,
-                title: r.title,
-                rank: i + 1,
-            });
-        }
-    }
-
-    const serialized = serializeGraph(graph);
-    const stats = graphStats(graph);
-    writeFileSync(graphFile, JSON.stringify({ status: 'ok', data: { graph: serialized, stats } }, null, 2), 'utf-8');
 }
 
 async function runSearch(
@@ -522,11 +481,10 @@ async function runSearch(
             let sessionInfo: { added: number; total: number } | null = null;
             if (options.session) {
                 sessionInfo = appendSessionResults(options.session, results.results as any[]);
-                for (const query of queries) {
-                    updateSessionGraph(options.session, query, results.results.map(r => ({
-                        url: r.url,
-                        title: r.title,
-                    })));
+                // Check pending count and warn if >= 30
+                const pendingCount = countPendingResults(options.session);
+                if (pendingCount >= 30) {
+                    console.error(`[session] ${pendingCount} pending results awaiting Agent quality assessment. Run --quality to evaluate.`);
                 }
             }
 
@@ -571,9 +529,8 @@ async function runSearch(
                 }), null, 2));
             }
 
-            if (options.graph) {
-                addToGraph(options.graph, results.results);
-            }
+            // Results are now managed by session (pending -> approved -> graph)
+            // Do NOT auto-inject into graph. Use --quality --approve for Agent-controlled injection.
 
             return 0;
         }
@@ -684,11 +641,10 @@ async function runSearch(
         let sessionInfo: { added: number; total: number } | null = null;
         if (options.session) {
             sessionInfo = appendSessionResults(options.session, fusedResults as any[]);
-            for (const query of queries) {
-                updateSessionGraph(options.session, query, fusedResults.map(r => ({
-                    url: r.url,
-                    title: r.title,
-                })));
+            // Check pending count and warn if >= 30
+            const pendingCount = countPendingResults(options.session);
+            if (pendingCount >= 30) {
+                console.error(`[session] ${pendingCount} pending results awaiting Agent quality assessment. Run --quality to evaluate.`);
             }
         }
 
@@ -717,9 +673,8 @@ async function runSearch(
             console.log(formatOutput(displayData, outputFormat));
         }
 
-        if (options.graph) {
-            addToGraph(options.graph, fusedResults);
-        }
+        // Results are now managed by session (pending -> approved -> graph)
+        // Do NOT auto-inject into graph. Use --quality --approve for Agent-controlled injection.
 
         return 0;
     } catch (error) {
@@ -759,7 +714,8 @@ export function createProgram(): Command {
         .option('--graph <file>', 'Save search result metadata to knowledge graph file')
         .option('--redundancy <action>', 'Query redundancy check: warn | adjust | skip')
         .option('--quality', 'Assess result quality for current session')
-        .option('--threshold-override <json>', 'Override quality thresholds (JSON, e.g. \'{"resultCount":10}\')')
+        .option('--threshold-override <json>', 'Override quality thresholds (JSON, e.g. \'{"contentDepth":100}\')')
+        .option('--approve <indices>', 'Approve pending results by comma-separated indices (e.g. "0,1,2")')
         .option('--health', 'Check SearXNG server health')
         .option('--engines-list', 'List available search engines')
         .option('--categories-list', 'List available categories')
@@ -777,7 +733,6 @@ export function createProgram(): Command {
         .command('extract')
         .description('Extract article content from URLs or session results')
         .option('--urls <url1,url2>', 'URLs to extract content from')
-        .option('--from-json <file>', 'Extract from search results JSON file')
         .option('--session <dir>', 'Extract from session results and merge content back')
         .option('--obscura', 'Use Obscura as fallback for JS-heavy pages')
         .option('--obscura-path <path>', 'Path to Obscura binary')
@@ -792,7 +747,6 @@ export function createProgram(): Command {
             });
             const extractOptions: ExtractOptions = {
                 urls: opts.urls?.split(',').map((u: string) => u.trim()).filter(Boolean),
-                fromJson: opts.fromJson,
                 session: opts.session,
             };
             const code = await runExtract(extractor, extractOptions);
@@ -1151,7 +1105,7 @@ export async function runCli(args: string[], service: SearXNGService): Promise<n
                     const envelope = createErrorEnvelope(
                         'INVALID_THRESHOLD_OVERRIDE',
                         '--threshold-override must be valid JSON',
-                        { hint: 'Example: \'{"resultCount":10}\'' }
+                        { hint: 'Example: \'{"contentDepth":100}\'' }
                     );
                     console.log(JSON.stringify(envelope, null, 2));
                     process.exit(1);
@@ -1159,18 +1113,77 @@ export async function runCli(args: string[], service: SearXNGService): Promise<n
                 }
             }
 
+            // Get pending results for Agent review
+            const pending = getPendingResults(sessionDir);
+
+            // Handle Agent approval first (before showing quality assessment)
+            if (opts.approve) {
+                const indices = (opts.approve as string).split(',').map((s: string) => parseInt(s.trim(), 10)).filter((n: number) => !isNaN(n));
+                const { approved, total } = approveResults(sessionDir, indices);
+
+                // Inject approved results into graph
+                const injectInfo = injectApprovedResults(sessionDir);
+
+                console.log(JSON.stringify(createSuccessEnvelope({
+                    approved,
+                    total,
+                    nodesAdded: injectInfo.nodesAdded,
+                    edgesAdded: injectInfo.edgesAdded,
+                    message: `Approved ${approved} results, injected into graph (+${injectInfo.nodesAdded} nodes, +${injectInfo.edgesAdded} edges)`,
+                }), null, 2));
+                process.exit(0);
+                return;
+            }
+
+            if (pending.length === 0) {
+                // No pending results, just show current quality
+                const quality = assessResultQuality(
+                    sessionResults,
+                    sessionResults,
+                    sessionGraph,
+                    thresholdOverride
+                );
+
+                const outputFormat = (opts.format || config.defaultFormat) as 'json' | 'md';
+                if (outputFormat === 'md') {
+                    console.log(formatQualityAsMarkdown(quality));
+                } else {
+                    console.log(JSON.stringify(createSuccessEnvelope(quality), null, 2));
+                }
+                process.exit(0);
+                return;
+            }
+
+            // Show pending results with indices for Agent selection
             const quality = assessResultQuality(
-                sessionResults,
+                pending,
                 sessionResults,
                 sessionGraph,
                 thresholdOverride
             );
 
             const outputFormat = (opts.format || config.defaultFormat) as 'json' | 'md';
-            if (outputFormat === 'md') {
-                console.log(formatQualityAsMarkdown(quality));
+            if (outputFormat === 'json') {
+                // JSON output includes pending results with indices for Agent
+                console.log(JSON.stringify(createSuccessEnvelope({
+                    quality,
+                    pendingResults: pending.map((r, i) => ({
+                        index: i,
+                        title: r.title,
+                        url: r.url,
+                        source: r.source || 'sxng',
+                        status: r.status,
+                    })),
+                    hint: 'Approve results by index: sxng --session <name> --quality --approve "0,1,2"',
+                }), null, 2));
             } else {
-                console.log(JSON.stringify(createSuccessEnvelope(quality), null, 2));
+                console.log(formatQualityAsMarkdown(quality));
+                console.log('\n## Pending Results (awaiting Agent approval)\n');
+                for (let i = 0; i < pending.length; i++) {
+                    const r = pending[i];
+                    console.log(`${i}. [${r.title || 'No Title'}](${r.url}) [${r.source || 'sxng'}]`);
+                }
+                console.log('\n**Approve:** sxng --session <name> --quality --approve "0,1,2"');
             }
             process.exit(0);
             return;

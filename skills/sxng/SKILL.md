@@ -40,10 +40,12 @@ sxng --session <session> "more queries"
 # Content extraction
 sxng extract --urls "url1,url2"             # Extract from URLs
 sxng extract --session <session>            # Extract session results
-sxng extract --urls "url1" --obscura        # Extract with JS-rendering fallback
+sxng extract --urls "url1" --obscura        # Fallback: JS rendering
+sxng extract --urls "url1" --jina           # Fallback: Jina Reader
 
 # Quality & iteration
-sxng --session <session> --quality   # Assess result quality
+sxng --session <session> --quality   # Assess result quality & list pending
+sxng --session <session> --quality --approve "0,1,2"  # Approve pending results
 sxng suggest-queries <session>              # Get query suggestions
 sxng strategy-info <session>                # Check search stage
 sxng recovery-analysis <session>            # Get recovery strategies
@@ -80,29 +82,29 @@ sxng --health                               # Check server status
 | `--format` | `--format json` | Output format: md (default), json |
 | `--queries` | `--queries "q1,q2,q3"` | Multi-query with RRF fusion |
 | `--merge` | `--merge prev.json` | Merge new results with previous search JSON |
-| `--graph` | `--graph graph.json` | Save results to knowledge graph file |
 | `--session` | `--session new` | Session dir or "new" to auto-create |
 | `--owner` | `--owner "agent-1"` | Session owner |
 | `--desc` | `--desc "research topic"` | Session description |
 | `--redundancy` | `--redundancy warn` | Redundancy check: warn / adjust / skip |
 | `--quality` | `--quality` | Assess result quality (requires --session) |
-| `--threshold-override` | `--threshold-override '{"resultCount":10}'` | Override quality thresholds (JSON) |
+| `--approve <indices>` | `--approve "0,1,2"` | Approve pending results by index (requires --quality) |
+| `--threshold-override` | `--threshold-override '{"contentDepth":100}'` | Override quality thresholds (JSON) |
 
 ## Extract
 
-Extract full article content from web pages. Two-tier: **Defuddle + linkedom** (fast) → **Obscura** (JS rendering fallback).
+Extract full article content from web pages. If simple extraction fails (SPA or JS-heavy pages), use `--obscura` or `--jina` as fallback.
 
 ```bash
 sxng extract --urls "https://example.com/a,https://example.com/b"
 sxng extract --session <session-name>
 sxng extract --urls "https://spa-site.com" --obscura
+sxng extract --urls "https://spa-site.com" --jina
 ```
 
-| Option | Description |
-|--------|-------------|
-| `--obscura` | Enable JS-rendering fallback for SPAs |
-| `--obscura-path <path>` | Path to Obscura binary (auto-detected if omitted) |
-| `--obscura-dump <format>` | `html` (default) or `markdown` (faster, no metadata) |
+| Option | Purpose |
+|--------|---------|
+| `--obscura` | JS-rendering fallback for SPA pages |
+| `--jina` | Jina Reader fallback for complex pages |
 
 ## Deep Search
 
@@ -152,7 +154,21 @@ sxng session-delete --older 24              # Delete sessions older than 24h
 sxng --session <session> --quality
 ```
 
-Returns 5 independent indicators: resultCount, contentDepth, entityRichness, sourceDiversity, novelty. Verdict: good / acceptable / poor. Based on verdict, use `suggest-queries` or `recovery-analysis` for next steps.
+Returns 4 independent indicators: contentDepth, entityRichness, sourceDiversity, novelty. Verdict: good / acceptable / poor. Based on verdict, use `suggest-queries` or `recovery-analysis` for next steps.
+
+Results are accumulated as *pending* and must be approved by the Agent before injection into the knowledge graph:
+
+```bash
+# View pending results with indices
+sxng --session <session> --quality
+
+# Approve selected pending results by comma-separated indices
+sxng --session <session> --quality --approve "0,1,2"
+
+# Approved results are automatically injected into the graph
+```
+
+When ≥30 results are pending, a warning is shown prompting quality assessment.
 
 ### Knowledge Graph
 

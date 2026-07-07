@@ -132,9 +132,8 @@ export function analyzeRecoveryOptions(
     // Build available strategies
     const strategies: RecoveryStrategyInfo[] = [];
 
-    // Reformulate: suggest when resultCount or contentDepth failed
-    if (qualityScore.failedIndicators.includes('resultCount') ||
-        qualityScore.failedIndicators.includes('contentDepth')) {
+    // Reformulate: suggest when contentDepth failed
+    if (qualityScore.failedIndicators.includes('contentDepth')) {
         strategies.push({
             strategy: 'reformulate',
             reason: '查询过于具体或范围过窄，可能需要简化',
@@ -151,9 +150,8 @@ export function analyzeRecoveryOptions(
         });
     }
 
-    // Category shift: suggest when novelty or resultCount failed
-    if (qualityScore.failedIndicators.includes('novelty') ||
-        (qualityScore.failedIndicators.includes('resultCount') && strategies.length < 3)) {
+    // Category shift: suggest when novelty failed
+    if (qualityScore.failedIndicators.includes('novelty')) {
         strategies.push({
             strategy: 'category_shift',
             reason: '当前分类结果不佳或结果重复',

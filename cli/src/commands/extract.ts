@@ -4,12 +4,11 @@
 
 import { ContentExtractor, ExtractedContent } from '../deep/extractor.js';
 import { createSuccessEnvelope, createErrorEnvelope } from '../protocol.js';
-import { readFileSync } from 'fs';
 import { loadSessionResults, mergeExtractedContent, resolveSessionPath } from '../deep/session.js';
+import { SimHash } from '../deep/simhash.js';
 
 export interface ExtractOptions {
     urls?: string[];
-    fromJson?: string;
     session?: string;
 }
 
@@ -49,36 +48,11 @@ export async function runExtract(
             return 1;
         }
         urls = results.map(r => r.url).filter(u => typeof u === 'string' && u.length > 0);
-    } else if (options.fromJson) {
-        try {
-            const raw = readFileSync(options.fromJson, 'utf-8');
-            const parsed = JSON.parse(raw);
-
-            // Handle envelope format
-            let data = parsed;
-            if (parsed.status === 'ok' && parsed.data) {
-                data = parsed.data;
-            }
-
-            // Extract URLs from results array
-            const results = data.results || [];
-            urls = results
-                .map((r: any) => r.url as string)
-                .filter((u: string) => typeof u === 'string' && u.length > 0);
-        } catch (error) {
-            const envelope = createErrorEnvelope(
-                'FILE_READ_FAILED',
-                `Failed to read or parse file: ${options.fromJson}`,
-                { hint: 'Ensure the file exists and contains valid JSON with a results array' }
-            );
-            console.log(JSON.stringify(envelope, null, 2));
-            return 1;
-        }
     } else {
         const envelope = createErrorEnvelope(
             'MISSING_INPUT',
             'No URLs or input file provided for extraction',
-            { hint: 'Use: sxng extract --urls "url1,url2" or sxng extract --from-json results.json or sxng extract --session /tmp/s' }
+            { hint: 'Use: sxng extract --urls "url1,url2" or sxng extract --session <session>' }
         );
         console.log(JSON.stringify(envelope, null, 2));
         return 1;
@@ -88,7 +62,7 @@ export async function runExtract(
         const envelope = createErrorEnvelope(
             'NO_URLS',
             'No URLs found to extract',
-            { hint: 'Provide URLs directly or ensure the JSON/session contains results with URLs' }
+            { hint: 'Provide URLs directly or ensure the session contains results with URLs' }
         );
         console.log(JSON.stringify(envelope, null, 2));
         return 1;
@@ -97,8 +71,33 @@ export async function runExtract(
     try {
         const contents = await extractor.extractBatch(urls);
 
-        const extracted = contents.filter(c => !c.error && c.content.length > 100);
-        const failed = contents.filter(c => c.error || c.content.length <= 100).map(c => c.url);
+        // Deduplicate extracted content by first 500 chars using SimHash
+        const simhash = new SimHash();
+        const seenHashes: bigint[] = [];
+        const extracted: ExtractedContent[] = [];
+        const failed: string[] = [];
+
+        for (const c of contents) {
+            if (c.error || c.content.length <= 100) {
+                failed.push(c.url);
+                continue;
+            }
+            const prefix = c.content.slice(0, 500);
+            const h = simhash.hash(prefix);
+            let isDuplicate = false;
+            for (const existing of seenHashes) {
+                if (simhash.similarity(h, existing) >= 0.85) {
+                    isDuplicate = true;
+                    break;
+                }
+            }
+            if (!isDuplicate) {
+                extracted.push(c);
+                seenHashes.push(h);
+            } else {
+                failed.push(c.url);
+            }
+        }
 
         // Merge extracted content into session if --session provided
         let sessionMerge: { updated: number; total: number } | null = null;
