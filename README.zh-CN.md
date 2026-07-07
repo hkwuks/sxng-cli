@@ -30,17 +30,16 @@
 
 ## ✨ 特色功能
 
-- 🔎 **多引擎搜索** — 同时搜索 Google、Bing、DuckDuckGo、GitHub、StackOverflow 等 30+ 搜索引擎
+- 🔎 **多引擎搜索** — 同时搜索 Google、Bing、DuckDuckGo、GitHub 等 30+ 搜索引擎
 - 🔄 **动态发现** — 自动从 SearXNG 服务器获取可用引擎和分类
 - 📄 **多格式输出** — Markdown（LLM 优化）或 JSON 格式
-- 🧠 **深度搜索** — 多轮迭代研究，支持会话累积和知识图谱
-- 🔍 **内容提取** — 提取搜索结果页面的完整文章内容，JS 密集页面自动回退到 Obscura
-- 🗂️ **会话管理** — 跨多轮搜索累积结果，自动去重
-- 🕸️ **知识图谱** — 构建实体和关系的语义图
-- ⚡ **快速轻量** — TypeScript 构建，最小依赖
-- 🔧 **灵活配置** — 环境变量、配置文件或交互式设置
-- 🏥 **健康检查** — 即时验证服务器连接
-- 🌐 **代理支持** — HTTP/HTTPS 代理配置
+- 🧠 **深度搜索** — 多轮迭代研究，支持会话累积、质量评估和恢复策略
+- 🔍 **内容提取** — 从 URL 或会话结果中提取文章全文，支持 Obscura（JS 渲染）和 Jina Reader 回退
+- 🗂️ **会话管理** — 跨轮累积搜索结果，自动去重；待审 → 审批 → 注入图谱工作流
+- ⭐ **质量评估** — 4 个独立指标：内容深度、实体丰富度、来源多样性、新颖度
+- 🕸️ **知识图谱** — 结构层（查询→结果→域名）+ 语义层（实体关系）双层图谱
+- 🔄 **查询冗余检查** — Jaccard 相似度 + SimHash 避免重复查询
+- 💡 **Agent 优先设计** — 输出结构化分析数据（质量、建议、恢复策略）供 LLM Agent 决策
 
 ---
 
@@ -594,15 +593,28 @@ obscura --version
 | `sxng <query>` | 执行网页搜索 |
 | `sxng --queries "q1,q2"` | 多查询搜索（RRF 融合排序） |
 | `sxng extract --urls <urls>` | 提取网页内容 |
-| `sxng extract --obscura` | 使用 Obscura JS 渲染回退提取 |
+| `sxng extract --session <name>` | 提取会话结果并合并内容 |
+| `sxng extract --obscura` | JS 渲染回退（用于 SPA 页面） |
+| `sxng extract --jina` | Jina Reader 回退（用于复杂页面） |
 | `sxng --session new` | 创建深度搜索会话 |
+| `sxng --session <name> --quality` | 评估结果质量，列出待审结果 |
+| `sxng --session <name> --quality --approve "0,1"` | 按索引审批待审结果 |
+| `sxng suggest-queries <session>` | 获取查询建议数据（供 Agent 使用） |
+| `sxng strategy-info <session>` | 查看当前搜索阶段 |
+| `sxng recovery-analysis <session>` | 获取低质量恢复策略 |
+| `sxng session-report <session>` | 完整会话分析报告 |
 | `sxng session-list` | 列出所有会话 |
 | `sxng session-delete <session-name>` | 删除指定会话 |
-| `sxng graph-add <session>` | 向知识图谱添加实体 |
-| `sxng query-graph <session>` | 查询知识图谱 |
+| `sxng graph-preprocess <session>` | TF-IDF + 共现分析 |
+| `sxng graph-add <session>` | 向知识图谱添加实体/边 |
+| `sxng graph-search <session>` | 按关键词发现实体 |
+| `sxng graph-explore <session>` | 查看实体关系 |
+| `sxng graph-drill <session>` | 追踪特定关系 |
+| `sxng graph-traverse <session>` | 遍历推理路径 |
+| `sxng graph-obfuscate <session>` | 列出混淆候选 |
 | `sxng --health` | 检查 SearXNG 服务器健康状态 |
-| `sxng --engines-list` | 列出服务器可用搜索引擎 |
-| `sxng --categories-list` | 列出服务器可用分类 |
+| `sxng --engines-list` | 列出可用搜索引擎 |
+| `sxng --categories-list` | 列出可用分类 |
 | `sxng --help` | 显示帮助信息 |
 
 ### 搜索选项
@@ -615,11 +627,16 @@ obscura --version
 | `-p, --page <n>` | 翻页页码 |
 | `--lang <code>` | 语言代码（如 `en`、`zh`、`ja`） |
 | `--time <range>` | 时间范围：`day`、`week`、`month`、`year`、`all` |
-| `-f, --format <fmt>` | 输出格式：`md`、`json`、`csv`、`html`（默认：md） |
+| `-f, --format <fmt>` | 输出格式：`md`（默认）或 `json` |
 | `--queries <list>` | RRF 融合多查询（如 `q1,q2,q3`） |
 | `--session <session-name>` | 会话目录或 `new` 创建深度搜索会话 |
 | `--owner <session-name>` | 会话所有者标识 |
 | `--desc <text>` | 会话描述 |
+| `--redundancy <action>` | 查询冗余检查：`warn`、`adjust`、`skip` |
+| `--quality` | 评估结果质量（需配合 --session） |
+| `--approve <indices>` | 按逗号分隔索引审批待审结果 |
+| `--threshold-override <json>` | 覆盖质量阈值（JSON） |
+| `--merge <file>` | 合并新的 JSON 搜索结果文件 |
 
 ### 示例
 
@@ -638,9 +655,6 @@ sxng --categories it,science "kubernetes tutorial"
 
 # 限制结果数并按时间过滤
 sxng --limit 5 --time week "latest AI news"
-
-# CSV 输出
-sxng --format csv "python tutorial" > results.csv
 
 # 多查询 RRF 融合搜索
 sxng --queries "tokio tutorial,rust async basics,async-std guide"
@@ -701,20 +715,28 @@ sxng --categories-list
 
 ## 🧠 深度搜索
 
-深度搜索支持多轮迭代研究，具备会话累积和知识图谱构建能力。
+深度搜索支持多轮迭代研究，具备会话累积、质量评估、Agent 控制图谱注入和恢复策略。
+
+### 工作流
+
+```
+搜索 → 提取 → 预处理 → 构建图谱 → 质量评估 → 审批 →（循环或探索）
+```
 
 ### 快速示例
 
 ```bash
-# 创建会话并搜索
-sxng --session new --owner "researcher" --desc "Rust async study" "rust async ecosystem"
+# 1. 创建会话并搜索
+sxng --session new --owner "agent-1" --desc "Rust async study" "rust async ecosystem"
 # 已创建会话：.sxng/sessions/<session-name>
 
-# 从结果中提取内容（按名称或路径）
+# 2. 从结果中提取内容
 sxng extract --session <session-name>
-# 或：sxng extract --session .sxng/sessions/<session-name>
 
-# 添加知识图谱实体（按名称或路径）
+# 3. 预处理（TF-IDF + 共现分析）
+sxng graph-preprocess <session-name>
+
+# 4. 添加知识图谱实体
 sxng graph-add <session-name> --data '{
   "entities": [
     {"label": "tokio", "entityType": "runtime", "score": 0.95},
@@ -725,11 +747,14 @@ sxng graph-add <session-name> --data '{
   ]
 }'
 
-# 查询图谱（按名称或路径）
-sxng query-graph <session-name> --seeds "tokio" --depth 2
+# 5. 评估质量 — 结果处于待审状态
+sxng --session <session-name> --quality
 
-# 继续研究（结果会累积）
-sxng --session <session-name> --queries "tokio vs async-std,benchmark 2024"
+# 6. 按索引审批待审结果（自动注入图谱）
+sxng --session <session-name> --quality --approve "0,1,2,3"
+
+# 7. 继续研究（带冗余检查）
+sxng --session <session-name> --queries "tokio vs async-std,benchmark 2026" --redundancy warn
 ```
 
 ### 会话管理
@@ -758,13 +783,22 @@ sxng --session <session-name> --queries "tokio vs async-std,benchmark 2024"
 
 ### 知识图谱
 
+两层结构：
+
 **结构层**（自动构建）：
-- `q:` — 查询节点
-- `r:` — 结果节点
-- `d:` — 域名节点
+| 前缀 | 类型 | 示例 |
+|------|------|------|
+| `q:` | 查询节点 | `q:rust_async` |
+| `r:` | 结果节点 | `r:https://example.com/page` |
+| `d:` | 域名节点 | `d:github_com` |
 
 **语义层**（通过 `graph-add`）：
-- `e:` — 实体节点，包含类型和评分
+| 前缀 | 类型 | 示例 |
+|------|------|------|
+| `e:` | 实体节点 | `e:tokio` |
+| `p:` | 路径节点 | `p:chain_001` |
+
+图谱导航命令：`graph-search`（发现实体）、`graph-explore`（查看关系）、`graph-drill`（追踪特定关系）、`graph-traverse`（遍历推理路径）。
 
 ---
 

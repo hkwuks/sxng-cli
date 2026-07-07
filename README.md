@@ -37,14 +37,13 @@
 - 🔎 **Multi-Engine Search** — Search across Google, Bing, DuckDuckGo, GitHub, StackOverflow, and 30+ engines simultaneously
 - 🔄 **Dynamic Discovery** — Auto-fetches available engines and categories from your SearXNG server
 - 📄 **Multiple Formats** — Markdown (LLM-optimized) or JSON output
-- 🧠 **Deep Search** — Multi-round iterative research with session accumulation and knowledge graph
-- 🔍 **Content Extraction** — Extract full article content from search results, with Obscura fallback for JS-heavy pages
-- 🗂️ **Session Management** — Accumulate search results across multiple rounds with deduplication
-- 🕸️ **Knowledge Graph** — Build semantic graphs of entities and relationships
-- ⚡ **Fast & Lightweight** — Built with TypeScript, minimal dependencies
-- 🔧 **Flexible Config** — Environment variables, config file, or interactive setup
-- 🏥 **Health Check** — Verify server connectivity instantly
-- 🌐 **Proxy Support** — HTTP/HTTPS proxy configuration
+- 🧠 **Deep Search** — Multi-round iterative research with session accumulation, quality assessment, and recovery strategies
+- 🔍 **Content Extraction** — Extract full article content from URLs or session results, with Obscura (JS rendering) and Jina Reader fallbacks
+- 🗂️ **Session Management** — Accumulate search results across rounds with deduplication; pending → approve → graph injection workflow
+- ⭐ **Quality Assessment** — 4 independent indicators: content depth, entity richness, source diversity, novelty
+- 🕸️ **Knowledge Graph** — Structural (query→result→domain) + semantic (entity relations) graph layers
+- 🔄 **Query Redundancy Check** — Jaccard similarity + SimHash to avoid repeated queries
+- 💡 **Agent-First Design** — Outputs structured analysis data (quality, suggestions, recovery) for LLM Agent decision-making
 
 ---
 
@@ -601,15 +600,28 @@ No extra npm dependencies needed — Obscura is called via CLI. Auto-detected fr
 | `sxng <query>` | Perform a web search |
 | `sxng --queries "q1,q2"` | Multi-query search with RRF fusion |
 | `sxng extract --urls <urls>` | Extract content from web pages |
-| `sxng extract --obscura` | Extract with Obscura JS-rendering fallback |
+| `sxng extract --session <name>` | Extract session results and merge content |
+| `sxng extract --obscura` | JS-rendering fallback for SPA pages |
+| `sxng extract --jina` | Jina Reader fallback for complex pages |
 | `sxng --session new` | Create deep search session |
+| `sxng --session <name> --quality` | Assess result quality, list pending results |
+| `sxng --session <name> --quality --approve "0,1"` | Approve pending results by index |
+| `sxng suggest-queries <session>` | Get query suggestion data for Agent |
+| `sxng strategy-info <session>` | Check current search stage |
+| `sxng recovery-analysis <session>` | Get recovery strategies for poor quality |
+| `sxng session-report <session>` | Full session analysis report |
 | `sxng session-list` | List all sessions |
 | `sxng session-delete <session-name>` | Delete a session |
-| `sxng graph-add <session>` | Add entities to knowledge graph |
-| `sxng query-graph <session>` | Query knowledge graph |
+| `sxng graph-preprocess <session>` | TF-IDF + co-occurrence analysis |
+| `sxng graph-add <session>` | Add entities/edges to knowledge graph |
+| `sxng graph-search <session>` | Discover entities by keyword |
+| `sxng graph-explore <session>` | View entity relations |
+| `sxng graph-drill <session>` | Follow specific relations |
+| `sxng graph-traverse <session>` | Traverse reasoning paths |
+| `sxng graph-obfuscate <session>` | List obfuscation candidates |
 | `sxng --health` | Check SearXNG server health |
-| `sxng --engines-list` | List available search engines from server |
-| `sxng --categories-list` | List available categories from server |
+| `sxng --engines-list` | List available search engines |
+| `sxng --categories-list` | List available categories |
 | `sxng --help` | Show help message |
 
 ### Search Options
@@ -622,11 +634,16 @@ No extra npm dependencies needed — Obscura is called via CLI. Auto-detected fr
 | `-p, --page <n>` | Page number for pagination |
 | `--lang <code>` | Language code (e.g., `en`, `zh`, `ja`) |
 | `--time <range>` | Time range: `day`, `week`, `month`, `year`, `all` |
-| `-f, --format <fmt>` | Output format: `md`, `json`, `csv`, `html` (default: md) |
+| `-f, --format <fmt>` | Output format: `md` (default) or `json` |
 | `--queries <list>` | Multi-query with RRF fusion (e.g., `q1,q2,q3`) |
 | `--session <session-name>` | Session directory or `new` for deep search |
 | `--owner <session-name>` | Session owner identifier |
 | `--desc <text>` | Session description |
+| `--redundancy <action>` | Query redundancy check: `warn`, `adjust`, `skip` |
+| `--quality` | Assess result quality (requires --session) |
+| `--approve <indices>` | Approve pending results by comma-separated indices |
+| `--threshold-override <json>` | Override quality thresholds (JSON) |
+| `--merge <file>` | Merge new results with previous search JSON |
 
 ### Examples
 
@@ -645,9 +662,6 @@ sxng --categories it,science "kubernetes tutorial"
 
 # Limit results and filter by time
 sxng --limit 5 --time week "latest AI news"
-
-# Output as CSV
-sxng --format csv "python tutorial" > results.csv
 
 # Multi-query search with RRF fusion
 sxng --queries "tokio tutorial,rust async basics,async-std guide"
@@ -708,20 +722,28 @@ Create `sxng.config.json`:
 
 ## 🧠 Deep Search
 
-Deep search enables multi-round iterative research with session accumulation and knowledge graph building.
+Deep search enables multi-round iterative research with session accumulation, quality assessment, agent-controlled graph injection, and recovery strategies.
+
+### Workflow
+
+```
+Search → Extract → Preprocess → Build Graph → Quality Assess → Approve → (Loop or Explore)
+```
 
 ### Quick Example
 
 ```bash
-# Create a session and search
-sxng --session new --owner "researcher" --desc "Rust async study" "rust async ecosystem"
+# 1. Create a session and search
+sxng --session new --owner "agent-1" --desc "Rust async study" "rust async ecosystem"
 # Session created: .sxng/sessions/<session-name>
 
-# Extract content from results (by name or path)
+# 2. Extract content from results
 sxng extract --session <session-name>
-# or: sxng extract --session .sxng/sessions/<session-name>
 
-# Add knowledge graph entities (by name or path)
+# 3. Preprocess for entity discovery (TF-IDF + co-occurrence)
+sxng graph-preprocess <session-name>
+
+# 4. Add entities to knowledge graph
 sxng graph-add <session-name> --data '{
   "entities": [
     {"label": "tokio", "entityType": "runtime", "score": 0.95},
@@ -732,11 +754,14 @@ sxng graph-add <session-name> --data '{
   ]
 }'
 
-# Query the graph (by name or path)
-sxng query-graph <session-name> --seeds "tokio" --depth 2
+# 5. Assess quality — results are pending until approved
+sxng --session <session-name> --quality
 
-# Continue research (results accumulate)
-sxng --session <session-name> --queries "tokio vs async-std,benchmark 2024"
+# 6. Approve pending results by index (injects into graph)
+sxng --session <session-name> --quality --approve "0,1,2,3"
+
+# 7. Continue research with redundancy check
+sxng --session <session-name> --queries "tokio vs async-std,benchmark 2026" --redundancy warn
 ```
 
 ### Session Management
@@ -765,13 +790,22 @@ Each session stores three files in `.sxng/sessions/<session-name>/`:
 
 ### Knowledge Graph
 
-**Structural Layer** (auto-built):
-- `q:` — Query nodes
-- `r:` — Result nodes
-- `d:` — Domain nodes
+Two layers:
 
-**Semantic Layer** (via `graph-add`):
-- `e:` — Entity nodes with type and score
+**Structural** (auto-built):
+| Prefix | Type | Example |
+|--------|------|---------|
+| `q:` | Query node | `q:rust_async` |
+| `r:` | Result node | `r:https://example.com/page` |
+| `d:` | Domain node | `d:github_com` |
+
+**Semantic** (via `graph-add`):
+| Prefix | Type | Example |
+|--------|------|---------|
+| `e:` | Entity node | `e:tokio` |
+| `p:` | Path node | `p:chain_001` |
+
+Graph navigation commands: `graph-search` (discover entities), `graph-explore` (view relations), `graph-drill` (follow specific relations), `graph-traverse` (traverse reasoning paths).
 
 ---
 
