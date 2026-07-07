@@ -813,10 +813,11 @@ Graph navigation commands: `graph-search` (discover entities), `graph-explore` (
 
 ### Content Extraction
 
-`sxng extract` uses a two-tier extraction strategy:
+`sxng extract` uses a multi-tier extraction strategy:
 
 1. **Defuddle + linkedom** (default, lightweight) — Parses raw HTML with linkedom, extracts readable content with Defuddle. Fast, no browser needed.
-2. **Obscura** (optional fallback) — When Defuddle extracts too little content (< 50 chars), Obscura renders the page with V8 JS engine and re-extracts. Use `--obscura` to enable.
+2. **Obscura** (JS rendering fallback) — When Defuddle extracts too little content (< 50 chars), Obscura renders the page with V8 JS engine and re-extracts. Use `--obscura` to enable.
+3. **Jina Reader** (alternative fallback) — Uses `r.jina.ai` to extract content from complex pages. Use `--jina` to enable.
 
 ```bash
 # Default: Defuddle only (fast)
@@ -825,11 +826,8 @@ sxng extract --urls "https://example.com"
 # With Obscura fallback for JS-heavy pages
 sxng extract --urls "https://spa-site.com" --obscura
 
-# Obscura direct markdown output (skip Defuddle re-parse)
-sxng extract --urls "https://spa-site.com" --obscura --obscura-dump markdown
-
-# Custom Obscura binary path
-sxng extract --urls "https://spa-site.com" --obscura --obscura-path /path/to/obscura
+# With Jina Reader fallback
+sxng extract --urls "https://complex-page.com" --jina
 ```
 
 Extraction options:
@@ -839,6 +837,7 @@ Extraction options:
 | `--obscura` | Enable Obscura fallback for JS-rendered pages |
 | `--obscura-path <path>` | Path to Obscura binary (auto-detected if omitted) |
 | `--obscura-dump <format>` | Obscura output format: `html` (default) or `markdown` |
+| `--jina` | Enable Jina Reader (r.jina.ai) fallback |
 
 ### Dynamic Engine/Category Discovery
 

@@ -806,10 +806,11 @@ sxng --session <session-name> --queries "tokio vs async-std,benchmark 2026" --re
 
 ### 内容提取
 
-`sxng extract` 使用双层提取策略：
+`sxng extract` 使用多层提取策略：
 
 1. **Defuddle + linkedom**（默认，轻量）— 使用 linkedom 解析原始 HTML，通过 Defuddle 提取可读内容。速度快，无需浏览器。
-2. **Obscura**（可选回退）— 当 Defuddle 提取内容过少（< 50 字符）时，Obscura 使用 V8 JS 引擎渲染页面并重新提取。使用 `--obscura` 启用。
+2. **Obscura**（JS 渲染回退）— 当 Defuddle 提取内容过少（< 50 字符）时，Obscura 使用 V8 JS 引擎渲染页面并重新提取。使用 `--obscura` 启用。
+3. **Jina Reader**（备选回退）— 使用 `r.jina.ai` 从复杂页面提取内容。使用 `--jina` 启用。
 
 ```bash
 # 默认：仅 Defuddle（快速）
@@ -818,11 +819,8 @@ sxng extract --urls "https://example.com"
 # 为 JS 密集页面启用 Obscura 回退
 sxng extract --urls "https://spa-site.com" --obscura
 
-# Obscura 直接 Markdown 输出（跳过 Defuddle 重新解析）
-sxng extract --urls "https://spa-site.com" --obscura --obscura-dump markdown
-
-# 自定义 Obscura 二进制路径
-sxng extract --urls "https://spa-site.com" --obscura --obscura-path /path/to/obscura
+# 使用 Jina Reader 回退
+sxng extract --urls "https://complex-page.com" --jina
 ```
 
 提取选项：
@@ -832,6 +830,7 @@ sxng extract --urls "https://spa-site.com" --obscura --obscura-path /path/to/obs
 | `--obscura` | 为 JS 渲染页面启用 Obscura 回退 |
 | `--obscura-path <path>` | Obscura 二进制路径（省略则自动检测） |
 | `--obscura-dump <format>` | Obscura 输出格式：`html`（默认）或 `markdown` |
+| `--jina` | 启用 Jina Reader（r.jina.ai）回退 |
 
 ### 动态引擎/分类发现
 
