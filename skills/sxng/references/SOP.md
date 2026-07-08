@@ -1,6 +1,8 @@
 # SXNG DeepSearch SOP
 
 > **Proactive Deep Search**: When the user asks a question that requires multi-angle comparison, research, cross-validation, or any topic where simple search might not suffice — go straight to `--session` deep search. Do not start with simple search and "upgrade" later; creating a session from the first round costs nothing and gives you quality assessment, redundancy checks, and knowledge graph from the start. When uncertain between L1 and L2, choose L2.
+>
+> **Before using this SOP**: Read `skills/sxng/references/pipeline.md` first — it explains the data flow (single pending pool, batch approval, graph injection order). This SOP assumes you understand that pipeline.
 
 > Standard Operating Procedure for multi-round deep research (Session + Knowledge Graph + Quality Assessment + Recovery)
 
@@ -88,7 +90,7 @@ sxng extract --session <session>
 # For JS-heavy pages (SPAs), add --obscura fallback:
 # sxng extract --session <session> --obscura
 
-# Step 3: Build knowledge graph
+# Step 3: Build knowledge graph (entities only — results go through approve)
 sxng graph-add <session> --data '{
   "entities": [
     {"label": "Pinecone", "entityType": "product", "score": 0.9},
@@ -100,8 +102,9 @@ sxng graph-add <session> --data '{
   ]
 }'
 
-# Step 4: Quality assessment
+# Step 4: Quality assessment + approve
 sxng --session <session> --quality
+sxng --session <session> --quality --approve "0,1,2"
 
 # Step 5: If quality not met, get suggestions + supplementary search
 sxng suggest-queries <session> --format json
@@ -158,6 +161,8 @@ sxng extract --session <session>
 
 #### Phase 3: Build Knowledge Graph
 
+> **Before Phase 3**: Approved results must already exist in the graph via `--quality --approve`. `graph-add` only accepts entities and edges — results go through the pending pipeline first.
+
 ```bash
 sxng graph-add <session> --data '{
   "entities": [...],
@@ -166,7 +171,7 @@ sxng graph-add <session> --data '{
 ```
 
 The knowledge graph has two layers:
-- **Structural** (auto-built): query→result→domain nodes and edges
+- **Structural** (auto-built via --approve): query→result→domain nodes and edges
 - **Semantic** (added by you via `graph-add`): entity nodes with custom relation edges
 
 When adding edges, `source`/`target` must reference existing node IDs. Node ID prefix rules:
@@ -181,15 +186,21 @@ When adding edges, `source`/`target` must reference existing node IDs. Node ID p
 
 References to non-existent nodes are skipped and reported in `skippedEdges`.
 
-**External Search Results Integration**: When you use other search tools (tavily, exa, open-web-search, etc.) during a deep search session, you **must** inject their results into the knowledge graph via `graph-add`. This ensures the graph reflects all discovered information, not just sxng results.
+**External Search Results Integration**: When you use other search tools (tavily, exa, open-web-search, etc.) during a deep search session, use `results-add` to inject results. They go through the same pipeline as sxng-native results: **pending → quality assessment → approval → graph injection**. Use `graph-add` only for entities/edges after approval.
 
 ```bash
-# After running tavily/exa/open-web-search, inject results:
+# Step 1: Inject external results (become pending)
+sxng results-add <session> --data '[
+  {"url": "https://...", "title": "...", "source": "tavily"},
+  {"url": "https://...", "title": "...", "source": "exa"}
+]'
+
+# Step 2: Run quality assessment → approve (injects into graph)
+sxng --session <session> --quality
+sxng --session <session> --quality --approve "0,1,2"
+
+# Step 3: Add entities and edges (after result nodes exist in graph)
 sxng graph-add <session> --data '{
-  "results": [
-    {"url": "https://...", "title": "...", "rank": 1, "source": "tavily"},
-    {"url": "https://...", "title": "...", "rank": 2, "source": "exa"}
-  ],
   "entities": [
     {"label": "EntityName", "entityType": "concept", "score": 0.8}
   ],
@@ -202,27 +213,45 @@ sxng graph-add <session> --data '{
 
 The `source` field (`"sxng"` | `"tavily"` | `"exa"` | `"open-web-search"` | ...) marks which tool produced each result. sxng-native results default to `"sxng"`. External results participate equally in quality assessment, path discovery, and domain diversity — the graph treats them identically regardless of source.
 
-> **Note**: Results added via `graph-add` are marked as `pending` and require Agent approval (`--quality --approve`) before they appear in the graph for subsequent commands.
+> **Note**: `results-add` marks results as `pending`. They are not in the graph until Agent approval via `--quality --approve`. After approval, use `graph-add` for entities and edges.
 
-#### Phase 4: Quality Assessment & Approval
+#### Phase 4: Quality Assessment & Agent Approval
 
 ```bash
-# Assess quality and list pending results
+# Assess quality and list pending results with content previews for Agent review
 sxng --session <session> --quality
 
-# Approve selected pending results (injects into graph automatically)
+# Agent reviews title, content preview, source, and domain for each pending result
+# Then approves selected indices (injects into graph automatically)
 sxng --session <session> --quality --approve "0,1,2"
 ```
 
-> **Results are accumulated as `pending`** — they are not in the knowledge graph until approved by the Agent via `--approve`. External results injected via `graph-add` also go through pending first.
+> **Two-layer quality assessment:**
+> 1. **Programmatic pre-filter**: CLI computes 3 indicators (contentDepth, sourceDiversity, novelty) to flag obviously poor batches
+> 2. **Agent final review**: Agent sees each pending result's title, content preview, source, and domain — then decides which to keep
+>
+> Results are accumulated as `pending` — they are not in the knowledge graph until approved by the Agent via `--approve`. External results injected via `results-add` also go through pending first.
 
-4 independent indicators (contentDepth, entityRichness, sourceDiversity, novelty), each with its own threshold.
+3 independent indicators for programmatic pre-filter (each with its own threshold):
 
-| Verdict | Action |
-|---------|--------|
-| good | Enter Phase 8 (graph exploration) or synthesize output |
-| acceptable | Enter Phase 5 (query suggestions), targeted supplementation |
-| poor | Enter Phase 7 (recovery analysis) |
+| Indicator | Purpose | Threshold |
+|-----------|---------|-----------|
+| contentDepth | Filter empty/very short extractions | ≥ 150 chars average |
+| sourceDiversity | Ensure not all from same domain | ≥ 3 distinct domains |
+| novelty | Prevent circular/redundant results | ≥ 30% novel (SimHash) |
+
+| Verdict | Meaning | Agent Action |
+|---------|---------|-------------|
+| good | All pre-filters pass | Review and approve likely good results |
+| acceptable | 1 pre-filter failed | Review carefully — some results may still be valuable |
+| poor | ≥2 pre-filters failed | Strong signal to reformulate query or adjust strategy |
+
+> **Agent decision criteria** (based on per-result data in `--quality` output):
+> - **Relevance**: Does the content preview address the query?
+> - **Authority**: Is the source credible (official docs, academic, known expert)?
+> - **Depth**: Is the content substantive or superficial?
+> - **Redundancy**: Does it add new information vs. already-approved results?
+> - **Recency**: Is the information current enough for the query?
 
 #### Phase 5: Query Suggestions
 
@@ -326,71 +355,13 @@ Use `strategy-info` command to determine current stage.
 
 ---
 
-## 5. Evidence Standards
-
-### 5.1 Source Quality
-
-**White List (trust by default)**:
-- Official documentation (docs.*, README, official sites)
-- Package managers (PyPI, npm, crates.io)
-- Standards documents (PEP, RFC, W3C)
-- Academic sources (arxiv.org, ACM, IEEE)
-
-**Grey Zone (use cautiously)**:
-- Tech blogs (check author authority)
-- Stack Overflow (check votes and accepted answers)
-- GitHub Issues (take trend signals, not as conclusions)
-
-**Black List (avoid)**:
-- SEO farms (keyword stuffing, machine-generated)
-- AI-translated aggregator sites
-- Content without publication dates
-
-> When presenting search results, follow the Result Quality Filtering principle: keep liberally, filter conservatively — when uncertain, keep rather than delete (see Section 5.1).
-
-### 5.2 Cross-Validation
-
-**Hard Requirement**:
-- Each factual conclusion needs >= 2 independent sources
-- "Independent" = different domain + different author + not cross-posted
-
-**Single authoritative source does not need Low annotation**:
-```
-FastAPI 0.136.0 was released on 2026-04-16.
-Sources:
-- [fastapi - PyPI](https://pypi.org/project/fastapi/)
-```
-**Single non-authoritative source needs annotation**:
-```
-A company plans to open-source its internal framework (Confidence: Low, single non-official source)
-— Only one tech media report, company has not confirmed.
-
-Sources:
-- [Tech media report](https://example.com/article)
-```
-
-### 5.3 Conflict Resolution
-
-When sources disagree:
-
-1. **Don't hide disagreements** — present evidence from both sides
-2. **Assess authority** — official > mainstream media > self-media
-3. **Assess timeliness** — recent > older
-4. **Give judgment** — explain reasoning or honestly mark as uncertain
-
-### 5.4 Citation Format
-
-- Each source uses markdown link: `[Title](URL)`
-- Forbidden: fabricating URLs, title without link, using evidence-free phrases like "multiple sources indicate"
----
-
-## 7. Self-Check List
+## 5. Self-Check List
 
 Before outputting final answer, verify:
 
 - [ ] Every factual conclusion has `[Title](URL)` citation
-- [ ] Single-source conclusions are marked **Confidence: Low**
-- [ ] Source disagreements show evidence from both sides
+- [ ] Single-source conclusions are marked **Confidence: Low** (see [Cross-Validation](evidence-standards.md#2-cross-validation))
+- [ ] Source disagreements show evidence from both sides (see [Conflict Resolution](evidence-standards.md#3-conflict-resolution))
 - [ ] Used `sxng extract` to extract key page content
 - [ ] L2/L3 levels used `--session` and knowledge graph
 - [ ] L3 level used `--quality` assessment and decided next steps accordingly
@@ -399,74 +370,6 @@ Before outputting final answer, verify:
 
 ---
 
-## 8. Complete Example
-
-### L3 Example: "2026 Vector Database Deep Comparison"
-
-```bash
-# Phase 1: Create Session
-sxng --session new --owner "researcher" --desc "Vector DB deep research 2026" \
-     --queries "vector database 2026 ranking,vector DB for RAG comparison"
-SESSION="ds_1234567890_abcdef"
-
-# Phase 2-3: Preprocess + extract + build graph
-sxng graph-preprocess $SESSION --format json
-sxng extract --session $SESSION
-sxng graph-add $SESSION --data '{
-  "entities": [
-    {"label": "Pinecone", "entityType": "managed_service", "score": 0.95},
-    {"label": "Weaviate", "entityType": "opensource", "score": 0.9},
-    {"label": "Qdrant", "entityType": "opensource", "score": 0.85},
-    {"label": "HNSW", "entityType": "algorithm", "score": 0.9}
-  ],
-  "edges": [
-    {"source": "e:Pinecone", "target": "e:HNSW", "relation": "uses", "weight": 0.9},
-    {"source": "e:Weaviate", "target": "e:HNSW", "relation": "uses", "weight": 0.95}
-  ]
-}'
-
-# Phase 4: Quality assessment + approve
-sxng --session $SESSION --quality
-# Review pending results, then approve and inject into graph:
-sxng --session $SESSION --quality --approve "0,1,2,3,4"
-
-# Phase 5-6: If quality not met, supplementary search
-sxng suggest-queries $SESSION --format json
-sxng --session $SESSION --queries \
-     "Qdrant rust implementation,HNSW vs IVF performance" --redundancy warn
-
-# Re-extract + build graph + assess + approve
-sxng extract --session $SESSION
-sxng graph-add $SESSION --data '{"entities":[...],"edges":[...]}'
-sxng --session $SESSION --quality
-sxng --session $SESSION --quality --approve "0,1"
-
-# Phase 7: Recovery when consecutive poor rounds
-sxng recovery-analysis $SESSION --format json
-sxng strategy-info $SESSION --format json
-
-# Phase 8: Graph exploration
-sxng graph-search $SESSION --keyword "vector"
-sxng graph-explore $SESSION --seed "Pinecone" --format json
-sxng graph-drill $SESSION --seed "Pinecone" --relations "uses,competitor" --format json
-
-# Cleanup
-sxng session-delete $SESSION
-```
-
-## 9. Anti-Patterns (Don'ts)
-
-| Anti-Pattern | Correct Approach |
-|-------------|-----------------|
-| Drawing conclusions from a single search | Use `--session` multi-round iteration for L2/L3 |
-| Using only one source | Cross-validate each fact with >= 2 independent sources |
-| Ignoring source quality | Distinguish white list / grey zone / black list sources |
-| Hiding information disagreements | Present disagreements and explain judgment basis |
-| Fabricating citation links | Only use URLs actually visited |
-| Reading summaries without extracting content | Use `extract` for key sources |
-| Building knowledge graph without querying it | Use `graph-explore` to verify coverage |
-| Continuing search without quality assessment | Use `--quality` each round, decide accordingly |
-| Repeating queries wasting rounds | Use `--redundancy warn` to check redundancy |
-| Not recovering from consecutive poor rounds | Use `recovery-analysis` for strategy suggestions |
-| Not cleaning up sessions after use | Regularly run `session-delete --older` |
-| Using `query-graph` | Deprecated, use `graph-explore` + `graph-drill` |
+> **Further Reading**:
+> - [Evidence Standards](evidence-standards.md) — source credibility tiers, cross-validation rules, conflict resolution, citation format
+> - [Appendix: Example & Anti-Patterns](appendix.md) — complete L3 walkthrough and common mistakes to avoid

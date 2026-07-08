@@ -47,7 +47,6 @@ export function getSessionAnalysis(
     const quality = assessResultQuality(
         sessionResults,
         sessionResults,
-        graph,
         options?.qualityThresholds
     );
 

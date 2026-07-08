@@ -4,12 +4,11 @@
  * When search quality is poor, analyze the session and suggest recovery
  * strategies for the Agent. CLI outputs analysis data only — Agent decides.
  *
- * Four recovery strategies:
+ * Recovery strategies:
  * - reformulate:    query too specific → remove qualifiers or use broader terms
  * - engine_rotation: current engines not covering sources → try different engines
  * - category_shift:  category results poor → switch category
  * - backtrack:       ≥2 consecutive poor rounds → return to last successful query direction
- *                    (uses graph traversal: query→yields→result backtracking)
  */
 
 import { DirectedGraph } from 'graphology';
@@ -86,7 +85,7 @@ export function buildRoundQualityHistory(
         const priorResults = sessionResults.filter(r => seenUrls.has(r.url));
 
         // Assess quality of this round's results
-        const quality = assessResultQuality(roundResults, priorResults, graph, qualityThresholds);
+        const quality = assessResultQuality(roundResults, priorResults, qualityThresholds);
 
         history.push({
             round: qNode.round,

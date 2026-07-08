@@ -1,18 +1,21 @@
 /**
- * graph-add subcommand - Add entities and edges to an entity-centric knowledge graph
+ * graph-add subcommand - Add entities and edges to knowledge graph.
  *
- * Agent (LLM) extracts entities from search results and sends them here.
- * Each entity is connected to its source result via "mentions" edges.
- * Result nodes store lightweight metadata (title, url, rank).
+ * This command receives entities and edges AFTER results have been approved
+ * via --quality --approve. Results must already exist as graph nodes before
+ * referencing them in edges.
+ *
+ * - Entities are added immediately (semantic layer)
+ * - Edges can reference existing result, entity, domain, or query nodes
+ * - Does NOT accept results — use `sxng results-add` for external results
  */
 
 import { readFileSync, writeFileSync, existsSync, statSync } from 'fs';
 import { join } from 'path';
-import { deserializeGraph, serializeGraph, graphStats, GraphNodeAttrs, GraphEdgeAttrs, entityId, resultId } from '../deep/graph.js';
+import { deserializeGraph, serializeGraph, graphStats, GraphNodeAttrs, GraphEdgeAttrs, entityId } from '../deep/graph.js';
 import { DirectedGraph } from 'graphology';
 import { createSuccessEnvelope, createErrorEnvelope } from '../protocol.js';
 import { getDefaultSessionRoot } from './session.js';
-import { appendSessionResults, resolveSessionPath } from '../deep/session.js';
 
 /** Resolve graph file path — if directory (session), use graph.json inside it.
  *  Pure name (no separators) is resolved to the default session root.
@@ -34,7 +37,7 @@ function resolveGraphFile(path: string): string {
 
 export interface GraphAddOptions {
     graphFile: string;
-    data: string; // JSON string with entities, results, and edges
+    data: string; // JSON string with entities and edges
 }
 
 interface EntityInput {
@@ -46,13 +49,6 @@ interface EntityInput {
     sourceRounds?: number[];
     frequency?: number;
     reasoningPaths?: string[];
-}
-
-interface ResultInput {
-    url: string;
-    title: string;
-    rank?: number;
-    source?: string; // "sxng" | "tavily" | "exa" | "open-web-search" | ... — marks which tool produced this result
 }
 
 interface EdgeInput {
@@ -76,14 +72,14 @@ export async function runGraphAdd(options: GraphAddOptions): Promise<number> {
     }
 
     // Parse input data
-    let parsed: { entities?: EntityInput[]; results?: ResultInput[]; edges?: EdgeInput[] };
+    let parsed: { entities?: EntityInput[]; edges?: EdgeInput[] };
     try {
         parsed = JSON.parse(options.data);
     } catch {
         const envelope = createErrorEnvelope(
             'INVALID_JSON',
             'Failed to parse --data JSON',
-            { hint: 'Ensure --data contains valid JSON with "entities", "results", and/or "edges" arrays' }
+            { hint: 'Ensure --data contains valid JSON with "entities" and/or "edges" arrays' }
         );
         console.log(JSON.stringify(envelope, null, 2));
         return 1;
@@ -116,10 +112,8 @@ export async function runGraphAdd(options: GraphAddOptions): Promise<number> {
     }
 
     let entitiesAdded = 0;
-    let resultsAdded = 0;
-    let edgesAdded = 0;
 
-    // Add entity nodes
+    // Add entity nodes (semantic layer — goes directly to graph)
     for (const entity of parsed.entities || []) {
         const id = entity.id || entityId(entity.label);
 
@@ -151,35 +145,10 @@ export async function runGraphAdd(options: GraphAddOptions): Promise<number> {
         }
     }
 
-    // Add result metadata nodes
-    for (const result of parsed.results || []) {
-        const id = resultId(result.url);
-
-        if (!graph.hasNode(id)) {
-            graph.mergeNode(id, {
-                type: 'result',
-                label: result.title,
-                url: result.url,
-                title: result.title,
-                rank: result.rank,
-                source: result.source,
-            });
-            resultsAdded++;
-        } else {
-            // Update rank if better, merge source if provided
-            const existing = graph.getNodeAttributes(id);
-            if (result.rank !== undefined) {
-                graph.mergeNode(id, {
-                    ...existing,
-                    rank: result.rank < (existing.rank ?? Infinity) ? result.rank : existing.rank,
-                    source: result.source ?? existing.source,
-                });
-            }
-        }
-    }
-
-    // Add edges (entity-entity and entity-result relationships)
+    // Add edges (entity-entity relationships only — entity-result edges will be
+    // skipped and reported since result nodes are pending, not yet in graph).
     const skippedEdges: Array<{ source: string; target: string; relation: string }> = [];
+    let edgesAdded = 0;
     for (const edge of parsed.edges || []) {
         if (!graph.hasNode(edge.source) || !graph.hasNode(edge.target)) {
             skippedEdges.push({ source: edge.source, target: edge.target, relation: edge.relation });
@@ -211,28 +180,11 @@ export async function runGraphAdd(options: GraphAddOptions): Promise<number> {
         return 1;
     }
 
-    // Also write external results to results.json if this is a session directory
-    let sessionResultsAdded = 0;
-    if (parsed.results && parsed.results.length > 0) {
-        const sessionDir = resolveSessionPath(options.graphFile);
-        if (sessionDir) {
-            const externalResults = parsed.results.map(r => ({
-                url: r.url,
-                title: r.title,
-                source: r.source || 'external',
-                rank: r.rank,
-            }));
-            const result = appendSessionResults(sessionDir, externalResults as any[]);
-            sessionResultsAdded = result.added;
-        }
-    }
-
     const envelope = createSuccessEnvelope({
         entitiesAdded,
-        resultsAdded,
         edgesAdded,
-        sessionResultsAdded,
-        skippedEdges,
+        skippedEdges: skippedEdges.length > 0 ? skippedEdges : undefined,
+        ...(skippedEdges.length > 0 ? { hint: `${skippedEdges.length} edge(s) skipped — target nodes not found in graph.` } : {}),
         stats,
     });
     console.log(JSON.stringify(envelope, null, 2));

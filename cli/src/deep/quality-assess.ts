@@ -1,22 +1,23 @@
 /**
  * Result quality assessment for deep search sessions.
  *
- * After each search round, compute quality indicators independently.
- * Each indicator has its own threshold — no weighted sum.
+ * Programmatic pre-filter: removes obviously poor results before
+ * Agent review. Agent makes the final quality decision based on
+ * title, content, and source.
+ *
+ * Three indicators (independent thresholds, no weighted sum):
+ * - contentDepth: average extracted content length
+ * - sourceDiversity: number of distinct domains
+ * - novelty: fraction not similar to existing results (SimHash)
  *
  * Verdict logic:
- * - good:    all indicators pass
- * - acceptable: ≤2 indicators fail
- * - poor:    ≥3 indicators fail
- *
- * Novelty uses SimHash similarity < 0.75 as "not similar" threshold
- * (paired with dedup threshold of 0.85).
+ * - good:    all pass
+ * - acceptable: 1 fails
+ * - poor:    ≥2 fail
  */
 
-import { DirectedGraph } from 'graphology';
 import { SimHash } from './simhash.js';
 import { SessionResult } from './session.js';
-import { GraphNodeAttrs, GraphEdgeAttrs } from './graph.js';
 
 // ── Types ─────────────────────────────────────────────────────────
 
@@ -28,7 +29,6 @@ export interface IndicatorResult {
 
 export interface QualityBreakdown {
     contentDepth: IndicatorResult;
-    entityRichness: IndicatorResult;
     sourceDiversity: IndicatorResult;
     novelty: IndicatorResult;
 }
@@ -41,14 +41,12 @@ export interface QualityScore {
 
 export interface QualityThresholds {
     contentDepth: number;
-    entityRichness: number;
     sourceDiversity: number;
     novelty: number;
 }
 
 const DEFAULT_THRESHOLDS: QualityThresholds = {
     contentDepth: 150,
-    entityRichness: 2,
     sourceDiversity: 3,
     novelty: 0.3,
 };
@@ -73,18 +71,6 @@ function computeContentDepth(results: SessionResult[], threshold: number): Indic
     const totalLength = extracted.reduce((sum, r) => sum + (r.content?.length ?? 0), 0);
     const value = totalLength / extracted.length;
     return { value, threshold, pass: value >= threshold };
-}
-
-/** Compute entity richness indicator — count of Agent-added entities in the graph */
-function computeEntityRichness(
-    graph: DirectedGraph<GraphNodeAttrs, GraphEdgeAttrs>,
-    threshold: number
-): IndicatorResult {
-    let entityCount = 0;
-    graph.forEachNode((_node: string, attrs: GraphNodeAttrs) => {
-        if (attrs.type === 'entity') entityCount++;
-    });
-    return { value: entityCount, threshold, pass: entityCount >= threshold };
 }
 
 /** Compute source diversity indicator — number of distinct domains */
@@ -142,20 +128,18 @@ function computeNovelty(
 // ── Main assessment ───────────────────────────────────────────────
 
 /** Assess the quality of results against session context.
+ *  Programmatic pre-filter only — Agent makes final quality decision.
  *  All indicators use independent thresholds — no weighted sum.
- *  Note: resultCount is intentionally excluded — Agent decides how many results to keep.
  */
 export function assessResultQuality(
     results: SessionResult[],
     sessionResults: SessionResult[],
-    graph: DirectedGraph<GraphNodeAttrs, GraphEdgeAttrs>,
     thresholds?: Partial<QualityThresholds>
 ): QualityScore {
     const t = { ...DEFAULT_THRESHOLDS, ...thresholds };
 
     const breakdown: QualityBreakdown = {
         contentDepth: computeContentDepth(results, t.contentDepth),
-        entityRichness: computeEntityRichness(graph, t.entityRichness),
         sourceDiversity: computeSourceDiversity(results, t.sourceDiversity),
         novelty: computeNovelty(results, sessionResults, t.novelty),
     };
@@ -167,7 +151,7 @@ export function assessResultQuality(
     let verdict: QualityScore['verdict'];
     if (failedIndicators.length === 0) {
         verdict = 'good';
-    } else if (failedIndicators.length <= 2) {
+    } else if (failedIndicators.length === 1) {
         verdict = 'acceptable';
     } else {
         verdict = 'poor';

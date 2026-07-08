@@ -16,6 +16,7 @@ import { initConfig } from './init.js';
 import { runExtract, ExtractOptions } from './commands/extract.js';
 import { runQueryGraph, QueryGraphOptions } from './commands/query-graph.js';
 import { runGraphAdd, GraphAddOptions } from './commands/graph-add.js';
+import { runResultsAdd, ResultsAddOptions } from './commands/results-add.js';
 import { runGraphObfuscateCommand, GraphObfuscateOptions } from './commands/graph-obfuscate.js';
 import { ContentExtractor } from './deep/extractor.js';
 import { rrf } from './deep/rrf.js';
@@ -152,10 +153,9 @@ function formatQualityAsMarkdown(data: any): string {
     if (breakdown) {
         lines.push('| Indicator | Value | Threshold | Pass |');
         lines.push('|-----------|-------|-----------|------|');
-        const indicators = ['contentDepth', 'entityRichness', 'sourceDiversity', 'novelty'];
+        const indicators = ['contentDepth', 'sourceDiversity', 'novelty'];
         const labels: Record<string, string> = {
             contentDepth: 'Content Depth',
-            entityRichness: 'Entity Richness',
             sourceDiversity: 'Source Diversity',
             novelty: 'Novelty',
         };
@@ -777,11 +777,30 @@ export function createProgram(): Command {
     program
         .command('graph-add')
         .argument('<path>', 'Graph file or session name')
-        .description('Add entities/edges to knowledge graph')
+        .description('Add entities/edges to knowledge graph. Results must be approved first via --quality --approve.')
         .requiredOption('--data <json>', 'JSON with entities/edges')
         .action(async (path, opts) => {
             const code = await runGraphAdd({
                 graphFile: path,
+                data: opts.data,
+            });
+            process.exit(code);
+        });
+
+    program
+        .command('results-add')
+        .argument('<session>', 'Session directory or name')
+        .description('Append external search results to session as pending (awaiting quality assessment)')
+        .requiredOption('--data <json>', 'JSON array of results or object with "results" array')
+        .addHelpText('after', `
+Examples:
+  sxng results-add my-session --data '[{"url":"https://...","title":"...","source":"tavily"}]'
+
+Results are marked as pending and go through the same approve pipeline as sxng-native results.
+Use --quality --approve to inject into graph.`)
+        .action(async (session, opts) => {
+            const code = await runResultsAdd({
+                session,
                 data: opts.data,
             });
             process.exit(code);
@@ -873,7 +892,7 @@ Examples:
             const graph = loadSessionGraph(sessionDir);
             const results = loadSessionResults(sessionDir);
             const stage = determineSearchStage(graph);
-            const quality = assessResultQuality(results, results, graph);
+            const quality = assessResultQuality(results, results);
 
             const data = generateQuerySuggestions(graph, results, stage, quality);
 
@@ -926,7 +945,7 @@ Examples:
             const sessionDir = resolveSessionPath(session);
             const graph = loadSessionGraph(sessionDir);
             const results = loadSessionResults(sessionDir);
-            const quality = assessResultQuality(results, results, graph);
+            const quality = assessResultQuality(results, results);
 
             const analysis = analyzeRecoveryOptions(graph, results, quality);
 
@@ -1116,6 +1135,10 @@ export async function runCli(args: string[], service: SearXNGService): Promise<n
             // Get pending results for Agent review
             const pending = getPendingResults(sessionDir);
 
+            // For novelty calculation, only compare against approved/historical results
+            const approvedResults = sessionResults.filter(r => r.status === 'approved');
+            const priorResults = approvedResults.length > 0 ? approvedResults : [];
+
             // Handle Agent approval first (before showing quality assessment)
             if (opts.approve) {
                 const indices = (opts.approve as string).split(',').map((s: string) => parseInt(s.trim(), 10)).filter((n: number) => !isNaN(n));
@@ -1139,8 +1162,7 @@ export async function runCli(args: string[], service: SearXNGService): Promise<n
                 // No pending results, just show current quality
                 const quality = assessResultQuality(
                     sessionResults,
-                    sessionResults,
-                    sessionGraph,
+                    priorResults,
                     thresholdOverride
                 );
 
@@ -1157,8 +1179,7 @@ export async function runCli(args: string[], service: SearXNGService): Promise<n
             // Show pending results with indices for Agent selection
             const quality = assessResultQuality(
                 pending,
-                sessionResults,
-                sessionGraph,
+                priorResults,
                 thresholdOverride
             );
 
@@ -1173,8 +1194,12 @@ export async function runCli(args: string[], service: SearXNGService): Promise<n
                         url: r.url,
                         source: r.source || 'sxng',
                         status: r.status,
+                        contentPreview: r.content ? r.content.slice(0, 300) : undefined,
+                        contentLength: r.content?.length ?? 0,
+                        domain: (() => { try { return new URL(r.url).hostname; } catch { return ''; } })(),
+                        extractionMethod: r.content?.length ? 'defuddle' : 'none',
                     })),
-                    hint: 'Approve results by index: sxng --session <name> --quality --approve "0,1,2"',
+                    hint: 'Agent reviews content and approves by index: sxng --session <name> --quality --approve "0,1,2"',
                 }), null, 2));
             } else {
                 console.log(formatQualityAsMarkdown(quality));
@@ -1182,8 +1207,12 @@ export async function runCli(args: string[], service: SearXNGService): Promise<n
                 for (let i = 0; i < pending.length; i++) {
                     const r = pending[i];
                     console.log(`${i}. [${r.title || 'No Title'}](${r.url}) [${r.source || 'sxng'}]`);
+                    if (r.content) {
+                        const preview = r.content.slice(0, 300).replace(/\s+/g, ' ');
+                        console.log(`   Preview: ${preview}${r.content.length > 300 ? '...' : ''}`);
+                    }
                 }
-                console.log('\n**Approve:** sxng --session <name> --quality --approve "0,1,2"');
+                console.log('\n**Agent reviews content and approves by index:** sxng --session <name> --quality --approve "0,1,2"');
             }
             process.exit(0);
             return;

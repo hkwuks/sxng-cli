@@ -53,7 +53,8 @@ sxng session-report <session>               # Full session report
 
 # Knowledge graph
 sxng graph-preprocess <session>             # TF-IDF + co-occurrence analysis
-sxng graph-add <session> --data '{...}'     # Add entities/edges
+sxng results-add <session> --data '[...]'  # Append external results as pending
+sxng graph-add <session> --data '{...}'     # Add entities/edges (after approval)
 sxng graph-search <session> --keyword "x"   # Discover entities
 sxng graph-search <session> --keyword "x" --limit 5  # Limit results
 sxng graph-explore <session> --seed "x"     # View entity relations
@@ -108,9 +109,34 @@ sxng extract --urls "https://spa-site.com" --jina
 
 ## Deep Search
 
-Deep search enables multi-round iterative research with quality assessment, recovery strategies, and knowledge graph navigation.
+Deep search enables multi-round iterative research with session accumulation, quality assessment, recovery strategies, and knowledge graph navigation.
 
-> **Read `skills/sxng/references/SOP.md` when doing any multi-result search** — it covers source credibility tiers (white/grey/black list), cross-validation rules, and the Result Quality Filtering principle (keep liberally, filter conservatively). For deep search specifically, it also has L1/L2/L3 complexity levels, the full 8-phase workflow with Agent decision logic, and anti-patterns to avoid.
+> Read the [SOP](references/SOP.md) for core procedures and [Evidence Standards](references/evidence-standards.md) for source quality rules before starting.
+
+### Pipeline Overview
+
+All results go into the same pool, same pipeline:
+
+```bash
+sxng --session <session> "query"  ──┐
+sxng results-add <session> ...    ──┤──→ results.json (pending)
+                                    │
+sxng extract --session <session>  ──┘   (updates content only)
+                                    │
+                    ┌───────────────▼───────────────┐
+                    │  --quality (view pending)     │
+                    │  --approve "0,1" (→ graph)    │
+                    └───────────────┬───────────────┘
+                                    │
+                    ┌───────────────▼───────────────┐
+                    │  graph-add (entities/edges)   │
+                    └───────────────────────────────┘
+```
+
+- **All results** (sxng + external) become `pending` in the same `results.json`
+- **Extract** only fills `content` — does not add new results
+- **Approve** injects approved results into graph (structural edges)
+- **graph-add** only adds entities/edges — results go through approve first
 
 ### Quick Start
 
@@ -125,11 +151,12 @@ sxng extract --session <session>
 # Preprocess for entity discovery
 sxng graph-preprocess <session>
 
-# Add entities to knowledge graph
-sxng graph-add <session> --data '{"entities":[...],"edges":[...]}'
-
-# Assess quality
+# Assess quality & approve pending results (injects approved into graph)
 sxng --session <session> --quality
+sxng --session <session> --quality --approve "0,1,2"
+
+# Add entities/edges to knowledge graph (after results in graph)
+sxng graph-add <session> --data '{"entities":[...],"edges":[...]}'
 
 # Get suggestions if quality needs improvement
 sxng suggest-queries <session>
@@ -154,31 +181,47 @@ sxng session-delete --older 24              # Delete sessions older than 24h
 sxng --session <session> --quality
 ```
 
-Returns 4 independent indicators: contentDepth, entityRichness, sourceDiversity, novelty. Verdict: good / acceptable / poor. Based on verdict, use `suggest-queries` or `recovery-analysis` for next steps.
+Returns 3 independent indicators: contentDepth, sourceDiversity, novelty. Verdict: good / acceptable / poor. Based on verdict, use `suggest-queries` or `recovery-analysis` for next steps.
 
-Results are accumulated as *pending* and must be approved by the Agent before injection into the knowledge graph:
+All results accumulate as *pending* in the same pool. At **≥30 pending**, CLI warns the Agent to assess. The Agent runs quality, sees pending results with indices, and approves:
 
 ```bash
-# View pending results with indices
+# View pending results with indices (and quality score)
 sxng --session <session> --quality
 
-# Approve selected pending results by comma-separated indices
+# Approve selected indices — injects into graph automatically
 sxng --session <session> --quality --approve "0,1,2"
-
-# Approved results are automatically injected into the graph
 ```
 
-When ≥30 results are pending, a warning is shown prompting quality assessment.
+One `--approve` call processes results from all sources together.
 
 ### Knowledge Graph
 
 Two layers:
-- **Structural** (auto-built): query→result→domain nodes and edges
+- **Structural** (auto-built via `--approve`): query→result→domain nodes and edges
 - **Semantic** (added by you via `graph-add`): entity nodes with custom relation edges
 
-**External search results**: When using other search tools (tavily, exa, open-web-search, etc.) during a deep search session, inject their results into the graph via `graph-add` with the `source` field. This ensures the graph reflects all discoveries, not just sxng results. Result nodes carry a `source` field (`"sxng"` | `"tavily"` | `"exa"` | ...) — sxng-native results default to `"sxng"`.
+Results must be approved first (→ structural layer). Then use `graph-add` to add entities/edges referencing those result nodes.
 
-When adding edges, `source`/`target` must reference existing node IDs. Node ID prefixes:
+```bash
+# Correct order:
+# 1. Search or results-add
+sxng --session <session> "query"
+sxng results-add <session> --data '[...]'  # external results
+
+# 2. Extract content (optional, any time)
+sxng extract --session <session>
+
+# 3. Approve pending → structural graph built
+sxng --session <session> --quality --approve "0,1,2"
+
+# 4. Add entities/edges (now result nodes exist)
+sxng graph-add <session> --data '{"entities":[...],"edges":[...]}'
+```
+
+**External search results**: When using other search tools (tavily, exa, etc.), inject results via the same pipeline—`results-add` → `--approve` → `graph-add` — exactly like sxng results.
+
+When adding edges, `source`/`target` must reference existing node IDs:
 
 | Prefix | Type | Format | Example |
 |--------|------|--------|---------|
@@ -210,6 +253,7 @@ See SOP for detailed L1/L2/L3 complexity guidelines.
 |---------|---------|
 | `sxng <query>` | Search the web |
 | `sxng extract` | Extract page content |
+| `sxng results-add` | Append external results as pending |
 | `sxng graph-preprocess` | TF-IDF + co-occurrence analysis |
 | `sxng graph-add` | Add entities/edges to graph |
 | `sxng graph-search` | Discover entities by keyword |
@@ -231,8 +275,8 @@ See SOP for detailed L1/L2/L3 complexity guidelines.
 - Results with empty title or content are automatically filtered out by CLI
 - Use `--time week/day` for recent information
 - If searches fail, retry the same command with the required sandbox/network permission before using fallback tools
+- Use `--quality` after accumulating enough pending results (≥30 triggers a warning)
 - Use `--redundancy warn` to avoid repeating similar queries
-- Use `--quality` after each deep search round to decide whether to continue
 
 ## Result Quality Filtering
 
