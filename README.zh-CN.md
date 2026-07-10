@@ -51,6 +51,12 @@
 
 WSL2 会在所有连接退出后自动关闭。建议使用 https://github.com/gardengim/keepwsl 保持其运行。
 
+如果你还想让 WSL 随 Windows 启动而自动启动（这样 SearXNG 容器不用手动启动），可以按以下步骤操作：
+
+1. 按 <kbd>Win</kbd>+<kbd>R</kbd>，输入 `shell:startup` 回车 — 打开 Windows 启动文件夹
+2. 右键 → 新建 → 快捷方式，位置设置为 `"C:\Program Files\WSL\wsl.exe" -d Ubuntu cd ~`
+3. 保存快捷方式。下次 Windows 启动时，`cd ~` 会因为缺少反斜杠而执行失败，但此时 WSL 已经被启动 — 终端窗口会自动关闭，WSL 在后台保持运行。
+
 启动 SearXNG 容器前，必须在 `./searxng` 目录下创建 `settings.yml` 文件。具体配置方法请访问 https://github.com/searxng/searxng。
 
 以下是一个 `settings.yml` 示例。
@@ -66,8 +72,8 @@ server:
   limiter: false
 
 outgoing:
-  request_timeout: 10.0
-  max_request_timeout: 10.0
+  request_timeout: 30.0
+  max_request_timeout: 30.0
   pool_connections: 200
   pool_maxsize: 20
   retries: 2
@@ -507,6 +513,14 @@ services:
         volumes:
             - ./valkey:/data/
 ```
+
+**启动容器：**
+
+```bash
+docker compose up -d
+```
+
+这会在后台启动 SearXNG（端口 `8080`）和 Valkey。使用 `docker compose ps` 或 `sxng --health` 验证服务是否正常运行。
 
 ### 通过 npm 安装（推荐）
 

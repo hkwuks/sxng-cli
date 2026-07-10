@@ -55,6 +55,12 @@
 
 WSL2 will automatically shut itself down after you exit all the connections. I suggest you use https://github.com/gardengim/keepwsl to keep it alive.
 
+If you also want WSL to start automatically when Windows boots (so your SearXNG containers come up without manual intervention), do the following:
+
+1. Press <kbd>Win</kbd>+<kbd>R</kbd>, type `shell:startup`, and press Enter — this opens Windows Startup folder
+2. Right-click → New → Shortcut, set location to `"C:\Program Files\WSL\wsl.exe" -d Ubuntu cd ~`
+3. Save the shortcut. Next time Windows starts, `cd ~` will fail (due to the missing backslash) but WSL will have already been launched — the terminal window closes automatically and WSL keeps running in the background.
+
 Before starting the searXNG container, you must create a `settings.yml` file in the `./searxng` directory. You can visit https://github.com/searxng/searxng for specific configuration methods.
 
 An example of `settings.yml` is just like below.
@@ -70,8 +76,8 @@ server:
   limiter: false
 
 outgoing:
-  request_timeout: 10.0 # 全局默认超时
-  max_request_timeout: 10.0
+  request_timeout: 30.0 # 全局默认超时
+  max_request_timeout: 30.0
   pool_connections: 200
   pool_maxsize: 20
   retries: 2
@@ -514,6 +520,14 @@ services:
         volumes:
             - ./valkey:/data/
 ```
+
+**Start the containers:**
+
+```bash
+docker compose up -d
+```
+
+This runs SearXNG (port `8080`) and Valkey in the background. Verify with `docker compose ps` or `sxng --health`.
 
 ### From npm (Recommended)
 
