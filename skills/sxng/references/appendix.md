@@ -75,6 +75,8 @@ sxng session-delete $SESSION
 | Not recovering from consecutive poor rounds | Use `recovery-analysis` for strategy suggestions |
 | Not cleaning up sessions after use | Regularly run `session-delete --older` |
 | Using `query-graph` | Deprecated, use `graph-explore` + `graph-drill` |
+| Search backend fails → abandon session | Switch backend (tavily/exa), inject via `results-add`, keep session |
+| SearXNG returns 0 results → create new session | The session is decoupled from any backend; use `results-add` instead |
 
 ---
 

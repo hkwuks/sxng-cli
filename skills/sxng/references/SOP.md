@@ -294,6 +294,30 @@ sxng strategy-info <session> --format json
 - `broad_exploration`: First 2-3 rounds, use general engines
 - `targeted_deep_dive`: After entity growth slows, switch to specialized engines (arxiv, github, semantic_scholar)
 
+### Search Backend Failure Recovery
+
+**Scenario**: SearXNG (or the current search backend) returns 0 results, errors out, or times out. The session itself is healthy — only the search source failed.
+
+**Correct Response**:
+
+1. **Switch backends, not sessions.** Use alternative search tools (tavily, exa, open-web-search, web search MCP tools) to get results.
+2. **Inject all results into the current session** via `results-add`:
+   ```bash
+   sxng results-add <session> --data '[{...}]'
+   ```
+3. **Continue the normal pipeline**: extract → `--quality` → `--approve` → `graph-add`.
+
+**What NOT to do**:
+
+| ❌ Don't | ✅ Do |
+|----------|------|
+| Create a new session for the same topic | Reuse the existing session |
+| Output search results directly without injecting | Always inject via `results-add` |
+| Abandon the session because "SearXNG is down" | The session owns the state, not the backend |
+| Use a different search flow that bypasses the session's pipeline | Every result goes through the same pending → approve → graph flow |
+
+**Rule**: A backend failure is NOT session corruption. The session stores state — it is decoupled from any single search source. Only abandon a session when its data files are actually corrupted (`results.json` unreadable), never because a backend returned errors.
+
 #### Phase 8: Graph Exploration (navigate knowledge space after quality is good)
 
 ```bash

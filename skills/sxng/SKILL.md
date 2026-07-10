@@ -113,6 +113,22 @@ Deep search enables multi-round iterative research with session accumulation, qu
 
 > Read the [SOP](references/SOP.md) for core procedures and [Evidence Standards](references/evidence-standards.md) for source quality rules before starting.
 
+> **🔗 Session Continuity Rule (Hard Requirement)**
+>
+> Once a deep search session is created, **ALL results from ALL search backends MUST go into that same session** via `results-add`. The session is the state container — abandoning it discards the knowledge graph, quality history, redundancy state, and strategy progression.
+>
+> **Allowed:**
+> - Switch search backends when one fails (sxng → tavily → exa → open-web-search)
+> - Inject external results into the current session via `results-add`
+> - Extract content from URLs independently and add to the session
+>
+> **Forbidden:**
+> - Create a **new session** for the same topic while an active session exists
+> - Abandon the session and output results outside it
+> - Use a different search flow that bypasses the existing session
+>
+> **Exception**: Only create a new session if the current one is **corrupted** (e.g. `results.json` is unreadable). A search backend returning 0 results or errors is NOT corruption — switch backends, not sessions.
+
 ### Pipeline Overview
 
 All results go into the same pool, same pipeline:
