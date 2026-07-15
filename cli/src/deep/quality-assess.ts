@@ -55,6 +55,7 @@ const DEFAULT_THRESHOLDS: QualityThresholds = {
 
 /** Extract domain from URL */
 function extractDomain(url: string): string {
+    if (url.startsWith('file://')) return ''; // local docs → no domain
     try {
         return new URL(url).hostname;
     } catch {

@@ -1,6 +1,6 @@
 {
   "name": "sxng-cli",
-  "version": "1.2.0",
+  "version": "1.2.2",
   "description": "SearXNG CLI - Web Search Tool",
   "homepage": "https://github.com/hkwuks/sxng-cli#readme",
   "repository": {
@@ -40,7 +40,11 @@
   "author": "hkwuks",
   "license": "MIT",
   "dependencies": {
+    "@orama/orama": "^3.1.18",
+    "@orama/plugin-data-persistence": "^3.1.18",
+    "@orama/tokenizers": "^3.1.18",
     "axios": "^1.6.0",
+    "chunk-smart": "^0.1.2",
     "commander": "^15.0.0",
     "defuddle": "^0.18.0",
     "fastest-levenshtein": "^1.0.16",

@@ -47,7 +47,8 @@ export async function runExtract(
             console.log(JSON.stringify(envelope, null, 2));
             return 1;
         }
-        urls = results.map(r => r.url).filter(u => typeof u === 'string' && u.length > 0);
+        urls = results.map(r => r.url)
+            .filter(u => typeof u === 'string' && u.length > 0 && !u.startsWith('file://'));
     } else {
         const envelope = createErrorEnvelope(
             'MISSING_INPUT',

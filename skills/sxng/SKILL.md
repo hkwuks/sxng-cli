@@ -62,6 +62,10 @@ sxng graph-drill <session> --seed "x" --relations "r1,r2"  # Follow relations
 sxng graph-traverse <session> --path "p:chain_001"  # Traverse reasoning paths
 sxng graph-obfuscate <session> --list       # List obfuscation candidates
 
+# Local document search
+sxng doc-index <path>                        # Index documents (auto-triggered by doc-search)
+sxng doc-search <session> <query> --path <p>  # Search indexed docs & inject into session
+
 # Utility
 sxng session-list                           # List workspace sessions
 sxng session-delete --older 24              # Delete old sessions

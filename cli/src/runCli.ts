@@ -17,6 +17,8 @@ import { runExtract, ExtractOptions } from './commands/extract.js';
 import { runQueryGraph, QueryGraphOptions } from './commands/query-graph.js';
 import { runGraphAdd, GraphAddOptions } from './commands/graph-add.js';
 import { runResultsAdd, ResultsAddOptions } from './commands/results-add.js';
+import { runDocIndex } from './commands/doc-index.js';
+import { runDocSearch } from './commands/doc-search.js';
 import { runGraphObfuscateCommand, GraphObfuscateOptions } from './commands/graph-obfuscate.js';
 import { ContentExtractor } from './deep/extractor.js';
 import { rrf } from './deep/rrf.js';
@@ -846,6 +848,46 @@ Use --quality --approve to inject into graph.`)
             const code = await runResultsAdd({
                 session,
                 data: opts.data,
+            });
+            process.exit(code);
+        });
+
+    program
+        .command('doc-index')
+        .argument('<path>', 'Document path to index')
+        .description('Index local documents for BM25 search')
+        .option('-t, --type <exts>', 'File extensions (comma-separated)', 'md,txt')
+        .addHelpText('after', `
+Examples:
+  sxng doc-index ./docs
+  sxng doc-index --type md,txt ~/notes`)
+        .action(async (path, opts) => {
+            const code = await runDocIndex({
+                path,
+                extensions: opts.type?.split(',').map((e: string) => e.trim()).filter(Boolean),
+            });
+            process.exit(code);
+        });
+
+    program
+        .command('doc-search')
+        .argument('<session>', 'Session directory or name')
+        .argument('<query>', 'Search query')
+        .description('Search local documents and inject results into session')
+        .requiredOption('--path <path>', 'Document path to search')
+        .option('-k, --top <n>', 'Top-K results', val => parseInt(val, 10), 10)
+        .option('--boost <field:w,...>', 'Field weights (e.g. title:3,headings:2,content:1)', 'title:3,headings:2,content:1')
+        .addHelpText('after', `
+Examples:
+  sxng doc-search my-session "async" --path ./docs
+  sxng doc-search my-session -k 5 "deploy" --path ~/notes`)
+        .action(async (session, query, opts) => {
+            const code = await runDocSearch({
+                session,
+                query,
+                path: opts.path,
+                topK: opts.top,
+                boost: opts.boost,
             });
             process.exit(code);
         });

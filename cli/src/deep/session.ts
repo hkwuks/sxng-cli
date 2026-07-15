@@ -101,7 +101,15 @@ export function loadSessionResults(sessionDir: string): SessionResult[] {
  *  New results are marked as 'pending' and will not be injected into graph
  *  until approved by Agent quality assessment.
  */
-export function appendSessionResults(sessionDir: string, newResults: SessionResult[]): { added: number; total: number } {
+export function appendSessionResults(
+    sessionDir: string,
+    newResults: SessionResult[],
+    options?: { skipRoundIncrement?: boolean }
+): { added: number; total: number } {
+    // Ensure session directory exists
+    if (!existsSync(sessionDir)) {
+        mkdirSync(sessionDir, { recursive: true });
+    }
     const existing = loadSessionResults(sessionDir);
     const titleMap = new Map<string, SessionResult>();
     const urlMap = new Map<string, SessionResult>();
@@ -128,7 +136,10 @@ export function appendSessionResults(sessionDir: string, newResults: SessionResu
     }
 
     const all = Array.from(urlMap.values());
-    const rounds = Math.max(1, (loadSessionRounds(sessionDir) || 0) + 1);
+    const currentRounds = loadSessionRounds(sessionDir) || 0;
+    const rounds = options?.skipRoundIncrement
+        ? Math.max(1, currentRounds)
+        : Math.max(1, currentRounds + 1);
 
     const file = join(sessionDir, 'results.json');
     try {

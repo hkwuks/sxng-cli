@@ -379,6 +379,40 @@ Use `strategy-info` command to determine current stage.
 
 ---
 
+## 4. Local Document Search (doc-index / doc-search)
+
+### When to use
+
+- User explicitly asks to search local documents/notes/manuals
+- User provides a document path in their request
+- Web search results are insufficient for the topic and you have relevant local docs
+- Topic relates to private/internal information unlikely to be on the web
+
+### How it works
+
+1. `doc-search <session> <query> --path <path>`:
+   - If path not indexed: auto-indexes before searching (no separate index step needed)
+   - Searches index with BM25 field-weighted search (title:3, headings:2, content:1)
+   - Results injected into session as `source: "local"` (pending state)
+   - Does NOT increment session round counter (merged with current web round)
+
+2. Results follow the same pipeline: pending → quality → approve → graph
+
+### Agent Decision Flow
+
+| Signal | Action |
+|--------|--------|
+| User says "search my docs/notes at <path>" | Run `doc-search <session> <query> --path <path>` |
+| User mentions local docs but no path | ASK: "Which directory are your documents in?" |
+| Topic matches previously indexed path | Run `doc-search` against that path |
+| General web question, no mention of local docs | Do NOT search local docs |
+
+### Quality Assessment Note
+
+Local-only results (`source: "local"`) will have `sourceDiversity: 1` because all results share the same domain-less source. This is correct behavior — pure local search is not diverse enough to pass quality. Always combine with web results for adequate source diversity.
+
+---
+
 ## 5. Self-Check List
 
 Before outputting final answer, verify:
