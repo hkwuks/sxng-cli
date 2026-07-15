@@ -21,6 +21,8 @@ export interface SearXNGConfig {
     useProxy: boolean;
     proxyUrl: string;
     timeout: number;
+    redundancyThreshold: number;
+    redundancyBigramThreshold: number;
 }
 
 const DEFAULT_CONFIG: SearXNGConfig = {
@@ -31,7 +33,9 @@ const DEFAULT_CONFIG: SearXNGConfig = {
     defaultFormat: 'md',
     useProxy: false,
     proxyUrl: '',
-    timeout: 10000
+    timeout: 10000,
+    redundancyThreshold: 0.7,
+    redundancyBigramThreshold: 0.5,
 };
 
 function readOptionalEnv(name: string, defaultValue?: string): string | undefined {
@@ -50,6 +54,13 @@ function readBoolEnv(name: string, defaultValue: boolean): boolean {
     const value = process.env[name];
     if (value === undefined) return defaultValue;
     return value === 'true' || value === '1';
+}
+
+function readFloatEnv(name: string, defaultValue: number): number {
+    const value = process.env[name];
+    if (!value) return defaultValue;
+    const parsed = parseFloat(value);
+    return Number.isFinite(parsed) ? parsed : defaultValue;
 }
 
 function findConfigFile(): string | null {
@@ -95,6 +106,8 @@ function mergeConfig(): SearXNGConfig {
     if (fileConfig.useProxy !== undefined) config.useProxy = fileConfig.useProxy;
     if (fileConfig.proxyUrl !== undefined) config.proxyUrl = fileConfig.proxyUrl;
     if (fileConfig.timeout !== undefined) config.timeout = fileConfig.timeout;
+    if (fileConfig.redundancyThreshold !== undefined) config.redundancyThreshold = fileConfig.redundancyThreshold;
+    if (fileConfig.redundancyBigramThreshold !== undefined) config.redundancyBigramThreshold = fileConfig.redundancyBigramThreshold;
 
     const envBaseUrl = readOptionalEnv('SEARXNG_BASE_URL');
     if (envBaseUrl) config.baseUrl = envBaseUrl;
@@ -128,6 +141,16 @@ function mergeConfig(): SearXNGConfig {
     const envTimeout = process.env.SEARXNG_TIMEOUT;
     if (envTimeout !== undefined) {
         config.timeout = readIntEnv('SEARXNG_TIMEOUT', config.timeout);
+    }
+
+    const envRedundancyThreshold = process.env.SEARXNG_REDUNDANCY_THRESHOLD;
+    if (envRedundancyThreshold !== undefined) {
+        config.redundancyThreshold = readFloatEnv('SEARXNG_REDUNDANCY_THRESHOLD', config.redundancyThreshold);
+    }
+
+    const envRedundancyBigramThreshold = process.env.SEARXNG_REDUNDANCY_BIGRAM_THRESHOLD;
+    if (envRedundancyBigramThreshold !== undefined) {
+        config.redundancyBigramThreshold = readFloatEnv('SEARXNG_REDUNDANCY_BIGRAM_THRESHOLD', config.redundancyBigramThreshold);
     }
 
     return config;

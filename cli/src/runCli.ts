@@ -411,7 +411,8 @@ async function runSearch(
     if (options.redundancy && options.session) {
         const history = loadSessionQueryHistory(options.session);
         const redundancyConfig: RedundancyConfig = {
-            jaccardThreshold: 0.7,
+            jaccardThreshold: config.redundancyThreshold,
+            bigramThreshold: config.redundancyBigramThreshold,
             action: options.redundancy,
         };
 
@@ -434,7 +435,7 @@ async function runSearch(
 
                 // Output redundancy info
                 if (redundancyConfig.action === 'warn' || redundancyConfig.action === 'adjust') {
-                    const envelope = createSuccessEnvelope({
+                    const envelopeContent: Record<string, any> = {
                         redundancyWarning: {
                             query: q,
                             adjustedQuery: result.adjustedQuery,
@@ -442,7 +443,50 @@ async function runSearch(
                             similarQueries: result.similarQueries,
                             action: redundancyConfig.action,
                         },
-                    });
+                    };
+
+                    // Attach advice when action is warn (not adjust, since adjust modifies the query)
+                    if (redundancyConfig.action === 'warn') {
+                        try {
+                            const graph = loadSessionGraph(options.session);
+                            const stats = graphStats(graph);
+
+                            if (stats.entities >= 3) {
+                                // Graph has matured → deep graph-based advice
+                                const sessionResults = loadSessionResults(options.session);
+                                const analysis = getSessionAnalysis(graph, sessionResults);
+                                const topLabels = analysis.suggestions.topEntities
+                                    .slice(0, 3)
+                                    .map(e => e.label);
+                                envelopeContent.advice = {
+                                    type: 'graph',
+                                    currentStage: analysis.strategy.currentStage,
+                                    entityGrowthRate: analysis.strategy.growthRate,
+                                    topEntities: topLabels,
+                                    unexploredDomains: analysis.suggestions.unexploredDomains.slice(0, 3),
+                                    transitionReason: analysis.strategy.transitionReason,
+                                };
+                            } else {
+                                // Graph is still growing → statistical advice
+                                const saturation = result.similarQueries.length >= 3
+                                    ? 'high'
+                                    : result.similarQueries.length >= 2 ? 'medium' : 'low';
+                                envelopeContent.advice = {
+                                    type: 'statistical',
+                                    similarQueryCount: result.similarQueries.length,
+                                    totalSessionQueries: history.length,
+                                    saturation,
+                                    suggestion: saturation === 'high'
+                                        ? 'This topic appears saturated: 3+ similar queries all returned results. Consider switching to a sub-topic or a different angle.'
+                                        : `Similar to ${result.similarQueries.length} past query(s) at ${(result.maxSimilarity * 100).toFixed(0)}% similarity. Proceed with search, but consider if a different facet might yield more new results.`,
+                                };
+                            }
+                        } catch {
+                            // Advice is best-effort enhancement; silence errors
+                        }
+                    }
+
+                    const envelope = createSuccessEnvelope(envelopeContent);
                     console.error(JSON.stringify(envelope, null, 2));
                 }
             } else {

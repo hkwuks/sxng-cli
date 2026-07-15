@@ -7,15 +7,25 @@
  * - adjust: auto-remove overlapping terms, add differentiation
  * - skip: skip redundant query entirely
  *
- * Short queries (≤3 words) use character-level bigram Jaccard to avoid
+ * Short queries (≤2 words) use character-level bigram Jaccard to avoid
  * low similarity from minor word differences. Longer queries use word-level Jaccard.
+ *
+ * Since bigram and word Jaccard have different sensitivity scales, each algorithm
+ * uses its own threshold (jaccardThreshold for word-level, bigramThreshold for bigram).
+ * This prevents short queries from being systematically under-detected.
  */
 
 // ── Types ─────────────────────────────────────────────────────────
 
 export interface RedundancyConfig {
-    jaccardThreshold: number; // default: 0.7
+    jaccardThreshold: number;  // default: 0.7, for word-level Jaccard
+    bigramThreshold?: number;  // default: jaccardThreshold, for char bigram Jaccard
     action: 'warn' | 'adjust' | 'skip';
+}
+
+export interface JaccardResult {
+    score: number;
+    algorithm: 'bigram' | 'word';
 }
 
 export interface RedundancyResult {
@@ -53,27 +63,34 @@ function wordCount(s: string): number {
     return s.trim().split(/\s+/).filter(Boolean).length;
 }
 
-/** Compute Jaccard similarity between two queries.
+/** Compute Jaccard similarity between two queries with algorithm metadata.
  *  - ≤2 words: character-level bigram Jaccard (case-insensitive)
  *  - >2 words: word-level Jaccard (case-insensitive) */
-export function computeJaccard(a: string, b: string): number {
+export function computeJaccardWithMeta(a: string, b: string): JaccardResult {
     const aLower = a.toLowerCase().trim();
     const bLower = b.toLowerCase().trim();
 
-    if (aLower === bLower) return aLower.length > 0 ? 1 : 0;
+    if (aLower === bLower) {
+        return { score: aLower.length > 0 ? 1 : 0, algorithm: 'word' };
+    }
 
     if (wordCount(a) <= 2 || wordCount(b) <= 2) {
         // Short query: character-level bigram Jaccard
         const bgA = charBigrams(aLower);
         const bgB = charBigrams(bLower);
-        if (bgA.size === 0 || bgB.size === 0) return 0;
-        return setJaccard(bgA, bgB);
+        if (bgA.size === 0 || bgB.size === 0) return { score: 0, algorithm: 'bigram' };
+        return { score: setJaccard(bgA, bgB), algorithm: 'bigram' };
     }
 
     // Long query: word-level Jaccard
     const setA = new Set(aLower.split(/\s+/).filter(Boolean));
     const setB = new Set(bLower.split(/\s+/).filter(Boolean));
-    return setJaccard(setA, setB);
+    return { score: setJaccard(setA, setB), algorithm: 'word' };
+}
+
+/** Compute Jaccard similarity between two queries (score only, backward-compatible). */
+export function computeJaccard(a: string, b: string): number {
+    return computeJaccardWithMeta(a, b).score;
 }
 
 // ── Query adjustment ──────────────────────────────────────────────
@@ -111,22 +128,26 @@ export function adjustQuery(
 
 // ── Main redundancy check ────────────────────────────────────────
 
-/** Check a new query against session history for redundancy. */
+/** Check a new query against session history for redundancy.
+ *  Uses algorithm-aware thresholding: word-level comparisons use jaccardThreshold,
+ *  bigram comparisons use bigramThreshold (falls back to jaccardThreshold if unset). */
 export function checkQueryRedundancy(
     newQuery: string,
     sessionHistory: string[],
     config: RedundancyConfig
 ): RedundancyResult {
     const similarQueries: Array<{ query: string; similarity: number }> = [];
+    const bigramThreshold = config.bigramThreshold ?? config.jaccardThreshold;
 
     let maxSimilarity = 0;
     for (const pastQuery of sessionHistory) {
-        const sim = computeJaccard(newQuery, pastQuery);
-        if (sim >= config.jaccardThreshold) {
-            similarQueries.push({ query: pastQuery, similarity: sim });
+        const { score, algorithm } = computeJaccardWithMeta(newQuery, pastQuery);
+        const threshold = algorithm === 'bigram' ? bigramThreshold : config.jaccardThreshold;
+        if (score >= threshold) {
+            similarQueries.push({ query: pastQuery, similarity: score });
         }
-        if (sim > maxSimilarity) {
-            maxSimilarity = sim;
+        if (score > maxSimilarity) {
+            maxSimilarity = score;
         }
     }
 

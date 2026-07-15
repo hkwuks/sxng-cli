@@ -88,6 +88,7 @@ export function checkNewQueryRedundancy(
 
     return checkQueryRedundancy(newQuery, history, {
         jaccardThreshold: config?.jaccardThreshold ?? 0.7,
+        bigramThreshold: config?.bigramThreshold,
         action: config?.action ?? 'warn',
     });
 }
