@@ -36,10 +36,12 @@
 - 🧠 **深度搜索** — 多轮迭代研究，支持会话累积、质量评估和恢复策略
 - 🔍 **内容提取** — 从 URL 或会话结果中提取文章全文，支持 Obscura（JS 渲染）和 Jina Reader 回退
 - 🗂️ **会话管理** — 跨轮累积搜索结果，自动去重；待审 → 审批 → 注入图谱工作流
+- 🔗 **外部结果融合** — 通过 `results-add` 将 Tavily、Exa 等外部搜索结果注入同一会话管道；共享待审池，统一质量评估
 - ⭐ **质量评估** — 4 个独立指标：内容深度、实体丰富度、来源多样性、新颖度
 - 🕸️ **知识图谱** — 结构层（查询→结果→域名）+ 语义层（实体关系）双层图谱
 - 🔄 **查询冗余检查** — Jaccard 相似度 + SimHash 避免重复查询
 - 💡 **Agent 优先设计** — 输出结构化分析数据（质量、建议、恢复策略）供 LLM Agent 决策
+- 📁 **本地文档搜索** — 对本地 Markdown/文本文件进行 BM25 全文索引和搜索，支持字段加权排序；结果自动注入会话管道，来源标记为 `source: "local"`
 
 ---
 
@@ -626,6 +628,9 @@ obscura --version
 | `sxng graph-drill <session>` | 追踪特定关系 |
 | `sxng graph-traverse <session>` | 遍历推理路径 |
 | `sxng graph-obfuscate <session>` | 列出混淆候选 |
+| `sxng results-add <session> --data <json>` | 将外部搜索结果注入会话（标记为待审） |
+| `sxng doc-index <path>` | 索引本地文档（用于 BM25 搜索） |
+| `sxng doc-search <session> <query> --path <path>` | 搜索已索引文档并将结果注入会话 |
 | `sxng --health` | 检查 SearXNG 服务器健康状态 |
 | `sxng --engines-list` | 列出可用搜索引擎 |
 | `sxng --categories-list` | 列出可用分类 |
@@ -813,6 +818,58 @@ sxng --session <session-name> --queries "tokio vs async-std,benchmark 2026" --re
 | `p:` | 路径节点 | `p:chain_001` |
 
 图谱导航命令：`graph-search`（发现实体）、`graph-explore`（查看关系）、`graph-drill`（追踪特定关系）、`graph-traverse`（遍历推理路径）。
+
+### 外部搜索结果注入
+
+来自其他搜索工具（Tavily、Exa 等）的结果可通过 `results-add` 注入到任何活跃会话中。它们和原生 sxng 结果走相同的管道：
+
+```bash
+sxng results-add <session-name> --data '[
+  {"url": "https://...", "title": "...", "source": "tavily"},
+  {"url": "https://...", "title": "...", "source": "exa"}
+]'
+```
+
+注入后，结果标记为 `pending`（待审），走相同的 `--quality` → `--approve` → `graph-add` 流程。`source` 字段记录每个结果来自哪个工具。所有来源的结果共享同一个待审池，一起参与质量评估。
+
+### 本地文档搜索
+
+`doc-index` 和 `doc-search` 支持对本地文档进行 BM25 全文搜索，结果直接流入会话管道：
+
+```bash
+# 索引文档（doc-search 会自动触发索引，无需单独执行此步骤）
+sxng doc-index ./docs
+
+# 搜索并将结果注入会话
+sxng doc-search <session-name> "关键词" --path ./docs
+```
+
+**工作原理：**
+
+1. **自动索引** — `doc-search` 在首次使用时自动索引目标目录（如索引不存在）。使用 Orama BM25 引擎，字段加权：标题 ×3、标题头 ×2、正文 ×1。
+2. **会话注入** — 搜索结果格式化为 `SessionResult[]`，标记为 `source: "local"`，以待审状态注入会话。
+3. **同一管道** — 结果与网页结果走完全相同的流程：`--quality` → `--approve` → `graph-add`。
+4. **不消耗轮次** — 本地文档搜索**不增加**会话轮次计数器（通过 `skipRoundIncrement` 与当前网络搜索轮次合并）。
+
+**索引选项：**
+
+| 选项 | 说明 |
+|------|------|
+| `-t, --type <exts>` | 要索引的文件扩展名（默认：`md,txt`） |
+
+**搜索选项：**
+
+| 选项 | 说明 |
+|------|------|
+| `-k, --top <n>` | Top-K 结果数（默认：10） |
+| `--boost <field:w,...>` | 字段权重覆盖（如 `title:3,headings:2,content:1`） |
+
+**使用时机：**
+- 用户明确要求搜索本地文档/笔记
+- 网络搜索结果不足以覆盖主题，且本地有相关文档
+- 主题涉及私有/内部信息，不便于网络搜索
+
+**质量评估注意：** 纯本地搜索的 `sourceDiversity` 指标值为 1，因为所有结果共享同一个无域名来源。应始终将本地结果与网络结果组合使用，以获得充分的来源多样性。
 
 ---
 

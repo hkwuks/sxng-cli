@@ -40,10 +40,12 @@
 - 🧠 **Deep Search** — Multi-round iterative research with session accumulation, quality assessment, and recovery strategies
 - 🔍 **Content Extraction** — Extract full article content from URLs or session results, with Obscura (JS rendering) and Jina Reader fallbacks
 - 🗂️ **Session Management** — Accumulate search results across rounds with deduplication; pending → approve → graph injection workflow
+- 🔗 **External Result Fusion** — Inject results from Tavily, Exa, or any search tool into the same session pipeline via `results-add`; shared pending pool, unified quality assessment
 - ⭐ **Quality Assessment** — 4 independent indicators: content depth, entity richness, source diversity, novelty
 - 🕸️ **Knowledge Graph** — Structural (query→result→domain) + semantic (entity relations) graph layers
 - 🔄 **Query Redundancy Check** — Jaccard similarity + SimHash to avoid repeated queries
 - 💡 **Agent-First Design** — Outputs structured analysis data (quality, suggestions, recovery) for LLM Agent decision-making
+- 📁 **Local Document Search** — Index and BM25-search local Markdown/text files with field-weighted ranking; results auto-injected into the session pipeline as `source: "local"`
 
 ---
 
@@ -633,6 +635,9 @@ No extra npm dependencies needed — Obscura is called via CLI. Auto-detected fr
 | `sxng graph-drill <session>` | Follow specific relations |
 | `sxng graph-traverse <session>` | Traverse reasoning paths |
 | `sxng graph-obfuscate <session>` | List obfuscation candidates |
+| `sxng results-add <session> --data <json>` | Inject external search results into session as pending |
+| `sxng doc-index <path>` | Index local documents for BM25 search |
+| `sxng doc-search <session> <query> --path <path>` | Search indexed docs and inject results into session |
 | `sxng --health` | Check SearXNG server health |
 | `sxng --engines-list` | List available search engines |
 | `sxng --categories-list` | List available categories |
@@ -820,6 +825,58 @@ Two layers:
 | `p:` | Path node | `p:chain_001` |
 
 Graph navigation commands: `graph-search` (discover entities), `graph-explore` (view relations), `graph-drill` (follow specific relations), `graph-traverse` (traverse reasoning paths).
+
+### External Search Results
+
+Results from other search tools (Tavily, Exa, etc.) can be injected into any active session via `results-add`. They go through the same pipeline as native sxng results:
+
+```bash
+sxng results-add <session-name> --data '[
+  {"url": "https://...", "title": "...", "source": "tavily"},
+  {"url": "https://...", "title": "...", "source": "exa"}
+]'
+```
+
+After injection, results are marked as `pending` and follow the same `--quality` → `--approve` → `graph-add` flow. The `source` field tracks which tool produced each result. Results from all sources share a single pending pool and are evaluated together in quality assessment.
+
+### Local Document Search
+
+`doc-index` and `doc-search` enable BM25 full-text search over local documents, with results flowing directly into the session pipeline:
+
+```bash
+# Index documents (auto-triggered by doc-search, no separate step needed)
+sxng doc-index ./docs
+
+# Search and inject into session
+sxng doc-search <session-name> "search query" --path ./docs
+```
+
+**How it works:**
+
+1. **Auto-indexing** — `doc-search` automatically indexes the directory on first use if no index exists. Uses Orama BM25 with field-weighted boosting: title ×3, headings ×2, content ×1.
+2. **Session injection** — Search results are formatted as `SessionResult[]` with `source: "local"` and injected into the session as pending.
+3. **Same pipeline** — Results follow the exact same flow as web results: `--quality` → `--approve` → `graph-add`.
+4. **Round-neutral** — Local document searches do **not** increment the session round counter (merged with the current web round via `skipRoundIncrement`).
+
+**Index options:**
+
+| Option | Description |
+|--------|-------------|
+| `-t, --type <exts>` | File extensions to index (default: `md,txt`) |
+
+**Search options:**
+
+| Option | Description |
+|--------|-------------|
+| `-k, --top <n>` | Top-K results (default: 10) |
+| `--boost <field:w,...>` | Field weight overrides (e.g. `title:3,headings:2,content:1`) |
+
+**When to use:**
+- User explicitly asks to search local documents or notes
+- Web search results are insufficient for the topic and relevant local docs exist
+- Topic relates to private/internal information unlikely to be on the web
+
+**Quality note:** Pure local search yields `sourceDiversity: 1` because all results share the same domain-less source. Always combine local and web results for adequate diversity in quality assessment.
 
 ---
 
