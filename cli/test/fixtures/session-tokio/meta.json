@@ -1,0 +1,7 @@
+{
+  "owner": "test",
+  "description": "Test session for tokio async ecosystem",
+  "createdAt": 1749200000000,
+  "updatedAt": 1749200000000,
+  "query": "rust async ecosystem"
+}

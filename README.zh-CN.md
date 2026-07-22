@@ -42,6 +42,7 @@
 - 🔄 **查询冗余检查** — Jaccard 相似度 + SimHash 避免重复查询
 - 💡 **Agent 优先设计** — 输出结构化分析数据（质量、建议、恢复策略）供 LLM Agent 决策
 - 📁 **本地文档搜索** — 对本地 Markdown/文本文件进行 BM25 全文索引和搜索，支持字段加权排序；结果自动注入会话管道，来源标记为 `source: "local"`
+- ✅ **陈述—证据—审核管线** — L2/L3 专用：提交原子化陈述、自动检索证据、验证立场、策略聚合自动审批或标记待人工审核
 
 ---
 
@@ -631,6 +632,14 @@ obscura --version
 | `sxng results-add <session> --data <json>` | 将外部搜索结果注入会话（标记为待审） |
 | `sxng doc-index <path>` | 索引本地文档（用于 BM25 搜索） |
 | `sxng doc-search <session> <query> --path <path>` | 搜索已索引文档并将结果注入会话 |
+| `sxng claim-add <session> --claims <json>` | 提交原子化陈述（支持单条或批量，自动证据搜索） |
+| `sxng claim-list <session>` | 列出陈述 |
+| `sxng evidence-search <session> --claim-id <id>` | 搜索候选证据（只读） |
+| `sxng evidence-verify <session> --claim-id <id>` | 确认证据 + 提交立场（可选自动策略聚合） |
+| `sxng evidence-list <session> --claim-id <id>` | 列出某条陈述的证据 |
+| `sxng verdict-list <session> --claim-id <id>` | 列出某条陈述的判断结果 |
+| `sxng policy-aggregate <session>` | 手动执行策略聚合 |
+| `sxng review-list <session>` | 列出审核结论 |
 | `sxng --health` | 检查 SearXNG 服务器健康状态 |
 | `sxng --engines-list` | 列出可用搜索引擎 |
 | `sxng --categories-list` | 列出可用分类 |
@@ -740,6 +749,8 @@ sxng --categories-list
 
 ```
 搜索 → 提取 → 预处理 → 构建图谱 → 质量评估 → 审批 →（循环或探索）
+                                                                         ↓
+                                          (L2/L3) 陈述—证据—审核管线 → 最终输出
 ```
 
 ### 快速示例

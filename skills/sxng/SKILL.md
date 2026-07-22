@@ -43,6 +43,18 @@ sxng extract --session <session>            # Extract session results
 sxng extract --urls "url1" --obscura        # Fallback: JS rendering
 sxng extract --urls "url1" --jina           # Fallback: Jina Reader
 
+# Claim—Evidence—Review (L2/L3 only, after search)
+sxng claim-add <session> --claim '<json>'                    # Add single claim
+sxng claim-add <session> --claims '<json array>'             # Batch add claims
+sxng claim-list <session>                                    # List claims
+sxng evidence-search <session> --claim-id <id>               # Search evidence candidates (read-only)
+sxng evidence-verify <session> --claim-id <id> \             # Verify evidence + stance
+  --evidence '<json>' --stance support --reason '...' --complete
+sxng evidence-list <session> --claim-id <id>                 # List evidence for a claim
+sxng verdict-list <session> --claim-id <id>                  # List verdicts for a claim
+sxng policy-aggregate <session>                              # Manual policy aggregation
+sxng review-list <session>                                   # List reviews
+
 # Quality & iteration
 sxng --session <session> --quality   # Assess result quality & list pending
 sxng --session <session> --quality --approve "0,1,2"  # Approve pending results
@@ -151,12 +163,26 @@ sxng extract --session <session>  ──┘   (updates content only)
                     ┌───────────────▼───────────────┐
                     │  graph-add (entities/edges)   │
                     └───────────────────────────────┘
+                    │
+                    │  (L2/L3 only)
+                    │
+                    ┌───────────────▼───────────────┐
+                    │  claim-add (+ auto evidence)  │
+                    │  evidence-verify (+ auto      │
+                    │    policy-aggregate → review)  │
+                    └───────────────┬───────────────┘
+                    │
+                    ┌───────────────▼───────────────┐
+                    │  Agent adjusts final output   │
+                    │  (only cite approved claims)  │
+                    └───────────────────────────────┘
 ```
 
 - **All results** (sxng + external) become `pending` in the same `results.json`
 - **Extract** only fills `content` — does not add new results
 - **Approve** injects approved results into graph (structural edges)
 - **graph-add** only adds entities/edges — results go through approve first
+- **Claim pipeline** (L2/L3 only): Agent submits claims → CLI auto-searches evidence → Agent verifies → CLI aggregates policy → Agent adjusts output
 
 ### Quick Start
 
@@ -288,6 +314,14 @@ See SOP for detailed L1/L2/L3 complexity guidelines.
 | `sxng session-list` | List all sessions |
 | `sxng session-delete` | Delete sessions |
 | `sxng init` | Interactive setup |
+| `sxng claim-add` | Submit claims (single or batch, auto evidence-search) |
+| `sxng claim-list` | List claims |
+| `sxng evidence-search` | Search candidate evidence (read-only) |
+| `sxng evidence-verify` | Confirm evidence + submit stance (+ optional auto-policy) |
+| `sxng evidence-list` | List evidence for a claim |
+| `sxng verdict-list` | List verdicts for a claim |
+| `sxng policy-aggregate` | Run policy aggregation manually |
+| `sxng review-list` | List reviews |
 
 ## Tips
 

@@ -30,10 +30,13 @@
 - 🧠 **Deep Search** — Multi-round iterative research with session accumulation, quality assessment, and recovery strategies
 - 🔍 **Content Extraction** — Extract full article content from URLs or session results, with Obscura (JS rendering) and Jina Reader fallbacks
 - 🗂️ **Session Management** — Accumulate search results across rounds with deduplication; pending → approve → graph injection workflow
+- 🔗 **External Result Fusion** — Inject results from Tavily, Exa, or any search tool into the same session pipeline via `results-add`; shared pending pool, unified quality assessment
 - ⭐ **Quality Assessment** — 4 independent indicators: content depth, entity richness, source diversity, novelty
 - 🕸️ **Knowledge Graph** — Structural (query→result→domain) + semantic (entity relations) graph layers
 - 🔄 **Query Redundancy Check** — Jaccard similarity + SimHash to avoid repeated queries
 - 💡 **Agent-First Design** — Outputs structured analysis data (quality, suggestions, recovery) for LLM Agent decision-making
+- 📁 **Local Document Search** — Index and BM25-search local Markdown/text files; results auto-injected into the session pipeline as `source: "local"`
+- ✅ **Claim—Evidence—Review Pipeline** — L2/L3 only: submit atomic claims, auto-search evidence, verify with stance, policy-aggregate for auto-approval or flag for Agent review
 
 ## 📦 Installation
 
@@ -124,6 +127,17 @@ obscura --version
 | `sxng graph-drill <session>` | Follow specific relations |
 | `sxng graph-traverse <session>` | Traverse reasoning paths |
 | `sxng graph-obfuscate <session>` | List obfuscation candidates |
+| `sxng results-add <session> --data <json>` | Inject external search results into session as pending |
+| `sxng doc-index <path>` | Index local documents for BM25 search |
+| `sxng doc-search <session> <query> --path <path>` | Search indexed docs and inject results into session |
+| `sxng claim-add <session> --claims <json>` | Submit atomic claims (single or batch, auto evidence-search) |
+| `sxng claim-list <session>` | List claims |
+| `sxng evidence-search <session> --claim-id <id>` | Search candidate evidence (read-only) |
+| `sxng evidence-verify <session> --claim-id <id>` | Confirm evidence + submit stance (+ optional auto-policy) |
+| `sxng evidence-list <session> --claim-id <id>` | List evidence for a claim |
+| `sxng verdict-list <session> --claim-id <id>` | List verdicts for a claim |
+| `sxng policy-aggregate <session>` | Run policy aggregation manually |
+| `sxng review-list <session>` | List reviews |
 | `sxng --health` | Check SearXNG server health |
 | `sxng --engines-list` | List available search engines |
 | `sxng --categories-list` | List available categories |
@@ -220,6 +234,8 @@ Deep search enables multi-round iterative research with session accumulation, qu
 
 ```
 Search → Extract → Preprocess → Build Graph → Quality Assess → Approve → (Loop or Explore)
+                                                                         ↓
+                                          (L2/L3) Claim—Evidence—Review → Final Output
 ```
 
 ### Quick Example
@@ -289,6 +305,80 @@ Two layers:
 | `p:` | Path node | `p:chain_001` |
 
 Graph navigation commands: `graph-search` (discover entities), `graph-explore` (view relations), `graph-drill` (follow specific relations), `graph-traverse` (traverse reasoning paths).
+
+### External Search Results
+
+Results from other search tools (Tavily, Exa, etc.) can be injected into any active session via `results-add`, following the same pipeline as native sxng results:
+
+```bash
+sxng results-add <session-name> --data '[
+  {"url": "https://...", "title": "...", "source": "tavily"}
+]'
+```
+
+After injection, results are `pending` and follow `--quality` → `--approve` → `graph-add`.
+
+### Claim—Evidence—Review Pipeline (L2/L3 Only)
+
+After search, extraction, and graph building, the Agent can run the claim audit pipeline to verify individual statements before final output. CLI does the deterministic work (evidence anchoring, hash verification, Jaccard matching, policy rules); the Agent does all semantic reasoning (claim extraction, stance judgement, final output decisions).
+
+**Workflow:**
+
+```
+Agent writes draft → claim-add (auto evidence-search) → 
+evidence-verify (with --complete auto-policy) → Review → Agent adjusts output
+```
+
+**Quick Example:**
+
+```bash
+# 1. Submit claims from your draft
+sxng claim-add my-session --claims '[
+  {"text":"Tokio is the most widely used async runtime","riskLevel":"medium"},
+  {"text":"async-std is no longer actively maintained","riskLevel":"medium"}
+]'
+# → returns claims with IDs + auto-discovered evidence candidates
+
+# 2. Verify evidence + submit stance (+ auto policy aggregation)
+sxng evidence-verify my-session --claim-id "cl_001" \
+  --evidence '{"resultUrl":"https://tokio.rs/","quote":"Tokio is the most widely used async runtime...","charStart":45,"charEnd":93}' \
+  --stance support --reason "Official docs confirm" --complete
+# → returns evidence + verdict + review (decision: approved / needsReview)
+
+# 3. Check final reviews
+sxng review-list my-session
+```
+
+**Key Principles:**
+- **Deterministic checks**: CLI validates URL in approved results, UTF-16 offsets within range, SHA256 hash of quote matches source
+- **No embedded LLM**: All semantic work (claim extraction, stance) is done by the Agent outside the CLI
+- **Policy rules**: 7 rules (singleRefute → highRiskInsufficient → dualSourceSupport → dualSourceMixed → singleSource → allInsufficient → fallback) — pure rule engine, no model calls
+- **`--complete` flag**: Evidence + verdict + auto-policy in one call
+
+| Commands | Purpose |
+|----------|---------|
+| `claim-add` | Submit claims (auto-triggers evidence search) |
+| `evidence-verify` | Confirm evidence + submit stance + optional auto-policy |
+| `policy-aggregate` | Manual re-aggregation |
+| `claim-list` / `evidence-list` / `verdict-list` / `review-list` | Query pipeline state |
+
+The pipeline is **only available for L2/L3 deep search sessions** — L1 simple searches have no session or approved results pool.
+
+### Local Document Search
+
+`doc-index` and `doc-search` enable BM25 full-text search over local documents, with results flowing directly into the session pipeline:
+
+```bash
+# Index (auto-triggered by doc-search)
+sxng doc-index ./docs
+
+# Search and inject into session
+sxng doc-search <session-name> "query" --path ./docs
+```
+
+**How it works:** auto-indexing on first use (Orama BM25, title×3 / headings×2 / content×1), results injected as `source: "local"` pending, same `--quality` → `--approve` → `graph-add` flow. Local searches do **not** increment the round counter.
+
+**Quality note:** Pure local search yields `sourceDiversity: 1`. Combine with web results for adequate diversity.
 
 ## 🔗 Links
 

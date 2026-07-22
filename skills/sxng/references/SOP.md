@@ -413,6 +413,67 @@ Local-only results (`source: "local"`) will have `sourceDiversity: 1` because al
 
 ---
 
+## Phase 9–10：Claim—Evidence—Review 自动审核（L2/L3 专用）
+
+> **仅 L2/L3 deep search 时可用。** L1 简单搜索无 session、无 approved results 池，不触发。
+>
+> 在 Phase 1–7 deep search SOP 完成、Phase 8 Agent 合成草稿之后、输出最终回答前插入。
+
+### 完整时间线
+
+```
+Phase 1-7: deep search SOP（现有，不变）
+         ↓
+Phase 8: Agent 基于 approved results + 知识图谱合成草稿
+         ↓
+Phase 9: Claim—Evidence—Review（新增，2 步完成）
+         ↓
+Phase 10: Agent 根据 Review 调整最终输出
+         ↓
+最终输出（只引用 approved Claim）
+```
+
+### Phase 9 展开（CLI 交互）
+
+```bash
+# Step 1: 批量提交所有 Claim + 自动证据搜索
+sxng claim-add --session <s> --claims '[
+  {"text":"Tokio is the most widely used async runtime in Rust ecosystem","riskLevel":"medium"},
+  {"text":"Rust 2024 edition introduced async closures","riskLevel":"low"},
+  {"text":"async-std is no longer actively maintained","riskLevel":"medium"}
+]'
+# → 返回 claims + 每个 claim 的候选证据
+
+# Step 2: 对每个 Claim，确认证据+提交 stance
+sxng evidence-verify --session <s> --claim-id "cl_001" \
+  --evidence '{"resultUrl":"https://tokio.rs/","quote":"Tokio is the most widely used async runtime...","charStart":1284,"charEnd":1359}' \
+  --stance 'support' --reason 'Official docs confirm directly' \
+  --complete
+# → 返回 evidence + verdict + review（--complete 触发聚合）
+
+# Step 2 重复：对 cl_002、cl_003 各自调一次 evidence-verify
+```
+
+**共 4 次 CLI 调用：** 1 次批量 claim-add + 3 次 evidence-verify。
+
+### Phase 10 Agent 决策分支
+
+```
+Review 返回后
+         │
+    ┌────┴────┐
+    │         │
+ approved   needsReview
+    │         │
+ 可引用  ┌───┴──────────────┐
+         │                  │
+    修改 Claim +          有冲突
+    重新验证              保留分歧→输出标注
+                         无操作 → 丢弃（不引用）
+```
+
+---
+
 ## 5. Self-Check List
 
 Before outputting final answer, verify:
@@ -423,6 +484,8 @@ Before outputting final answer, verify:
 - [ ] Used `sxng extract` to extract key page content
 - [ ] L2/L3 levels used `--session` and knowledge graph
 - [ ] L3 level used `--quality` assessment and decided next steps accordingly
+- [ ] **L2/L3: ran Claim—Evidence—Review pipeline** (`claim-add` → `evidence-verify` → review)
+- [ ] **Final output only cites `approved` claims** (`needsReview` claims either dropped or marked as uncertain)
 - [ ] No evidence-free phrases like "it is generally believed" / "reports indicate"
 - [ ] Graph coverage verified via `graph-explore`
 

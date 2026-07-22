@@ -1,0 +1,48 @@
+{
+  "status": "ok",
+  "data": {
+    "results": [
+      {
+        "url": "https://tokio.rs",
+        "title": "Tokio - An asynchronous runtime for Rust",
+        "content": "Tokio is an asynchronous runtime for the Rust programming language. It provides the building blocks needed for writing network applications. It gives the flexibility to target a wide range of systems, from large servers with dozens of cores to small embedded devices.",
+        "engine": "google",
+        "category": "it",
+        "score": 0.95
+      },
+      {
+        "url": "https://docs.rs/tokio",
+        "title": "tokio - Rust",
+        "content": "Tokio is a runtime for writing reliable asynchronous applications with Rust. It provides I/O, networking, scheduling, timers, and more. The core primitives include async and await syntax, tasks, and channels.",
+        "engine": "google",
+        "category": "it",
+        "score": 0.90
+      },
+      {
+        "url": "https://blog.rust-lang.org/2024/01/01/async.html",
+        "title": "Rust Async Ecosystem Overview",
+        "content": "The Rust async ecosystem centers around the tokio runtime, but alternatives like async-std and smol exist. Each runtime provides an executor, reactor, and various async utilities. The ecosystem also includes libraries like hyper, tonic, and tower for building network services.",
+        "engine": "bing",
+        "category": "it",
+        "score": 0.85
+      },
+      {
+        "url": "https://github.com/tokio-rs/tokio",
+        "title": "tokio-rs/tokio: A runtime for writing reliable asynchronous applications with Rust",
+        "content": "Tokio is an event-driven, non-blocking I/O platform for writing asynchronous applications with the Rust programming language. At a high level, it provides a few major components: a multithreaded work-stealing based task scheduler, a reactor backed by the operating system's event queue (epoll, kqueue, IOCP, etc), and asynchronous TCP and UDP sockets.",
+        "engine": "google",
+        "category": "it",
+        "score": 0.88
+      },
+      {
+        "url": "https://async.rs",
+        "title": "async-std - Async standard library for Rust",
+        "content": "async-std is a library that provides an async version of the Rust standard library. It aims to be a drop-in replacement for std in async contexts, providing async versions of file I/O, networking, and other standard library features. It uses smol as its underlying runtime.",
+        "engine": "duckduckgo",
+        "category": "it",
+        "score": 0.80
+      }
+    ],
+    "rounds": 2
+  }
+}

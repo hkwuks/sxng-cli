@@ -1,6 +1,6 @@
 {
   "name": "sxng-cli",
-  "version": "1.2.2",
+  "version": "1.2.3",
   "description": "SearXNG CLI - Web Search Tool",
   "homepage": "https://github.com/hkwuks/sxng-cli#readme",
   "repository": {
@@ -23,7 +23,7 @@
     "README.md"
   ],
   "scripts": {
-    "build": "tsc && chmod +x dist/index.js",
+    "build": "tsc && node -e \"try{require('fs').chmodSync('dist/index.js',0o755)}catch(e){}\"",
     "dev": "tsc --watch",
     "start": "node dist/index.js",
     "prepublishOnly": "npm run build",

@@ -46,6 +46,7 @@
 - 🔄 **Query Redundancy Check** — Jaccard similarity + SimHash to avoid repeated queries
 - 💡 **Agent-First Design** — Outputs structured analysis data (quality, suggestions, recovery) for LLM Agent decision-making
 - 📁 **Local Document Search** — Index and BM25-search local Markdown/text files with field-weighted ranking; results auto-injected into the session pipeline as `source: "local"`
+- ✅ **Claim—Evidence—Review Pipeline** — L2/L3 only: submit atomic claims, auto-search evidence, verify with stance, policy-aggregate for auto-approval or flag for Agent review
 
 ---
 
@@ -638,6 +639,14 @@ No extra npm dependencies needed — Obscura is called via CLI. Auto-detected fr
 | `sxng results-add <session> --data <json>` | Inject external search results into session as pending |
 | `sxng doc-index <path>` | Index local documents for BM25 search |
 | `sxng doc-search <session> <query> --path <path>` | Search indexed docs and inject results into session |
+| `sxng claim-add <session> --claims <json>` | Submit atomic claims (single or batch, auto evidence-search) |
+| `sxng claim-list <session>` | List claims |
+| `sxng evidence-search <session> --claim-id <id>` | Search candidate evidence (read-only) |
+| `sxng evidence-verify <session> --claim-id <id>` | Confirm evidence + submit stance (+ optional auto-policy) |
+| `sxng evidence-list <session> --claim-id <id>` | List evidence for a claim |
+| `sxng verdict-list <session> --claim-id <id>` | List verdicts for a claim |
+| `sxng policy-aggregate <session>` | Run policy aggregation manually |
+| `sxng review-list <session>` | List reviews |
 | `sxng --health` | Check SearXNG server health |
 | `sxng --engines-list` | List available search engines |
 | `sxng --categories-list` | List available categories |
@@ -747,6 +756,8 @@ Deep search enables multi-round iterative research with session accumulation, qu
 
 ```
 Search → Extract → Preprocess → Build Graph → Quality Assess → Approve → (Loop or Explore)
+                                                                         ↓
+                                          (L2/L3) Claim—Evidence—Review → Final Output
 ```
 
 ### Quick Example

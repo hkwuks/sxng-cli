@@ -1,0 +1,182 @@
+/**
+ * Claims store — CRUD operations for claims/*.json files.
+ *
+ * Each session directory has a claims/ subdirectory with four files
+ * using the same envelope format as results.json/graph.json:
+ *   { "status": "ok", "data": { "claims": [...] } }
+ */
+
+import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs';
+import { join } from 'path';
+import {
+  Claim,
+  EvidenceSpan,
+  Verdict,
+  Review,
+  ReviewStatus,
+} from './types.js';
+
+// ── Path helpers ────────────────────────────────────────────────────
+
+function claimsDir(sessionDir: string): string {
+  return join(sessionDir, 'claims');
+}
+
+function claimsFile(sessionDir: string): string {
+  return join(claimsDir(sessionDir), 'claims.json');
+}
+
+function evidencesFile(sessionDir: string): string {
+  return join(claimsDir(sessionDir), 'evidences.json');
+}
+
+function verdictsFile(sessionDir: string): string {
+  return join(claimsDir(sessionDir), 'verdicts.json');
+}
+
+function reviewsFile(sessionDir: string): string {
+  return join(claimsDir(sessionDir), 'reviews.json');
+}
+
+function ensureClaimsDir(sessionDir: string): void {
+  const dir = claimsDir(sessionDir);
+  if (!existsSync(dir)) {
+    mkdirSync(dir, { recursive: true });
+  }
+}
+
+// ── Generic loader / writer ─────────────────────────────────────────
+
+interface Envelope<T> {
+  status: 'ok';
+  data: { items: T[] };
+}
+
+function loadArray<T>(file: string): T[] {
+  if (!existsSync(file)) return [];
+  try {
+    const raw = readFileSync(file, 'utf-8');
+    const parsed = JSON.parse(raw) as Envelope<T>;
+    if (parsed.status === 'ok' && Array.isArray(parsed.data?.items)) {
+      return parsed.data.items;
+    }
+    return [];
+  } catch {
+    return [];
+  }
+}
+
+function writeArray<T>(file: string, items: T[]): void {
+  const dir = file.substring(0, file.lastIndexOf(/[\\/]/.test(file) ? file.match(/[\\/]/)![0] : '/'));
+  if (!existsSync(dir)) {
+    mkdirSync(dir, { recursive: true });
+  }
+  writeFileSync(
+    file,
+    JSON.stringify({ status: 'ok', data: { items } } as Envelope<T>, null, 2),
+    'utf-8'
+  );
+}
+
+// ── Claims ──────────────────────────────────────────────────────────
+
+export function loadClaims(sessionDir: string): Claim[] {
+  return loadArray<Claim>(claimsFile(sessionDir));
+}
+
+export function saveClaims(sessionDir: string, claims: Claim[]): void {
+  ensureClaimsDir(sessionDir);
+  writeArray(claimsFile(sessionDir), claims);
+}
+
+/** Allocate next claim ID: cl_<seq>. Reads current count from file. */
+export function nextClaimId(sessionDir: string): string {
+  const claims = loadClaims(sessionDir);
+  const seq = claims.length + 1;
+  return `cl_${String(seq).padStart(3, '0')}`;
+}
+
+// ── EvidenceSpans ────────────────────────────────────────────────────
+
+export function loadEvidences(sessionDir: string): EvidenceSpan[] {
+  return loadArray<EvidenceSpan>(evidencesFile(sessionDir));
+}
+
+export function saveEvidences(sessionDir: string, evidences: EvidenceSpan[]): void {
+  ensureClaimsDir(sessionDir);
+  writeArray(evidencesFile(sessionDir), evidences);
+}
+
+/** Allocate next evidence ID: ev_<seq>. */
+export function nextEvidenceId(sessionDir: string): string {
+  const evs = loadEvidences(sessionDir);
+  const seq = evs.length + 1;
+  return `ev_${String(seq).padStart(3, '0')}`;
+}
+
+// ── Verdicts ────────────────────────────────────────────────────────
+
+export function loadVerdicts(sessionDir: string): Verdict[] {
+  return loadArray<Verdict>(verdictsFile(sessionDir));
+}
+
+export function saveVerdicts(sessionDir: string, verdicts: Verdict[]): void {
+  ensureClaimsDir(sessionDir);
+  writeArray(verdictsFile(sessionDir), verdicts);
+}
+
+/** Allocate next verdict ID: vd_<seq>. */
+export function nextVerdictId(sessionDir: string): string {
+  const vds = loadVerdicts(sessionDir);
+  const seq = vds.length + 1;
+  return `vd_${String(seq).padStart(3, '0')}`;
+}
+
+// ── Reviews ─────────────────────────────────────────────────────────
+
+export function loadReviews(sessionDir: string): Review[] {
+  return loadArray<Review>(reviewsFile(sessionDir));
+}
+
+export function saveReviews(sessionDir: string, reviews: Review[]): void {
+  ensureClaimsDir(sessionDir);
+  writeArray(reviewsFile(sessionDir), reviews);
+}
+
+// ── Helpers ─────────────────────────────────────────────────────────
+
+/** Get claims filtered by status */
+export function getClaimsByStatus(
+  sessionDir: string,
+  status?: Claim['status']
+): Claim[] {
+  const all = loadClaims(sessionDir);
+  if (!status) return all;
+  return all.filter(c => c.status === status);
+}
+
+/** Get reviews filtered by decision */
+export function getReviewsByDecision(
+  sessionDir: string,
+  decision?: ReviewStatus
+): Review[] {
+  const all = loadReviews(sessionDir);
+  if (!decision) return all;
+  return all.filter(r => r.decision === decision);
+}
+
+/** Get evidence for a specific claim */
+export function getEvidenceForClaim(
+  sessionDir: string,
+  claimId: string
+): EvidenceSpan[] {
+  return loadEvidences(sessionDir).filter(e => e.claimId === claimId);
+}
+
+/** Get verdicts for a specific claim */
+export function getVerdictsForClaim(
+  sessionDir: string,
+  claimId: string
+): Verdict[] {
+  return loadVerdicts(sessionDir).filter(v => v.claimId === claimId);
+}

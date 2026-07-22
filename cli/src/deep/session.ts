@@ -21,6 +21,8 @@ export interface SessionResult {
     category?: string;
     score?: number;
     publishedDate?: string;
+    byline?: string;
+    siteName?: string;
     source?: string; // "sxng" | "tavily" | "exa" | "open-web-search" | ... — which tool produced this result
     status?: 'pending' | 'approved' | 'rejected'; // Quality assessment status
     [key: string]: unknown;

@@ -32,6 +32,22 @@ All results — whether from sxng search, external tools (tavily/exa), or any ot
                     │  → entities (semantic)       │
                     │  → edges (relations)         │
                     └─────────────────────────────┘
+                                   │
+                    ┌──────────────▼──────────────┐
+                    │  Agent: claim-add           │
+                    │  → auto evidence-search     │
+                    │  → evidence-verify          │
+                    │  → auto policy-aggregate    │
+                    │  → Review (approved/        │
+                    │     needsReview/rejected)    │
+                    └─────────────────────────────┘
+                                   │
+                                   ▼
+                         ┌──────────────────┐
+                         │  Final output     │
+                         │  (approved claims │
+                         │   only)           │
+                         └──────────────────┘
 ```
 
 ## How Results Enter the Pool
@@ -93,6 +109,17 @@ sxng graph-add <session> --data '{
 ```
 
 Edges can reference any existing node type: `e:` (entity), `r:` (result), `q:` (query), `d:` (domain), `p:` (path).
+
+## Claim—Evidence—Review Pipeline (L2/L3 Only)
+
+After the knowledge graph is built, the Agent can run the claim audit pipeline to verify individual statements before output. This is a **post-search** step — it does not modify the search pool or graph.
+
+```
+Synthesize draft → claim-add → evidence-search (auto) → 
+evidence-verify → policy-aggregate (auto) → Agent adjusts output
+```
+
+See [SOP Phase 9-10](SOP.md) for the full procedure.
 
 ## Content Extraction
 

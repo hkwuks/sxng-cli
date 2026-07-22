@@ -37,6 +37,10 @@ import { runGraphExplore } from './commands/graph-explore.js';
 import { runGraphDrill } from './commands/graph-drill.js';
 import { runGraphTraverse } from './commands/graph-traverse.js';
 import { runGraphSearch } from './commands/graph-search.js';
+import { runClaimAdd, runClaimList } from './commands/claim.js';
+import { runEvidenceSearch, runEvidenceVerify, runEvidenceList } from './commands/evidence.js';
+import { runVerdictList } from './commands/verdict.js';
+import { runPolicyAggregate, runReviewList } from './commands/review.js';
 import { DirectedGraph } from 'graphology';
 import { writeFileSync, existsSync } from 'fs';
 
@@ -1152,6 +1156,136 @@ See also: graph-explore (for viewing relations of a known entity)`)
                 keyword: opts.keyword,
                 limit: opts.limit,
                 format: opts.format === 'json' ? 'json' : 'md',
+            });
+            process.exit(code);
+        });
+
+    // ── Claim commands ──────────────────────────────────────────
+
+    program
+        .command('claim-add')
+        .argument('<session>', 'Session directory or name')
+        .description('Add claims (single or batch) with auto evidence-search')
+        .option('--claim <json>', 'Single claim JSON')
+        .option('--claims <json>', 'Batch claims JSON array')
+        .option('-f, --format <fmt>', 'Output format: json (default), md')
+        .addHelpText('after', `
+Examples:
+  sxng claim-add my-session --claim '{"text":"Tokio is the most widely used async runtime"}'
+  sxng claim-add my-session --claims '[{"text":"..."},{"text":"..."}]'`)
+        .action(async (session, opts) => {
+            const code = await runClaimAdd(session, {
+                claim: opts.claim,
+                claims: opts.claims,
+                format: opts.format,
+            });
+            process.exit(code);
+        });
+
+    program
+        .command('claim-list')
+        .argument('<session>', 'Session directory or name')
+        .description('List claims')
+        .option('--status <status>', 'Filter by status: pending, verifying, reviewed')
+        .option('-f, --format <fmt>', 'Output format: json (default), md')
+        .action(async (session, opts) => {
+            const code = await runClaimList(session, {
+                status: opts.status,
+                format: opts.format,
+            });
+            process.exit(code);
+        });
+
+    program
+        .command('evidence-search')
+        .argument('<session>', 'Session directory or name')
+        .description('Search candidate evidence for a claim (read-only)')
+        .requiredOption('--claim-id <id>', 'Claim ID')
+        .option('-f, --format <fmt>', 'Output format: json (default), md')
+        .action(async (session, opts) => {
+            const code = await runEvidenceSearch(session, {
+                claimId: opts.claimId,
+                format: opts.format,
+            });
+            process.exit(code);
+        });
+
+    program
+        .command('evidence-verify')
+        .argument('<session>', 'Session directory or name')
+        .description('Confirm evidence + submit stance + optional auto-policy')
+        .requiredOption('--claim-id <id>', 'Claim ID')
+        .requiredOption('--evidence <json>', 'Evidence object: {resultUrl, quote, charStart, charEnd}')
+        .requiredOption('--stance <s>', 'Stance: support, refute, insufficient')
+        .requiredOption('--reason <text>', 'Judgement rationale')
+        .option('--confidence <n>', 'Confidence 0-1', parseFloat)
+        .option('--complete', 'Auto-trigger policy aggregation after this evidence')
+        .option('-f, --format <fmt>', 'Output format: json (default), md')
+        .action(async (session, opts) => {
+            const code = await runEvidenceVerify(session, {
+                claimId: opts.claimId,
+                evidence: opts.evidence,
+                stance: opts.stance,
+                reason: opts.reason,
+                confidence: opts.confidence,
+                complete: opts.complete ?? false,
+                format: opts.format,
+            });
+            process.exit(code);
+        });
+
+    program
+        .command('evidence-list')
+        .argument('<session>', 'Session directory or name')
+        .description('List evidence for a claim')
+        .requiredOption('--claim-id <id>', 'Claim ID')
+        .option('-f, --format <fmt>', 'Output format: json (default), md')
+        .action(async (session, opts) => {
+            const code = await runEvidenceList(session, {
+                claimId: opts.claimId,
+                format: opts.format,
+            });
+            process.exit(code);
+        });
+
+    program
+        .command('verdict-list')
+        .argument('<session>', 'Session directory or name')
+        .description('List verdicts for a claim')
+        .requiredOption('--claim-id <id>', 'Claim ID')
+        .option('-f, --format <fmt>', 'Output format: json (default), md')
+        .action(async (session, opts) => {
+            const code = await runVerdictList(session, {
+                claimId: opts.claimId,
+                format: opts.format,
+            });
+            process.exit(code);
+        });
+
+    program
+        .command('policy-aggregate')
+        .argument('<session>', 'Session directory or name')
+        .description('Run policy aggregation (manual, or auto via evidence-verify --complete)')
+        .option('--claim-id <id>', 'Aggregate only a specific claim')
+        .option('-f, --format <fmt>', 'Output format: json (default), md')
+        .action(async (session, opts) => {
+            const code = await runPolicyAggregate(session, {
+                claimId: opts.claimId,
+                format: opts.format,
+            });
+            process.exit(code);
+        });
+
+    program
+        .command('review-list')
+        .argument('<session>', 'Session directory or name')
+        .description('List reviews')
+        .option('--status <status>', 'Filter: approved, needsReview, rejected')
+        .option('-f, --format <fmt>', 'Output format: json (default), md')
+        .action(async (session, opts) => {
+            const code = await runReviewList(session, {
+                status: opts.status,
+                format: opts.format,
             });
             process.exit(code);
         });

@@ -53,6 +53,23 @@ sxng graph-search $SESSION --keyword "vector"
 sxng graph-explore $SESSION --seed "Pinecone" --format json
 sxng graph-drill $SESSION --seed "Pinecone" --relations "uses,competitor" --format json
 
+# Phase 9: Claim—Evidence—Review (after draft, before output)
+sxng claim-add $SESSION --claims '[
+  {"text":"Pinecone is a managed vector database service","riskLevel":"low"},
+  {"text":"HNSW is the most widely used ANN algorithm in vector DBs","riskLevel":"medium"},
+  {"text":"Weaviate outperforms Qdrant on hybrid search","riskLevel":"high"}
+]'
+sxng evidence-verify $SESSION --claim-id "cl_001" \
+  --evidence '{"resultUrl":"https://www.pinecone.io/learn/vector-database/","quote":"Pinecone is a fully managed vector database","charStart":45,"charEnd":93}' \
+  --stance support --reason "Official site confirms" --complete
+sxng evidence-verify $SESSION --claim-id "cl_002" \
+  --evidence '...' --stance support --reason "..." --complete
+sxng evidence-verify $SESSION --claim-id "cl_003" \
+  --evidence '...' --stance insufficient --reason "No benchmark data found" --complete
+
+# Phase 10: Agent adjusts output based on review results
+# cl_001 → approved (cite), cl_002 → approved (cite), cl_003 → needsReview (do not cite or mark uncertain)
+
 # Cleanup
 sxng session-delete $SESSION
 ```
