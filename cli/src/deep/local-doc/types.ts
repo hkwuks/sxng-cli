@@ -24,6 +24,9 @@ export interface IndexLocation {
     files: number;
     chunks: number;
     indexedAt: number;
+    partial: boolean;
+    memoryBudgetBytes: number;
+    tokenizer: string;
   };
 }
 

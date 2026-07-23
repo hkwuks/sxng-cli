@@ -34,6 +34,7 @@ export async function runDocSearch(options: DocSearchCliOptions): Promise<number
       path: result.path,
       added: result.added,
       totalPending: result.totalPending,
+      partial: result.partial,
       results: result.results,
     });
     console.log(JSON.stringify(envelope, null, 2));

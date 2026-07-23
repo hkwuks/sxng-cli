@@ -2,8 +2,8 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mkdtempSync, writeFileSync, mkdirSync, rmSync } from 'fs';
 import { join, dirname, resolve } from 'path';
 import { tmpdir } from 'os';
-import { scan } from '../../src/deep/local-doc/scanner.js';
-import { buildIndex, hasIndex, loadIndex, getIndexMeta } from '../../src/deep/local-doc/indexer.js';
+import { scan, scanBatches } from '../../src/deep/local-doc/scanner.js';
+import { buildIndex, buildIndexFromBatches, calculateIndexMemoryBudget, hasIndex, loadIndex, getIndexMeta } from '../../src/deep/local-doc/indexer.js';
 import { docSearch } from '../../src/deep/local-doc/searcher.js';
 import { appendSessionResults, loadSessionResults, loadSessionRounds, resolveSessionPath } from '../../src/deep/session.js';
 
@@ -110,6 +110,20 @@ describe('local-doc scanner', () => {
         expect(chunks.length).toBe(1);
         expect(chunks[0].filePath).toBe('real.md');
     });
+
+    it('yields one file batch at a time for streaming indexing', () => {
+        testDir = createTestDir({
+            'a.md': '# A\n\nFirst document',
+            'b.txt': 'Second document',
+        });
+
+        const batches = scanBatches(testDir);
+        const first = batches.next();
+        const second = batches.next();
+
+        expect(first.value?.[0].filePath).toBe('a.md');
+        expect(second.value?.[0].filePath).toBe('b.txt');
+    });
 });
 
 // ── Indexer Tests ─────────────────────────────────────────────────
@@ -130,6 +144,36 @@ describe('local-doc indexer', () => {
         if (sxngDir) rmSync(sxngDir, { recursive: true, force: true });
     });
 
+    it('derives the index budget from total memory, free memory, and a fixed ceiling', () => {
+        const mib = 1024 * 1024;
+
+        expect(calculateIndexMemoryBudget(8 * 1024 * mib, 6 * 1024 * mib)).toBe(256 * mib);
+        expect(calculateIndexMemoryBudget(4 * 1024 * mib, 128 * mib)).toBeCloseTo(25.6 * mib, 0);
+        expect(calculateIndexMemoryBudget(4 * 1024 * mib, 8 * mib)).toBeCloseTo(1.6 * mib, 0);
+    });
+
+    it('persists the completed batches when the memory budget is reached', async () => {
+        const batches = [
+            [{ id: 'one', filePath: 'one.txt', title: 'one', content: 'a'.repeat(10), headings: [], chunkIndex: 0, totalChunks: 1 }],
+            [{ id: 'two', filePath: 'two.txt', title: 'two', content: 'b'.repeat(300_000), headings: [], chunkIndex: 0, totalChunks: 1 }],
+        ];
+
+        const result = await buildIndexFromBatches(testDir, batches, 1024 * 1024);
+
+        expect(result.meta).toMatchObject({ files: 1, chunks: 1, partial: true, memoryBudgetBytes: 1024 * 1024 });
+        expect(hasIndex(testDir)).toBe(true);
+    });
+
+    it('reports an exhausted memory budget when no batch can be indexed', async () => {
+        const batches = [
+            [{ id: 'one', filePath: 'one.txt', title: 'one', content: 'a'.repeat(300_000), headings: [], chunkIndex: 0, totalChunks: 1 }],
+        ];
+
+        await expect(buildIndexFromBatches(testDir, batches, 1024 * 1024)).rejects.toMatchObject({
+            code: 'MEMORY_LIMIT_REACHED',
+        });
+    });
+
     it('builds index from scanned chunks', async () => {
         const chunks = scan(testDir);
         expect(chunks.length).toBeGreaterThan(0);
@@ -140,6 +184,25 @@ describe('local-doc indexer', () => {
         expect(result.meta.rootPath).toBe(testDir);
         expect(result.meta.indexedAt).toBeGreaterThan(0);
         expect(result.indexPath).toContain(join('.sxng', 'docs'));
+    });
+
+    it('searches Chinese words after persisting and loading an index', async () => {
+        const chunks = [{
+            id: 'chinese',
+            filePath: 'guide.md',
+            title: 'Guide',
+            content: '\u4e2d\u6587\u90e8\u7f72\u6743\u9650\u914d\u7f6e',
+            headings: [],
+            chunkIndex: 0,
+            totalChunks: 1,
+        }];
+
+        await buildIndex(testDir, chunks);
+        const db = await loadIndex(testDir);
+        const { search } = await import('@orama/orama');
+        const result = await search(db, { term: '\u90e8\u7f72', mode: 'fulltext', limit: 5 });
+
+        expect(result.hits).toHaveLength(1);
     });
 
     it('persists and restores index', async () => {
@@ -220,6 +283,7 @@ describe('local-doc searcher', () => {
 
         expect(result.added).toBeGreaterThanOrEqual(1);
         expect(result.results.length).toBeGreaterThanOrEqual(1);
+        expect(result.partial).toBe(false);
 
         const r = result.results[0];
         expect(r.source).toBe('local');

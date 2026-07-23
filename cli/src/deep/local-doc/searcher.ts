@@ -8,8 +8,8 @@
 
 import { resolve } from 'path';
 import { search as oramaSearch } from '@orama/orama';
-import { scan } from './scanner.js';
-import { buildIndex, hasIndex, loadIndex } from './indexer.js';
+import { scanBatches } from './scanner.js';
+import { buildIndexFromBatches, getIndexMemoryBudget, getIndexMeta, hasIndex, loadIndex } from './indexer.js';
 import { DEFAULT_BOOST } from './types.js';
 import {
   appendSessionResults,
@@ -33,6 +33,7 @@ export interface DocSearchResult {
   path: string;
   added: number;
   totalPending: number;
+  partial: boolean;
   results: SessionResult[];
 }
 
@@ -66,14 +67,33 @@ export async function docSearch(opts: DocSearchOptions): Promise<DocSearchResult
 
   // Auto-index if needed
   if (!hasIndex(absPath)) {
-    const chunks = scan(absPath);
-    if (chunks.length === 0) {
+    const memoryBudgetBytes = getIndexMemoryBudget();
+    try {
+      await buildIndexFromBatches(
+        absPath,
+        scanBatches(absPath, { maxFileSize: Math.min(10 * 1024 * 1024, Math.floor(memoryBudgetBytes / 8)) }),
+        memoryBudgetBytes
+      );
+    } catch (err) {
+      if ((err as { code?: string }).code === 'NO_INDEXABLE_FILES') {
+        throw Object.assign(
+          new Error(`No indexable files found in ${absPath} (supported: .md, .txt)`),
+          { code: 'NO_INDEXABLE_FILES' }
+        );
+      }
+      if ((err as { code?: string }).code === 'MEMORY_LIMIT_REACHED') {
+        throw Object.assign(new Error('Not enough free memory to index any local documents.'), {
+          code: 'MEMORY_LIMIT_REACHED',
+        });
+      }
+      throw err;
+    }
+    if (!hasIndex(absPath)) {
       throw Object.assign(
         new Error(`No indexable files found in ${absPath} (supported: .md, .txt)`),
         { code: 'NO_INDEXABLE_FILES' }
       );
     }
-    await buildIndex(absPath, chunks);
   }
 
   // Load index
@@ -113,6 +133,7 @@ export async function docSearch(opts: DocSearchOptions): Promise<DocSearchResult
       path: absPath,
       added: 0,
       totalPending: 0,
+      partial: getIndexMeta(absPath)?.partial ?? false,
       results: [],
     };
   }
@@ -166,6 +187,7 @@ export async function docSearch(opts: DocSearchOptions): Promise<DocSearchResult
     path: absPath,
     added,
     totalPending: pendingCount,
+    partial: getIndexMeta(absPath)?.partial ?? false,
     results,
   };
 }
