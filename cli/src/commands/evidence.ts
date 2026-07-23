@@ -186,13 +186,15 @@ export async function runEvidenceVerify(
   let review = undefined;
   if (options.complete) {
     // Gather all evidence and verdicts for this claim
-    const allEvs = loadEvidences(sessionDir).filter(e => e.claimId === options.claimId);
+    const storedEvidences = loadEvidences(sessionDir);
+    const allEvs = storedEvidences.filter(e => e.claimId === options.claimId);
     const allVds = loadVerdicts(sessionDir).filter(v => v.claimId === options.claimId);
 
-    // Refresh source cluster IDs using the current publisher-identity rule.
+    // Refresh source cluster IDs using the current publisher-domain rule.
     for (const ev of allEvs) {
       ev.sourceClusterId = computeSourceClusterId(ev);
     }
+    saveEvidences(sessionDir, storedEvidences);
 
     const input: PolicyInput = {
       claimId: options.claimId,

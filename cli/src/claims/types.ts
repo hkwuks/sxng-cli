@@ -71,7 +71,7 @@ export interface EvidenceSpan {
   siteName?: string;
 
   /**
-   * Source independence cluster ID.
+   * Domain-level source cluster ID.
    * null on write; computed on-demand during policy-aggregate.
    * Derived from: normalized publisher domain → SHA256 → 16 hex chars.
    */
@@ -95,7 +95,7 @@ export interface Verdict {
 export type ReviewStatus = 'approved' | 'needsReview' | 'rejected';
 
 export interface ReviewChecks {
-  sourceIndependent: boolean;   // ≥2 independent sources
+  sourceIndependent: boolean;   // >= 2 distinct publisher domains
   hasRefute: boolean;           // refutation evidence exists
   allSupport: boolean;          // all evidence stance is 'support'
 }

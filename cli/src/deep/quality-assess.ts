@@ -16,7 +16,7 @@
  * - poor:    鈮? fail
  */
 
-import { jaccardSimilarity } from './dedupe.js';
+import { jaccardSimilarity, resultUrlKey } from './dedupe.js';
 import { SessionResult } from './session.js';
 
 // 鈹€鈹€ Types 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
@@ -91,24 +91,26 @@ function computeSourceDiversity(newResults: SessionResult[], threshold: number):
 function computeNovelty(
     newResults: SessionResult[],
     sessionResults: SessionResult[],
-    threshold: number
+    threshold: number,
+    seenEarlierUrls?: ReadonlySet<string>
 ): IndicatorResult {
     if (newResults.length === 0) {
         return { value: 0, threshold, pass: false };
     }
 
-    if (sessionResults.length === 0) {
+    if (sessionResults.length === 0 && !seenEarlierUrls?.size) {
         return { value: 1, threshold, pass: true };
     }
 
     let novelCount = 0;
     for (const r of newResults) {
         const text = r.content || r.title;
-        const isSimilar = sessionResults.some(existing =>
+        const repeatedFromEarlierRound = seenEarlierUrls?.has(resultUrlKey(r)) ?? false;
+        const isSimilarToPriorResult = sessionResults.some(existing =>
             existing.url !== r.url
             && jaccardSimilarity(text, existing.content || existing.title) >= NOVELTY_SIMILARITY_THRESHOLD
         );
-        if (!isSimilar) novelCount++;
+        if (!repeatedFromEarlierRound && !isSimilarToPriorResult) novelCount++;
     }
 
     const value = novelCount / newResults.length;
@@ -132,8 +134,13 @@ export function assessLatestResultQuality(
     const priorApproved = sessionResults.filter(result =>
         result.status === 'approved' && isFromRound(result, round => round < latestRound)
     );
+    const seenEarlierUrls = new Set(
+        sessionResults
+            .filter(result => isFromRound(result, round => round < latestRound))
+            .map(result => resultUrlKey(result))
+    );
 
-    return assessResultQuality(latestResults, priorApproved, thresholds);
+    return assessQuality(latestResults, priorApproved, thresholds, seenEarlierUrls);
 }
 
 // 鈹€鈹€ Main assessment 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
@@ -147,12 +154,21 @@ export function assessResultQuality(
     sessionResults: SessionResult[],
     thresholds?: Partial<QualityThresholds>
 ): QualityScore {
+    return assessQuality(results, sessionResults, thresholds);
+}
+
+function assessQuality(
+    results: SessionResult[],
+    sessionResults: SessionResult[],
+    thresholds?: Partial<QualityThresholds>,
+    seenEarlierUrls?: ReadonlySet<string>
+): QualityScore {
     const t = { ...DEFAULT_THRESHOLDS, ...thresholds };
 
     const breakdown: QualityBreakdown = {
         contentDepth: computeContentDepth(results, t.contentDepth),
         sourceDiversity: computeSourceDiversity(results, t.sourceDiversity),
-        novelty: computeNovelty(results, sessionResults, t.novelty),
+        novelty: computeNovelty(results, sessionResults, t.novelty, seenEarlierUrls),
     };
 
     const failedIndicators = Object.entries(breakdown)

@@ -41,7 +41,7 @@ function computeChecks(verdicts: Verdict[], evidences: EvidenceSpan[]): ReviewCh
     stanceCounts[v.stance]++;
   }
 
-  // Source independence: count distinct source cluster IDs
+  // Domain-level source independence: count publisher-domain cluster IDs.
   const uniqueSources = new Set(
     evidences
       .filter(e => e.sourceClusterId)
@@ -98,7 +98,7 @@ const RULES: Rule[] = [
     },
   },
 
-  // #2 highRiskInsufficient: high risk + <2 independent sources → needsReview
+  // #2 highRiskInsufficient: high risk + <2 publisher domains → needsReview
   {
     name: 'highRiskInsufficient',
     evaluate(input) {
@@ -111,7 +111,7 @@ const RULES: Rule[] = [
     },
   },
 
-  // #3 dualSourceSupport: ≥2 independent sources + all support → approved
+  // #3 dualSourceSupport: >= 2 publisher domains + all support → approved
   {
     name: 'dualSourceSupport',
     evaluate(input) {
@@ -125,7 +125,7 @@ const RULES: Rule[] = [
     },
   },
 
-  // #4 dualSourceMixed: ≥2 sources but some insufficient → needsReview
+  // #4 dualSourceMixed: >= 2 publisher domains but some insufficient → needsReview
   {
     name: 'dualSourceMixed',
     evaluate(input) {
@@ -139,7 +139,7 @@ const RULES: Rule[] = [
     },
   },
 
-  // #5 singleSource: only 1 independent source → needsReview
+  // #5 singleSource: only 1 publisher domain → needsReview
   {
     name: 'singleSource',
     evaluate(input) {

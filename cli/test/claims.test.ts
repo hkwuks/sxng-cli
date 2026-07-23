@@ -266,6 +266,59 @@ describe('deterministic checks', () => {
       expect(code).toBe(1);
       expect(loadEvidences(sessionDir)).toEqual([]);
     });
+
+    it('persists refreshed domain clusters when completing a review', async () => {
+      saveClaims(sessionDir, [
+        {
+          id: 'cl_001',
+          text: 'Tokio is widely used',
+          riskLevel: 'medium',
+          status: 'pending',
+          sessionDir,
+          createdAt: Date.now(),
+        },
+        {
+          id: 'cl_002',
+          text: 'An unrelated claim',
+          riskLevel: 'low',
+          status: 'pending',
+          sessionDir,
+          createdAt: Date.now(),
+        },
+      ]);
+      saveEvidences(sessionDir, [{
+        id: 'ev_001',
+        claimId: 'cl_002',
+        resultUrl: 'https://other-source.org/report',
+        quote: 'Existing evidence remains stored.',
+        charStart: 0,
+        charEnd: 32,
+        contentHash: 'existing',
+        retrievedAt: Date.now(),
+      }]);
+
+      const quote = 'Tokio is the most widely used async runtime in the Rust ecosystem.';
+      const code = await runEvidenceVerify(sessionDir, {
+        claimId: 'cl_001',
+        evidence: JSON.stringify({
+          resultUrl: 'https://example.com/article',
+          quote,
+          charStart: 0,
+          charEnd: quote.length,
+        }),
+        stance: 'support',
+        reason: 'The approved source directly supports the claim.',
+        complete: true,
+      });
+
+      const evidences = loadEvidences(sessionDir);
+      const completedEvidence = evidences.find(evidence => evidence.claimId === 'cl_001');
+
+      expect(code).toBe(0);
+      expect(evidences).toHaveLength(2);
+      expect(evidences.some(evidence => evidence.claimId === 'cl_002')).toBe(true);
+      expect(completedEvidence?.sourceClusterId).toBe(computeSourceClusterId(completedEvidence!));
+    });
   });
 
   describe('checkAnchor', () => {

@@ -56,7 +56,8 @@ export function resolveApprovedContent(
 
 /**
  * Compute a source cluster ID for an EvidenceSpan.
- * Groups evidence by normalized publisher domain for source-independence checks.
+ * Groups evidence by normalized publisher domain for domain-level checks.
+ * It does not determine cross-domain corporate or editorial affiliation.
  */
 export function computeSourceClusterId(
   evidence: EvidenceSpan
@@ -66,7 +67,7 @@ export function computeSourceClusterId(
     publisher = new URL(evidence.resultUrl).hostname.toLowerCase().replace(/^www\./, '');
   } catch { /* empty */ }
 
-  // Unknown publishers share one cluster so they cannot inflate source independence.
+  // Unknown publishers share one cluster so they cannot inflate domain diversity.
   return createHash('sha256').update(publisher).digest('hex').slice(0, 16);
 }
 

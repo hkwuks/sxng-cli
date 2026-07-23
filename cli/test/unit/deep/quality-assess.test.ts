@@ -185,6 +185,70 @@ describe('quality-assess', () => {
             expect(result.breakdown.novelty.value).toBe(0);
         });
 
+        it('does not count a URL repeated from an earlier round as novel', () => {
+            const results = makeResults([
+                {
+                    url: 'https://a.com/reused',
+                    title: 'Reused result',
+                    content: 'This result was already discovered in the first search round.',
+                    status: 'approved',
+                    origins: [
+                        { query: 'first', round: 1 },
+                        { query: 'second', round: 2 },
+                    ],
+                },
+            ]);
+
+            const result = assessLatestResultQuality(results);
+
+            expect(result.breakdown.novelty.value).toBe(0);
+        });
+
+        it('treats a near-identical long document with a small edit as non-novel', () => {
+            const sharedSections = Array.from(
+                { length: 40 },
+                (_, index) => `Section ${index} documents a distinct verified project milestone.`
+            ).join(' ');
+            const existingResults = makeResults([
+                { url: 'https://a.com/report', title: 'Original', content: `${sharedSections} Final status is approved.` },
+            ]);
+            const newResults = makeResults([
+                { url: 'https://b.com/report', title: 'Edited', content: `${sharedSections} Final status is conditionally approved.` },
+            ]);
+
+            const result = assessResultQuality(newResults, existingResults);
+
+            expect(result.breakdown.novelty.value).toBe(0);
+        });
+
+        it('treats documents with one shared introduction but different bodies as novel', () => {
+            const introduction = 'This report summarizes the verified public infrastructure program and its current delivery status. ';
+            const existingResults = makeResults([
+                {
+                    url: 'https://a.com/transport',
+                    title: 'Transport',
+                    content: introduction + Array.from(
+                        { length: 30 },
+                        (_, index) => `Rail construction update ${index} covers stations, tunnels, and signaling.`
+                    ).join(' '),
+                },
+            ]);
+            const newResults = makeResults([
+                {
+                    url: 'https://b.com/education',
+                    title: 'Education',
+                    content: introduction + Array.from(
+                        { length: 30 },
+                        (_, index) => `School expansion update ${index} covers classrooms, teachers, and enrollment.`
+                    ).join(' '),
+                },
+            ]);
+
+            const result = assessResultQuality(newResults, existingResults);
+
+            expect(result.breakdown.novelty.value).toBe(1);
+        });
+
         it('assesses sessions without recorded rounds without self-comparison', () => {
             const results = makeResults([
                 { url: 'https://a.com/1', title: 'Legacy', content: 'A unique result retained from a session created before round tracking.' },
