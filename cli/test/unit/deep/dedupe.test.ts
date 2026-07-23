@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { normalizeUrl, dedupeByUrl, dedupeBySimHash, dedupe } from '../../src/deep/dedupe.js';
+import { normalizeUrl, dedupeByUrl, dedupeByJaccard, dedupe } from '../../src/deep/dedupe.js';
 import type { DedupItem } from '../../src/deep/dedupe.js';
 
 describe('dedupe', () => {
@@ -46,51 +46,45 @@ describe('dedupe', () => {
         });
     });
 
-    describe('dedupeBySimHash', () => {
-        it('removes near-duplicate content', () => {
+    describe('dedupeByJaccard', () => {
+        it('removes long near-duplicate content', () => {
+            const content = `${Array.from(
+                { length: 100 },
+                (_, index) => `Section ${index.toString().padStart(3, '0')} documents event ${index * 17} and its verified source.`,
+            ).join(' ')} This revision contains the original conclusion.`;
             const items: DedupItem[] = [
-                { url: 'https://a.com', title: 'Rust async runtime', content: 'Tokio is a Rust async runtime based on mio event loop' },
-                { url: 'https://b.com', title: 'Rust async runtime', content: 'Tokio is a Rust async runtime based on mio event loop' },
+                { url: 'https://a.com', title: 'Rust async runtime', content },
+                { url: 'https://b.com', title: 'Rust async runtime', content: content.replace('original', 'reviewed') },
             ];
-            const result = dedupeBySimHash(items);
-            expect(result).toHaveLength(1);
+            expect(dedupeByJaccard(items)).toHaveLength(1);
         });
 
-        it('SimHash baseline similarity is high for short/medium texts (known limitation)', () => {
-            // SimHash with word-level tokenization has high baseline similarity.
-            // Even semantically different texts may exceed the 0.85 threshold.
-            // This is a known limitation — see REVIEW-REPORT M2.
+        it('keeps non-identical short content', () => {
             const items: DedupItem[] = [
-                { url: 'https://a.com', title: 'Rust', content: 'The Rust programming language' },
-                { url: 'https://b.com', title: 'Python', content: 'Python web framework' },
+                { url: 'https://a.com', title: 'A', content: 'abcdefghijklmnopqrst' },
+                { url: 'https://b.com', title: 'B', content: 'abcdefghijklmnopqrstu' },
             ];
-            const result = dedupeBySimHash(items);
-            // With short texts, SimHash often considers them near-duplicates.
-            // The test documents this behavior — it is not a bug in the test.
-            expect(result.length).toBeGreaterThanOrEqual(1);
+            expect(dedupeByJaccard(items)).toHaveLength(2);
         });
 
-        it('keeps distinct content with sufficiently different vocabulary', () => {
-            // SimHash relies on word-level overlap — texts with disjoint vocabularies
-            // can be distinguished even at default threshold
+        it('compares the complete content rather than a prefix', () => {
+            const prefix = 'This shared introduction appears on both pages before their independent analysis. '.repeat(20);
             const items: DedupItem[] = [
-                { url: 'https://a.com', title: 'A', content: 'quantum mechanics wavefunction superposition entanglement heisenberg schrodinger bra ket hilbert space observables' },
-                { url: 'https://b.com', title: 'B', content: 'baking sourdough starter flour water yeast fermentation hydration autolyse stretch fold bulk proof banneton scoring oven spring crumb' },
+                { url: 'https://a.com', title: 'A', content: `${prefix}${'The first report examines renewable energy storage. '.repeat(60)}` },
+                { url: 'https://b.com', title: 'B', content: `${prefix}${'The second report examines quantum error correction. '.repeat(60)}` },
             ];
-            const result = dedupeBySimHash(items);
-            expect(result).toHaveLength(2);
+            expect(dedupeByJaccard(items)).toHaveLength(2);
         });
     });
-
     describe('dedupe', () => {
-        it('chains URL dedup then SimHash dedup', () => {
+        it('chains URL and Jaccard dedup', () => {
             const items: DedupItem[] = [
                 { url: 'https://a.com', title: 'Rust', content: 'Rust programming language tutorial' },
                 { url: 'https://b.com', title: 'Python', content: 'Python programming language tutorial' },
                 { url: 'https://a.com/', title: 'Rust dup', content: 'Rust programming language tutorial' },
             ];
             const result = dedupe(items);
-            // URL dedup removes 3rd, SimHash dedup might not remove more since they're different enough
+            // URL dedup removes the third item; content remains distinct.
             expect(result.length).toBeLessThanOrEqual(2);
         });
     });

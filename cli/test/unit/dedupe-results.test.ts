@@ -1,6 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { normalizeUrl } from '../../src/deep/dedupe.js';
-import { SimHash } from '../../src/deep/simhash.js';
+import { dedupe } from '../../src/deep/dedupe.js';
 
 interface SearchResult {
     title: string;
@@ -11,36 +10,8 @@ interface SearchResult {
     score?: number;
 }
 
-function dedupeResults(results: SearchResult[], simThreshold = 0.85): SearchResult[] {
-    const urlSeen = new Map<string, SearchResult>();
-    for (const r of results) {
-        const norm = normalizeUrl(r.url);
-        if (!urlSeen.has(norm)) {
-            urlSeen.set(norm, r);
-        }
-    }
-    let out = Array.from(urlSeen.values());
-
-    const simhash = new SimHash();
-    const hashes: bigint[] = [];
-    const kept: SearchResult[] = [];
-    for (const r of out) {
-        const text = `${r.title} ${r.content}`;
-        const h = simhash.hash(text);
-        let isDuplicate = false;
-        for (const existing of hashes) {
-            if (simhash.similarity(h, existing) >= simThreshold) {
-                isDuplicate = true;
-                break;
-            }
-        }
-        if (!isDuplicate) {
-            kept.push(r);
-            hashes.push(h);
-        }
-    }
-
-    return kept;
+function dedupeResults(results: SearchResult[], jaccardThreshold = 0.92): SearchResult[] {
+    return dedupe(results, jaccardThreshold);
 }
 
 describe('dedupeResults', () => {
@@ -75,7 +46,7 @@ describe('dedupeResults', () => {
         expect(deduped[0].score).toBe(9);
     });
 
-    it('removes near-duplicate content via SimHash', () => {
+    it('removes near-duplicate content via Jaccard', () => {
         const results: SearchResult[] = [
             { title: 'Python Tutorial', url: 'https://site-a.com/python', content: 'Learn Python programming with examples and exercises for beginners', engine: 'google', category: 'general', score: 10 },
             { title: 'Python Tutorial', url: 'https://site-b.com/python-guide', content: 'Learn Python programming with examples and exercises for beginners', engine: 'bing', category: 'general', score: 8 },
@@ -107,7 +78,7 @@ describe('dedupeResults', () => {
         expect(deduped).toHaveLength(1);
     });
 
-    it('URL dedup runs before SimHash dedup', () => {
+    it('URL dedup runs before Jaccard dedup', () => {
         const results: SearchResult[] = [
             { title: 'Guide', url: 'https://example.com/guide', content: 'Complete guide to TypeScript', engine: 'google', category: 'general', score: 10 },
             { title: 'Guide', url: 'https://example.com/guide/', content: 'Complete guide to TypeScript', engine: 'bing', category: 'general', score: 7 },
@@ -118,7 +89,7 @@ describe('dedupeResults', () => {
         expect(deduped[0].score).toBe(10);
     });
 
-    it('respects custom SimHash threshold', () => {
+    it('respects custom Jaccard threshold', () => {
         const results: SearchResult[] = [
             { title: 'A', url: 'https://a.com/x', content: 'The quick brown fox jumps over the lazy dog', engine: 'google', category: 'general', score: 10 },
             { title: 'B', url: 'https://b.com/y', content: 'The quick brown fox jumps over the lazy cat', engine: 'bing', category: 'general', score: 8 },

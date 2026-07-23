@@ -5,7 +5,7 @@
 import { ContentExtractor, ExtractedContent } from '../deep/extractor.js';
 import { createSuccessEnvelope, createErrorEnvelope } from '../protocol.js';
 import { loadSessionResults, mergeExtractedContent, resolveSessionPath } from '../deep/session.js';
-import { SimHash } from '../deep/simhash.js';
+import { dedupe } from '../deep/dedupe.js';
 
 export interface ExtractOptions {
     urls?: string[];
@@ -72,10 +72,7 @@ export async function runExtract(
     try {
         const contents = await extractor.extractBatch(urls);
 
-        // Deduplicate extracted content by first 500 chars using SimHash
-        const simhash = new SimHash();
-        const seenHashes: bigint[] = [];
-        const extracted: ExtractedContent[] = [];
+        const validContents: ExtractedContent[] = [];
         const failed: string[] = [];
 
         for (const c of contents) {
@@ -83,27 +80,18 @@ export async function runExtract(
                 failed.push(c.url);
                 continue;
             }
-            const prefix = c.content.slice(0, 500);
-            const h = simhash.hash(prefix);
-            let isDuplicate = false;
-            for (const existing of seenHashes) {
-                if (simhash.similarity(h, existing) >= 0.85) {
-                    isDuplicate = true;
-                    break;
-                }
-            }
-            if (!isDuplicate) {
-                extracted.push(c);
-                seenHashes.push(h);
-            } else {
-                failed.push(c.url);
-            }
+            validContents.push(c);
+        }
+        const extracted = dedupe(validContents);
+        const extractedSet = new Set(extracted);
+        for (const c of validContents) {
+            if (!extractedSet.has(c)) failed.push(c.url);
         }
 
         // Merge extracted content into session if --session provided
         let sessionMerge: { updated: number; total: number } | null = null;
         if (options.session) {
-            sessionMerge = mergeExtractedContent(options.session, contents);
+            sessionMerge = mergeExtractedContent(options.session, extracted);
         }
 
         const output: ExtractOutput = {

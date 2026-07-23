@@ -2,13 +2,10 @@
  * Deduplication utilities for search results
  */
 
-import { SimHash } from './simhash.js';
-
 export interface DedupItem {
     url: string;
     title: string;
     content: string;
-    [key: string]: unknown;
 }
 
 export function normalizeUrl(url: string): string {
@@ -36,8 +33,8 @@ export function resultUrlKey(result: { url: string; source?: string }): string {
     }
 }
 
-export function dedupeByUrl(items: DedupItem[]): DedupItem[] {
-    const seen = new Map<string, DedupItem>();
+export function dedupeByUrl<T extends DedupItem>(items: T[]): T[] {
+    const seen = new Map<string, T>();
 
     for (const item of items) {
         const norm = normalizeUrl(item.url);
@@ -49,18 +46,52 @@ export function dedupeByUrl(items: DedupItem[]): DedupItem[] {
     return Array.from(seen.values());
 }
 
-export function dedupeBySimHash(items: DedupItem[], threshold: number = 0.85): DedupItem[] {
-    const simhash = new SimHash();
-    const kept: DedupItem[] = [];
-    const hashes: bigint[] = [];
+const NGRAM_SIZE = 5;
+const SHORT_TEXT_LENGTH = 300;
 
+function normalizeText(text: string): string {
+    return text.toLowerCase().replace(/\s+/g, ' ').trim();
+}
+
+function characterNgrams(text: string): Set<string> {
+    const ngrams = new Set<string>();
+    for (let index = 0; index <= text.length - NGRAM_SIZE; index++) {
+        ngrams.add(text.slice(index, index + NGRAM_SIZE));
+    }
+    return ngrams;
+}
+
+export function jaccardSimilarity(left: string, right: string): number {
+    const normalizedLeft = normalizeText(left);
+    const normalizedRight = normalizeText(right);
+    if (normalizedLeft === normalizedRight) return 1;
+    if (normalizedLeft.length < NGRAM_SIZE || normalizedRight.length < NGRAM_SIZE) return 0;
+
+    const leftNgrams = characterNgrams(normalizedLeft);
+    const rightNgrams = characterNgrams(normalizedRight);
+    let intersection = 0;
+    for (const ngram of leftNgrams) {
+        if (rightNgrams.has(ngram)) intersection++;
+    }
+    return intersection / (leftNgrams.size + rightNgrams.size - intersection);
+}
+
+function jaccardThreshold(left: string, right: string, threshold: number): number {
+    return Math.min(left.length, right.length) < SHORT_TEXT_LENGTH
+        ? Math.max(threshold, 0.97)
+        : threshold;
+}
+
+export function dedupeByJaccard<T extends DedupItem>(items: T[], threshold: number = 0.92): T[] {
+    const kept: T[] = [];
+    const contents: string[] = [];
+
+    // ponytail: O(n^2) comparison is acceptable for bounded result batches; add candidate indexing if batches grow.
     for (const item of items) {
-        const text = `${item.title} ${item.content}`;
-        const h = simhash.hash(text);
-
+        const content = item.content;
         let isDuplicate = false;
-        for (const existing of hashes) {
-            if (simhash.similarity(h, existing) >= threshold) {
+        for (const existing of contents) {
+            if (jaccardSimilarity(content, existing) >= jaccardThreshold(content, existing, threshold)) {
                 isDuplicate = true;
                 break;
             }
@@ -68,14 +99,14 @@ export function dedupeBySimHash(items: DedupItem[], threshold: number = 0.85): D
 
         if (!isDuplicate) {
             kept.push(item);
-            hashes.push(h);
+            contents.push(content);
         }
     }
 
     return kept;
 }
 
-export function dedupe(items: DedupItem[], simThreshold: number = 0.85): DedupItem[] {
+export function dedupe<T extends DedupItem>(items: T[], threshold: number = 0.92): T[] {
     const urlDeduped = dedupeByUrl(items);
-    return dedupeBySimHash(urlDeduped, simThreshold);
+    return dedupeByJaccard(urlDeduped, threshold);
 }
