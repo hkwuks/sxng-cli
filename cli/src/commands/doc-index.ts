@@ -6,8 +6,8 @@
  */
 
 import { resolve } from 'path';
-import { scanBatches } from '../deep/local-doc/scanner.js';
-import { buildIndexFromBatches, getIndexMemoryBudget } from '../deep/local-doc/indexer.js';
+import { scanFiles } from '../deep/local-doc/scanner.js';
+import { buildIndexFromScannedFiles, getIndexMemoryBudget } from '../deep/local-doc/indexer.js';
 import { createSuccessEnvelope, createErrorEnvelope } from '../protocol.js';
 
 export interface DocIndexOptions {
@@ -23,13 +23,14 @@ export async function runDocIndex(options: DocIndexOptions): Promise<number> {
   // Scan and index one file at a time to keep temporary document data bounded.
   let result;
   try {
-    result = await buildIndexFromBatches(
+    result = await buildIndexFromScannedFiles(
       absPath,
-      scanBatches(absPath, {
+      scanFiles(absPath, {
         extensions: exts,
         maxFileSize: Math.min(10 * 1024 * 1024, Math.floor(memoryBudgetBytes / 8)),
       }),
-      memoryBudgetBytes
+      memoryBudgetBytes,
+      exts
     );
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);

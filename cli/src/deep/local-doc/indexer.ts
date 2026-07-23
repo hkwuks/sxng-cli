@@ -7,17 +7,27 @@
  */
 
 import { existsSync, mkdirSync, writeFileSync, readFileSync } from 'fs';
-import { resolve, join } from 'path';
+import { execFileSync } from 'child_process';
+import { resolve, join, relative, extname, isAbsolute, sep } from 'path';
 import { createHash } from 'crypto';
 import { freemem, totalmem } from 'os';
-import { create, insertMultiple, load } from '@orama/orama';
+import { create, insertMultiple, load, removeMultiple } from '@orama/orama';
 import { createTokenizer } from '@orama/tokenizers/mandarin';
 import { persist } from '@orama/plugin-data-persistence';
-import { ScannedChunk, IndexLocation, ORAMA_SCHEMA } from './types.js';
+import {
+  IndexLocation,
+  IndexSourceMetadata,
+  IndexedFileMetadata,
+  ORAMA_SCHEMA,
+  ScannedChunk,
+  ScannedFile,
+} from './types.js';
+import { scanFiles } from './scanner.js';
 
 const BATCH_SIZE = 500;
 const MAX_INDEX_MEMORY_BYTES = 256 * 1024 * 1024;
 const TOKENIZER_VERSION = 'mandarin-lowercase-v1';
+export const INDEX_REFRESH_INTERVAL_MS = 30 * 24 * 60 * 60 * 1000;
 
 function createDocumentTokenizer() {
   const tokenizer = createTokenizer();
@@ -55,6 +65,129 @@ export function getIndexPath(rootPath: string): string {
   return join(getDocsDir(), hash);
 }
 
+function normalizeExtensions(extensions?: string[]): string[] {
+  return (extensions ?? ['md', 'txt']).map(extension =>
+    extension.startsWith('.') ? extension.toLowerCase() : `.${extension.toLowerCase()}`
+  );
+}
+
+function pathWithinRoot(absPath: string, absRoot: string): boolean {
+  const fromRoot = relative(absRoot, absPath);
+  return fromRoot !== ''
+    && !isAbsolute(fromRoot)
+    && fromRoot !== '..'
+    && !fromRoot.startsWith(`..${sep}`);
+}
+
+function fileMetadata(file: ScannedFile): IndexedFileMetadata {
+  return { contentHash: file.contentHash, chunkIds: file.chunks.map(chunk => chunk.id) };
+}
+
+function runGit(rootPath: string, args: string[]): string | null {
+  try {
+    return execFileSync('git', ['-C', rootPath, ...args], {
+      encoding: 'utf-8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    }).trim();
+  } catch {
+    return null;
+  }
+}
+
+interface GitState {
+  head: string;
+  changedFiles: string[];
+  hasUncommittedTrackedIndexableChanges: boolean;
+  hasUntrackedIndexableFiles: boolean;
+}
+
+function getGitState(rootPath: string, baseHead?: string, extensions?: string[]): GitState | null {
+  const absRoot = resolve(rootPath);
+  const gitRoot = runGit(absRoot, ['rev-parse', '--show-toplevel']);
+  const head = runGit(absRoot, ['rev-parse', 'HEAD']);
+  if (!gitRoot || !head) return null;
+
+  const allowedExtensions = new Set(normalizeExtensions(extensions));
+  const pathspec = relative(gitRoot, absRoot).replace(/\\/g, '/');
+  const scope = pathspec ? ['--', pathspec] : [];
+  const toRootRelativePath = (gitPath: string): string | null => {
+    const absPath = resolve(gitRoot, gitPath);
+    if (!pathWithinRoot(absPath, absRoot) || !allowedExtensions.has(extname(absPath).toLowerCase())) {
+      return null;
+    }
+    return relative(absRoot, absPath).replace(/\\/g, '/');
+  };
+
+  const untrackedOutput = runGit(gitRoot, ['ls-files', '--others', '--exclude-standard', ...scope]);
+  if (untrackedOutput === null) return null;
+  const hasUntrackedIndexableFiles = untrackedOutput.split(/\r?\n/)
+    .filter(Boolean)
+    .some(path => toRootRelativePath(path) !== null);
+
+  const listChangedFiles = (base: string): string[] | null => {
+    const output = runGit(gitRoot, [
+      'diff', '--no-renames', '--name-only', '--diff-filter=ACMRD', base, ...scope,
+    ]);
+    if (output === null) return null;
+    return output.split(/\r?\n/)
+      .filter(Boolean)
+      .map(toRootRelativePath)
+      .filter((path): path is string => path !== null);
+  };
+
+  const changedFiles = listChangedFiles(baseHead ?? 'HEAD');
+  const uncommittedFiles = baseHead ? listChangedFiles('HEAD') : changedFiles;
+  if (changedFiles === null || uncommittedFiles === null) return null;
+
+  return {
+    head,
+    changedFiles,
+    hasUncommittedTrackedIndexableChanges: uncommittedFiles.length > 0,
+    hasUntrackedIndexableFiles,
+  };
+}
+
+async function insertChunks(db: any, chunks: ScannedChunk[]): Promise<void> {
+  for (let offset = 0; offset < chunks.length; offset += BATCH_SIZE) {
+    await insertMultiple(db, chunks.slice(offset, offset + BATCH_SIZE));
+  }
+}
+
+function createMeta(
+  absRoot: string,
+  source: IndexSourceMetadata | undefined,
+  partial: boolean,
+  memoryBudgetBytes: number
+): IndexLocation['meta'] {
+  const files = source ? Object.keys(source.files).length : 0;
+  const chunks = source
+    ? Object.values(source.files).reduce((total, file) => total + file.chunkIds.length, 0)
+    : 0;
+  return {
+    rootPath: absRoot,
+    files,
+    chunks,
+    indexedAt: Date.now(),
+    partial,
+    memoryBudgetBytes,
+    tokenizer: TOKENIZER_VERSION,
+    source,
+  };
+}
+
+async function persistIndex(
+  rootPath: string,
+  db: any,
+  meta: IndexLocation['meta']
+): Promise<IndexLocation> {
+  const indexPath = getIndexPath(rootPath);
+  mkdirSync(indexPath, { recursive: true });
+  const json = await persist(db, 'json') as string;
+  writeFileSync(join(indexPath, 'index.json'), json, 'utf-8');
+  writeFileSync(join(indexPath, 'meta.json'), JSON.stringify(meta, null, 2), 'utf-8');
+  return { indexPath, meta };
+}
+
 // ── Index building ────────────────────────────────────────────────────
 
 export async function buildIndex(
@@ -62,29 +195,16 @@ export async function buildIndex(
   chunks: ScannedChunk[]
 ): Promise<IndexLocation> {
   const absRoot = resolve(rootPath);
-  const indexPath = getIndexPath(rootPath);
-
-  mkdirSync(indexPath, { recursive: true });
-
   const db = await create({
     schema: ORAMA_SCHEMA,
     components: { tokenizer: createDocumentTokenizer() },
   });
 
   if (chunks.length > 0) {
-    // Batch insert to avoid issues with very large arrays
-    for (let i = 0; i < chunks.length; i += BATCH_SIZE) {
-      const batch = chunks.slice(i, i + BATCH_SIZE);
-      await insertMultiple(db, batch);
-    }
+    await insertChunks(db, chunks);
   }
 
-  // Persist to JSON
-  const json = await persist(db, 'json') as string;
-  writeFileSync(join(indexPath, 'index.json'), json, 'utf-8');
-
-  // Write meta
-  const meta = {
+  const meta: IndexLocation['meta'] = {
     rootPath: absRoot,
     files: new Set(chunks.map(c => c.filePath)).size,
     chunks: chunks.length,
@@ -93,9 +213,7 @@ export async function buildIndex(
     memoryBudgetBytes: getIndexMemoryBudget(),
     tokenizer: TOKENIZER_VERSION,
   };
-  writeFileSync(join(indexPath, 'meta.json'), JSON.stringify(meta, null, 2), 'utf-8');
-
-  return { indexPath, meta };
+  return persistIndex(rootPath, db, meta);
 }
 
 /**
@@ -108,7 +226,6 @@ export async function buildIndexFromBatches(
   memoryBudgetBytes = getIndexMemoryBudget()
 ): Promise<IndexLocation> {
   const absRoot = resolve(rootPath);
-  const indexPath = getIndexPath(rootPath);
   const initialHeapBytes = process.memoryUsage().heapUsed;
   const db = await create({
     schema: ORAMA_SCHEMA,
@@ -128,9 +245,7 @@ export async function buildIndexFromBatches(
       break;
     }
 
-    for (let offset = 0; offset < batch.length; offset += BATCH_SIZE) {
-      await insertMultiple(db, batch.slice(offset, offset + BATCH_SIZE));
-    }
+    await insertChunks(db, batch);
     files++;
     chunks += batch.length;
   }
@@ -145,11 +260,7 @@ export async function buildIndexFromBatches(
     throw Object.assign(new Error(`No indexable files found in ${absRoot}`), { code: 'NO_INDEXABLE_FILES' });
   }
 
-  mkdirSync(indexPath, { recursive: true });
-  const json = await persist(db, 'json') as string;
-  writeFileSync(join(indexPath, 'index.json'), json, 'utf-8');
-
-  const meta = {
+  const meta: IndexLocation['meta'] = {
     rootPath: absRoot,
     files,
     chunks,
@@ -158,8 +269,161 @@ export async function buildIndexFromBatches(
     memoryBudgetBytes,
     tokenizer: TOKENIZER_VERSION,
   };
-  writeFileSync(join(indexPath, 'meta.json'), JSON.stringify(meta, null, 2), 'utf-8');
-  return { indexPath, meta };
+  return persistIndex(rootPath, db, meta);
+}
+
+/** Build a complete index and record file hashes for later incremental refreshes. */
+export async function buildIndexFromScannedFiles(
+  rootPath: string,
+  files: Iterable<ScannedFile>,
+  memoryBudgetBytes = getIndexMemoryBudget(),
+  extensions?: string[]
+): Promise<IndexLocation> {
+  const absRoot = resolve(rootPath);
+  const db = await create({
+    schema: ORAMA_SCHEMA,
+    components: { tokenizer: createDocumentTokenizer() },
+  });
+  const source: IndexSourceMetadata = {
+    files: {},
+    extensions: normalizeExtensions(extensions),
+  };
+  const initialHeapBytes = process.memoryUsage().heapUsed;
+  let partial = false;
+
+  for (const file of files) {
+    const fileBytes = file.chunks.reduce((total, chunk) =>
+      total + Buffer.byteLength(chunk.content, 'utf-8'), 0);
+    const heapUsed = process.memoryUsage().heapUsed - initialHeapBytes;
+    if (heapUsed >= memoryBudgetBytes || heapUsed + fileBytes * 4 > memoryBudgetBytes) {
+      partial = true;
+      break;
+    }
+    await insertChunks(db, file.chunks);
+    source.files[file.filePath] = fileMetadata(file);
+  }
+
+  if (Object.keys(source.files).length === 0) {
+    if (partial) {
+      throw Object.assign(
+        new Error(`Index memory budget (${memoryBudgetBytes} bytes) is too small to index any files in ${absRoot}`),
+        { code: 'MEMORY_LIMIT_REACHED' }
+      );
+    }
+    throw Object.assign(new Error(`No indexable files found in ${absRoot}`), { code: 'NO_INDEXABLE_FILES' });
+  }
+
+  const git = getGitState(absRoot, undefined, source.extensions);
+  if (git && !git.hasUncommittedTrackedIndexableChanges && !git.hasUntrackedIndexableFiles) {
+    source.git = { head: git.head };
+  }
+  return persistIndex(rootPath, db, createMeta(absRoot, source, partial, memoryBudgetBytes));
+}
+
+async function replaceFile(db: any, source: IndexSourceMetadata, file: ScannedFile): Promise<void> {
+  const previous = source.files[file.filePath];
+  if (previous?.contentHash === file.contentHash) return;
+  if (previous?.chunkIds.length) await removeMultiple(db, previous.chunkIds, BATCH_SIZE);
+  await insertChunks(db, file.chunks);
+  source.files[file.filePath] = fileMetadata(file);
+}
+
+async function removeFile(db: any, source: IndexSourceMetadata, filePath: string): Promise<void> {
+  const previous = source.files[filePath];
+  if (!previous) return;
+  if (previous.chunkIds.length) await removeMultiple(db, previous.chunkIds, BATCH_SIZE);
+  delete source.files[filePath];
+}
+
+function exceedsMemoryBudget(
+  file: ScannedFile,
+  initialHeapBytes: number,
+  memoryBudgetBytes: number
+): boolean {
+  const fileBytes = file.chunks.reduce((total, chunk) =>
+    total + Buffer.byteLength(chunk.content, 'utf-8'), 0);
+  const heapUsed = process.memoryUsage().heapUsed - initialHeapBytes;
+  return heapUsed >= memoryBudgetBytes || heapUsed + fileBytes * 4 > memoryBudgetBytes;
+}
+
+async function refreshWithHashes(
+  rootPath: string,
+  db: any,
+  source: IndexSourceMetadata,
+  memoryBudgetBytes: number
+): Promise<boolean> {
+  const initialHeapBytes = process.memoryUsage().heapUsed;
+  const seen = new Set<string>();
+  for (const file of scanFiles(rootPath, {
+    extensions: source.extensions,
+    maxFileSize: Math.min(10 * 1024 * 1024, Math.floor(memoryBudgetBytes / 8)),
+  })) {
+    if (exceedsMemoryBudget(file, initialHeapBytes, memoryBudgetBytes)) return true;
+    seen.add(file.filePath);
+    await replaceFile(db, source, file);
+  }
+  for (const filePath of Object.keys(source.files)) {
+    if (!seen.has(filePath)) await removeFile(db, source, filePath);
+  }
+  return false;
+}
+
+async function refreshWithGit(
+  rootPath: string,
+  db: any,
+  source: IndexSourceMetadata,
+  changedFiles: string[],
+  memoryBudgetBytes: number
+): Promise<boolean> {
+  const initialHeapBytes = process.memoryUsage().heapUsed;
+  const pending = new Set(changedFiles);
+  for (const file of scanFiles(rootPath, { extensions: source.extensions }, pending)) {
+    if (exceedsMemoryBudget(file, initialHeapBytes, memoryBudgetBytes)) return true;
+    pending.delete(file.filePath);
+    await replaceFile(db, source, file);
+  }
+  for (const filePath of pending) await removeFile(db, source, filePath);
+  return false;
+}
+
+/** Refresh a complete index by Git diff when possible, otherwise by file hashes. */
+export async function refreshIndex(rootPath: string): Promise<IndexLocation> {
+  const absRoot = resolve(rootPath);
+  const previous = getIndexMeta(absRoot);
+  const source = previous?.source;
+  if (!previous || previous.partial || !source) {
+    return buildIndexFromScannedFiles(absRoot, scanFiles(absRoot));
+  }
+
+  const memoryBudgetBytes = getIndexMemoryBudget();
+  const db = await loadIndex(absRoot);
+  const git = getGitState(absRoot, source.git?.head, source.extensions);
+  let partial = false;
+  if (git && source.git
+    && !git.hasUncommittedTrackedIndexableChanges
+    && !git.hasUntrackedIndexableFiles) {
+    partial = await refreshWithGit(absRoot, db, source, git.changedFiles, memoryBudgetBytes);
+    if (!partial) source.git = { head: git.head };
+  } else {
+    partial = await refreshWithHashes(absRoot, db, source, memoryBudgetBytes);
+    if (!partial) {
+      const currentGit = getGitState(absRoot, undefined, source.extensions);
+      if (currentGit && !currentGit.hasUncommittedTrackedIndexableChanges && !currentGit.hasUntrackedIndexableFiles) {
+        source.git = { head: currentGit.head };
+      }
+      else delete source.git;
+    }
+  }
+
+  return persistIndex(absRoot, db, createMeta(absRoot, source, partial, memoryBudgetBytes));
+}
+
+/** Refresh only when the index has exceeded its maximum age. */
+export async function refreshIndexIfStale(rootPath: string): Promise<boolean> {
+  const meta = getIndexMeta(rootPath);
+  if (!meta || Date.now() - meta.indexedAt < INDEX_REFRESH_INTERVAL_MS) return false;
+  await refreshIndex(rootPath);
+  return true;
 }
 
 // ── Index loading ─────────────────────────────────────────────────────

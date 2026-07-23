@@ -12,6 +12,13 @@ export interface ScannedChunk {
   totalChunks: number;
 }
 
+/** A scanned source file and the chunks derived from its current contents. */
+export interface ScannedFile {
+  filePath: string;
+  contentHash: string;
+  chunks: ScannedChunk[];
+}
+
 export interface ScannerOptions {
   extensions?: string[];
   maxFileSize?: number;
@@ -27,7 +34,19 @@ export interface IndexLocation {
     partial: boolean;
     memoryBudgetBytes: number;
     tokenizer: string;
+    source?: IndexSourceMetadata;
   };
+}
+
+export interface IndexedFileMetadata {
+  contentHash: string;
+  chunkIds: string[];
+}
+
+export interface IndexSourceMetadata {
+  files: Record<string, IndexedFileMetadata>;
+  extensions: string[];
+  git?: { head: string };
 }
 
 export const ORAMA_SCHEMA = {

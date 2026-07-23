@@ -3,10 +3,10 @@
  */
 
 import { readFileSync, statSync, readdirSync } from 'fs';
-import { resolve, extname, join } from 'path';
+import { resolve, extname, join, relative, isAbsolute, sep } from 'path';
 import { createHash } from 'crypto';
 import { chunk } from 'chunk-smart';
-import { ScannedChunk, ScannerOptions } from './types.js';
+import { ScannedChunk, ScannedFile, ScannerOptions } from './types.js';
 
 const DEFAULT_OPTIONS: Required<ScannerOptions> = {
   extensions: ['md', 'txt'],
@@ -92,19 +92,17 @@ function* findFiles(dir: string, extensions: Set<string>): Generator<string> {
   }
 }
 
-function scanFile(absFile: string, context: ScanContext): ScannedChunk[] {
-  const relFile = absFile.startsWith(context.absRoot)
-    ? absFile.slice(context.absRoot.length + 1)
-    : absFile;
+function scanFile(absFile: string, context: ScanContext): ScannedFile | null {
+  const relFile = relative(context.absRoot, absFile).replace(/\\/g, '/');
 
   try {
     const stat = statSync(absFile);
     if (stat.size > context.options.maxFileSize) {
       console.warn(`[doc-index] Skipping file larger than ${context.options.maxFileSize} bytes: ${relFile}`);
-      return [];
+      return null;
     }
   } catch {
-    return [];
+    return null;
   }
 
   let content: string;
@@ -112,10 +110,10 @@ function scanFile(absFile: string, context: ScanContext): ScannedChunk[] {
     content = readFileSync(absFile, 'utf-8');
   } catch {
     console.warn(`[doc-index] Skipping unreadable file: ${relFile}`);
-    return [];
+    return null;
   }
 
-  if (!content.trim()) return [];
+  if (!content.trim()) return null;
 
   const { title: frontmatterTitle, body } = parseFrontmatter(content);
   const title = frontmatterTitle || relFile;
@@ -151,15 +149,44 @@ function scanFile(absFile: string, context: ScanContext): ScannedChunk[] {
     });
   }
 
-  return chunks;
+  return chunks.length > 0 ? {
+    filePath: relFile,
+    contentHash: createHash('sha256').update(content).digest('hex'),
+    chunks,
+  } : null;
 }
 
-/** Yield one file's chunks at a time so callers can index and release them. */
-export function* scanBatches(rootPath: string, options?: ScannerOptions): Generator<ScannedChunk[]> {
+function isPathWithinRoot(absPath: string, absRoot: string): boolean {
+  const pathFromRoot = relative(absRoot, absPath);
+  return pathFromRoot !== ''
+    && !isAbsolute(pathFromRoot)
+    && pathFromRoot !== '..'
+    && !pathFromRoot.startsWith(`..${sep}`);
+}
+
+/** Yield one file at a time, with a hash for incremental change detection. */
+export function* scanFiles(
+  rootPath: string,
+  options?: ScannerOptions,
+  filePaths?: Iterable<string>
+): Generator<ScannedFile> {
   const context = createScanContext(rootPath, options);
-  for (const absFile of findFiles(context.absRoot, context.extensions)) {
-    const chunks = scanFile(absFile, context);
-    if (chunks.length > 0) yield chunks;
+  const candidates = filePaths
+    ? Array.from(filePaths, filePath => join(context.absRoot, ...filePath.split('/')))
+    : findFiles(context.absRoot, context.extensions);
+
+  for (const absFile of candidates) {
+    if (!isPathWithinRoot(absFile, context.absRoot)
+      || !context.extensions.has(extname(absFile).toLowerCase())) continue;
+    const scanned = scanFile(absFile, context);
+    if (scanned) yield scanned;
+  }
+}
+
+/** Yield one file batch at a time so callers can index and release them. */
+export function* scanBatches(rootPath: string, options?: ScannerOptions): Generator<ScannedChunk[]> {
+  for (const file of scanFiles(rootPath, options)) {
+    yield file.chunks;
   }
 }
 

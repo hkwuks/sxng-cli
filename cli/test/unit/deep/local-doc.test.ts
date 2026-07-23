@@ -1,9 +1,10 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtempSync, writeFileSync, mkdirSync, rmSync } from 'fs';
+import { mkdtempSync, writeFileSync, mkdirSync, rmSync, readFileSync } from 'fs';
+import { execFileSync } from 'child_process';
 import { join, dirname, resolve } from 'path';
 import { tmpdir } from 'os';
-import { scan, scanBatches } from '../../src/deep/local-doc/scanner.js';
-import { buildIndex, buildIndexFromBatches, calculateIndexMemoryBudget, hasIndex, loadIndex, getIndexMeta } from '../../src/deep/local-doc/indexer.js';
+import { scan, scanBatches, scanFiles } from '../../src/deep/local-doc/scanner.js';
+import { buildIndex, buildIndexFromBatches, buildIndexFromScannedFiles, calculateIndexMemoryBudget, getIndexMeta, getIndexPath, hasIndex, loadIndex, refreshIndex, refreshIndexIfStale } from '../../src/deep/local-doc/indexer.js';
 import { docSearch } from '../../src/deep/local-doc/searcher.js';
 import { appendSessionResults, loadSessionResults, loadSessionRounds, resolveSessionPath } from '../../src/deep/session.js';
 
@@ -16,6 +17,22 @@ function createTestDir(files: Record<string, string>): string {
         writeFileSync(absPath, content, 'utf-8');
     }
     return dir;
+}
+
+function runGit(dir: string, args: string[]): void {
+    execFileSync('git', ['-C', dir, ...args], { stdio: 'ignore' });
+}
+
+async function withIndexRoot<T>(fn: () => Promise<T>): Promise<T> {
+    const originalCwd = process.cwd();
+    const indexRoot = mkdtempSync(join(tmpdir(), 'sxng-index-root-'));
+    process.chdir(indexRoot);
+    try {
+        return await fn();
+    } finally {
+        process.chdir(originalCwd);
+        rmSync(indexRoot, { recursive: true, force: true });
+    }
 }
 
 // ── Scanner Tests ────────────────────────────────────────────────
@@ -251,6 +268,71 @@ describe('local-doc indexer', () => {
         expect(result.meta.files).toBe(0);
         expect(result.meta.chunks).toBe(0);
     });
+
+    it('updates changed documents using the content-hash manifest', async () => {
+        await withIndexRoot(async () => {
+            const initial = await buildIndexFromScannedFiles(testDir, scanFiles(testDir));
+            expect(initial.meta.source?.git).toBeUndefined();
+
+            writeFileSync(join(testDir, 'rust.md'), '# Updated\n\nIncremental indexing stores new content.', 'utf-8');
+            await refreshIndex(testDir);
+
+            const db = await loadIndex(testDir);
+            const { search } = await import('@orama/orama');
+            expect((await search(db, { term: 'incremental', mode: 'fulltext', limit: 5 })).hits).toHaveLength(1);
+            expect((await search(db, { term: 'ownership', mode: 'fulltext', limit: 5 })).hits).toHaveLength(0);
+        });
+    });
+
+    it('uses Git changes for tracked documents and hashes for untracked documents', async () => {
+        await withIndexRoot(async () => {
+            runGit(testDir, ['init']);
+            runGit(testDir, ['config', 'user.email', 'test@example.com']);
+            runGit(testDir, ['config', 'user.name', 'Test User']);
+            runGit(testDir, ['add', 'rust.md']);
+            runGit(testDir, ['commit', '-m', 'Initial documents']);
+            const originalContent = readFileSync(join(testDir, 'rust.md'), 'utf-8');
+
+            const initial = await buildIndexFromScannedFiles(testDir, scanFiles(testDir));
+            expect(initial.meta.source?.git?.head).toBeTruthy();
+
+            writeFileSync(join(testDir, 'rust.md'), '# Updated\n\nGit diff detects committed changes.', 'utf-8');
+            runGit(testDir, ['add', 'rust.md']);
+            runGit(testDir, ['commit', '-m', 'Update documents']);
+            await refreshIndex(testDir);
+            expect(getIndexMeta(testDir)?.source?.git?.head).not.toBe(initial.meta.source?.git?.head);
+
+            writeFileSync(join(testDir, 'rust.md'), '# Updated\n\nGit diff detects uncommitted changes.', 'utf-8');
+            await refreshIndex(testDir);
+            expect(getIndexMeta(testDir)?.source?.git).toBeUndefined();
+
+            writeFileSync(join(testDir, 'rust.md'), originalContent, 'utf-8');
+            await refreshIndex(testDir);
+
+            writeFileSync(join(testDir, 'untracked.md'), '# Local\n\nHash fallback detects this document.', 'utf-8');
+            await refreshIndex(testDir);
+
+            const db = await loadIndex(testDir);
+            const { search } = await import('@orama/orama');
+            expect((await search(db, { term: 'git diff', mode: 'fulltext', limit: 5 })).hits).toHaveLength(0);
+            expect((await search(db, { term: 'hash fallback', mode: 'fulltext', limit: 5 })).hits).toHaveLength(1);
+            expect((await search(db, { term: 'ownership', mode: 'fulltext', limit: 5 })).hits).toHaveLength(1);
+        });
+    }, 15_000);
+
+    it('only refreshes a stale index', async () => {
+        await withIndexRoot(async () => {
+            await buildIndexFromScannedFiles(testDir, scanFiles(testDir));
+            expect(await refreshIndexIfStale(testDir)).toBe(false);
+
+            const metaPath = join(getIndexPath(testDir), 'meta.json');
+            const meta = JSON.parse(readFileSync(metaPath, 'utf-8'));
+            meta.indexedAt = Date.now() - 31 * 24 * 60 * 60 * 1000;
+            writeFileSync(metaPath, JSON.stringify(meta), 'utf-8');
+
+            expect(await refreshIndexIfStale(testDir)).toBe(true);
+        });
+    });
 });
 
 // ── Searcher Tests ────────────────────────────────────────────────
@@ -350,6 +432,32 @@ describe('local-doc searcher', () => {
 
         const roundsAfter = loadSessionRounds(sessionDir);
         expect(roundsAfter).toBe(1); // no increment from doc-search
+    });
+
+    it('refreshes a stale index before searching', async () => {
+        await withIndexRoot(async () => {
+            const initial = await docSearch({
+                session: 'stale-index',
+                query: 'tokio',
+                path: testDir,
+                topK: 5,
+            });
+            expect(initial.results).toHaveLength(1);
+
+            const metaPath = join(getIndexPath(testDir), 'meta.json');
+            const meta = JSON.parse(readFileSync(metaPath, 'utf-8'));
+            meta.indexedAt = Date.now() - 31 * 24 * 60 * 60 * 1000;
+            writeFileSync(metaPath, JSON.stringify(meta), 'utf-8');
+            writeFileSync(join(testDir, 'guide.md'), '# Guide\n\nFresh search content.', 'utf-8');
+
+            const refreshed = await docSearch({
+                session: 'stale-index',
+                query: 'fresh search',
+                path: testDir,
+                topK: 5,
+            });
+            expect(refreshed.results).toHaveLength(1);
+        });
     });
 
     it('rejects empty query', async () => {

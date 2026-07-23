@@ -8,8 +8,15 @@
 
 import { resolve } from 'path';
 import { search as oramaSearch } from '@orama/orama';
-import { scanBatches } from './scanner.js';
-import { buildIndexFromBatches, getIndexMemoryBudget, getIndexMeta, hasIndex, loadIndex } from './indexer.js';
+import { scanFiles } from './scanner.js';
+import {
+  buildIndexFromScannedFiles,
+  getIndexMemoryBudget,
+  getIndexMeta,
+  hasIndex,
+  loadIndex,
+  refreshIndexIfStale,
+} from './indexer.js';
 import { DEFAULT_BOOST } from './types.js';
 import {
   appendSessionResults,
@@ -69,9 +76,9 @@ export async function docSearch(opts: DocSearchOptions): Promise<DocSearchResult
   if (!hasIndex(absPath)) {
     const memoryBudgetBytes = getIndexMemoryBudget();
     try {
-      await buildIndexFromBatches(
+      await buildIndexFromScannedFiles(
         absPath,
-        scanBatches(absPath, { maxFileSize: Math.min(10 * 1024 * 1024, Math.floor(memoryBudgetBytes / 8)) }),
+        scanFiles(absPath, { maxFileSize: Math.min(10 * 1024 * 1024, Math.floor(memoryBudgetBytes / 8)) }),
         memoryBudgetBytes
       );
     } catch (err) {
@@ -95,6 +102,8 @@ export async function docSearch(opts: DocSearchOptions): Promise<DocSearchResult
       );
     }
   }
+
+  await refreshIndexIfStale(absPath);
 
   // Load index
   let db: any;
