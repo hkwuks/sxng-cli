@@ -549,8 +549,9 @@ async function runSearch(
                 ];
                 const fused = rrf(rankings);
                 const urlMap = new Map<string, SearchResult>();
-                for (const r of results.results) urlMap.set(resultUrlKey(r), r);
                 for (const r of allSessionResults) urlMap.set(resultUrlKey(r), r as SearchResult);
+                // Keep current search content when it overlaps with older session data.
+                for (const r of results.results) urlMap.set(resultUrlKey(r), r);
                 displayResults = fused
                     .map(item => {
                         const original = urlMap.get(item.id);

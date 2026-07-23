@@ -1,11 +1,17 @@
-import { describe, it, expect } from 'vitest';
-import { readFileSync } from 'fs';
+import { describe, it, expect, vi, afterEach } from 'vitest';
+import { readFileSync, mkdtempSync, rmSync } from 'fs';
 import { join, dirname } from 'path';
+import { tmpdir } from 'os';
 import { fileURLToPath } from 'url';
-import { createProgram } from '../../src/runCli.js';
+import { createProgram, runCli } from '../../src/runCli.js';
+import { appendSessionResults } from '../../src/deep/session.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const pkgVersion = JSON.parse(readFileSync(join(__dirname, '../../package.json'), 'utf-8')).version;
+
+afterEach(() => {
+    vi.restoreAllMocks();
+});
 
 describe('CLI program (commander)', () => {
     const program = createProgram();
@@ -72,5 +78,32 @@ describe('CLI program (commander)', () => {
         const flags = go!.options.map(o => o.flags);
         expect(flags.some(f => f.includes('--list'))).toBe(true);
         expect(flags.some(f => f.includes('--fallback-rules'))).toBe(true);
+    });
+
+    it('prefers fresh search content over a matching session result', async () => {
+        const sessionDir = mkdtempSync(join(tmpdir(), 'sxng-cli-test-'));
+        appendSessionResults(sessionDir, [{
+            url: 'https://example.com/article', title: 'Old title', content: 'old', source: 'sxng',
+        }]);
+        const output = vi.spyOn(console, 'log').mockImplementation(() => {});
+        vi.spyOn(process, 'exit').mockImplementation((() => undefined) as never);
+
+        try {
+            await runCli(['fresh query', '--session', sessionDir, '--format', 'json'], {
+                search: vi.fn().mockResolvedValue({
+                    query: 'fresh query',
+                    numberOfResults: 1,
+                    results: [{
+                        url: 'https://example.com/article', title: 'Fresh title', content: 'fresh', engine: 'test', category: 'general',
+                    }],
+                    suggestions: [], answers: [], corrections: [], infoboxes: [], unresponsiveEngines: [],
+                }),
+            } as any);
+
+            const result = JSON.parse(output.mock.calls.at(-1)![0] as string);
+            expect(result.data.results[0].title).toBe('Fresh title');
+        } finally {
+            rmSync(sessionDir, { recursive: true, force: true });
+        }
     });
 });
