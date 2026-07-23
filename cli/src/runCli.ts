@@ -22,7 +22,7 @@ import { runDocSearch } from './commands/doc-search.js';
 import { runGraphObfuscateCommand, GraphObfuscateOptions } from './commands/graph-obfuscate.js';
 import { ContentExtractor } from './deep/extractor.js';
 import { rrf } from './deep/rrf.js';
-import { normalizeUrl } from './deep/dedupe.js';
+import { normalizeUrl, resultUrlKey } from './deep/dedupe.js';
 import { deserializeGraph, graphStats, GraphNodeAttrs, GraphEdgeAttrs } from './deep/graph.js';
 import { initSessionDir, resolveSessionPath, appendSessionResults, loadSessionResults, loadSessionGraph, countPendingResults, getPendingResults, approveResults, injectApprovedResults } from './deep/session.js';
 import { runSessionList, runSessionDelete, getDefaultSessionRoot } from './commands/session.js';
@@ -544,13 +544,13 @@ async function runSearch(
             if (options.session) {
                 const allSessionResults = loadSessionResults(options.session);
                 const rankings = [
-                    results.results.map(r => ({ id: normalizeUrl(r.url), ...r })),
-                    allSessionResults.map(r => ({ id: normalizeUrl(r.url), ...r })),
+                    results.results.map(r => ({ id: resultUrlKey(r), ...r })),
+                    allSessionResults.map(r => ({ id: resultUrlKey(r), ...r })),
                 ];
                 const fused = rrf(rankings);
                 const urlMap = new Map<string, SearchResult>();
-                for (const r of results.results) urlMap.set(normalizeUrl(r.url), r);
-                for (const r of allSessionResults) urlMap.set(normalizeUrl(r.url), r as SearchResult);
+                for (const r of results.results) urlMap.set(resultUrlKey(r), r);
+                for (const r of allSessionResults) urlMap.set(resultUrlKey(r), r as SearchResult);
                 displayResults = fused
                     .map(item => {
                         const original = urlMap.get(item.id);

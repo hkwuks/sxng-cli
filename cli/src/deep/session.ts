@@ -10,7 +10,7 @@ import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs';
 import { join } from 'path';
 import { DirectedGraph } from 'graphology';
 import { deserializeGraph, serializeGraph, graphStats, buildStructuralEdges, GraphNodeAttrs, GraphEdgeAttrs } from './graph.js';
-import { normalizeUrl } from './dedupe.js';
+import { resultUrlKey } from './dedupe.js';
 import { getDefaultSessionRoot, loadSessionMeta, SessionMeta } from '../commands/session.js';
 
 export interface SessionResult {
@@ -34,18 +34,6 @@ export interface SessionResultsFile {
         results: SessionResult[];
         rounds: number;
     };
-}
-
-function sessionResultUrlKey(result: SessionResult): string {
-    const normalized = normalizeUrl(result.url);
-    if (result.source !== 'local') return normalized;
-
-    // The fragment identifies a local document chunk and must survive deduplication.
-    try {
-        return `${normalized}${new URL(result.url).hash}`;
-    } catch {
-        return result.url;
-    }
 }
 
 /** Resolve session path. Supports:
@@ -132,7 +120,7 @@ export function appendSessionResults(
     for (const r of existing) {
         const titleKey = r.title?.toLowerCase().trim();
         if (r.source !== 'local' && titleKey) titleMap.set(titleKey, r);
-        urlMap.set(sessionResultUrlKey(r), r);
+        urlMap.set(resultUrlKey(r), r);
     }
 
     // Add new results (dedup: keep first occurrence)
@@ -141,7 +129,7 @@ export function appendSessionResults(
         const titleKey = r.title?.toLowerCase().trim();
         const dedupeByTitle = r.source !== 'local';
         if (dedupeByTitle && titleKey && titleMap.has(titleKey)) continue;
-        const norm = sessionResultUrlKey(r);
+        const norm = resultUrlKey(r);
         if (urlMap.has(norm)) continue;
         // Mark new results as pending
         r.status = 'pending';
@@ -227,14 +215,14 @@ export function approveResults(sessionDir: string, indices: number[]): { approve
     const approvedResultKeys = new Set<string>();
     for (const idx of indices) {
         if (idx >= 0 && idx < pending.length) {
-            approvedResultKeys.add(sessionResultUrlKey(pending[idx]));
+            approvedResultKeys.add(resultUrlKey(pending[idx]));
         }
     }
 
     // Update status
     let approved = 0;
     for (const r of results) {
-        if (approvedResultKeys.has(sessionResultUrlKey(r))) {
+        if (approvedResultKeys.has(resultUrlKey(r))) {
             r.status = 'approved';
             approved++;
         }
@@ -306,13 +294,13 @@ export function mergeExtractedContent(sessionDir: string, extracted: Array<{ url
     const results = loadSessionResults(sessionDir);
     const urlMap = new Map<string, SessionResult>();
     for (const r of results) {
-        urlMap.set(sessionResultUrlKey(r), r);
+        urlMap.set(resultUrlKey(r), r);
     }
 
     let updated = 0;
     for (const ex of extracted) {
         if (ex.error) continue;
-        const norm = sessionResultUrlKey({ url: ex.url, title: '', source: ex.url.startsWith('file:') ? 'local' : undefined });
+        const norm = resultUrlKey({ url: ex.url, source: ex.url.startsWith('file:') ? 'local' : undefined });
         const existing = urlMap.get(norm);
         if (existing) {
             existing.content = ex.content;

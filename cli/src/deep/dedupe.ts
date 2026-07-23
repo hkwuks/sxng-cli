@@ -24,6 +24,18 @@ export function normalizeUrl(url: string): string {
     }
 }
 
+/** Keep a local document's chunk fragment, while normalizing all other URLs. */
+export function resultUrlKey(result: { url: string; source?: string }): string {
+    const normalized = normalizeUrl(result.url);
+    if (result.source !== 'local') return normalized;
+
+    try {
+        return `${normalized}${new URL(result.url).hash}`;
+    } catch {
+        return result.url;
+    }
+}
+
 export function dedupeByUrl(items: DedupItem[]): DedupItem[] {
     const seen = new Map<string, DedupItem>();
 

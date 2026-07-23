@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { rrf } from '../../src/deep/rrf.js';
+import { resultUrlKey } from '../../src/deep/dedupe.js';
 
 describe('rrf', () => {
     it('returns empty for empty input', () => {
@@ -47,5 +48,19 @@ describe('rrf', () => {
             [{ id: 'a' }, { notid: 'x' } as any, { id: 'b' }],
         ]);
         expect(result).toHaveLength(2);
+    });
+
+    it('keeps local document chunks as separate fusion candidates', () => {
+        const chunks = [
+            { url: 'file:///notes.txt#chunk-0', source: 'local' },
+            { url: 'file:///notes.txt#chunk-1', source: 'local' },
+        ];
+
+        const result = rrf([chunks.map(chunk => ({ id: resultUrlKey(chunk) }))]);
+
+        expect(result.map(item => item.id)).toEqual([
+            'file:///notes.txt#chunk-0',
+            'file:///notes.txt#chunk-1',
+        ]);
     });
 });
