@@ -223,18 +223,18 @@ export function approveResults(sessionDir: string, indices: number[]): { approve
     const results = loadSessionResults(sessionDir);
     const pending = results.filter(r => !r.status || r.status === 'pending');
 
-    // Create a set of approved URLs for quick lookup
-    const approvedUrls = new Set<string>();
+    // Keep local chunk fragments so selecting one chunk does not approve its siblings.
+    const approvedResultKeys = new Set<string>();
     for (const idx of indices) {
         if (idx >= 0 && idx < pending.length) {
-            approvedUrls.add(normalizeUrl(pending[idx].url));
+            approvedResultKeys.add(sessionResultUrlKey(pending[idx]));
         }
     }
 
     // Update status
     let approved = 0;
     for (const r of results) {
-        if (approvedUrls.has(normalizeUrl(r.url))) {
+        if (approvedResultKeys.has(sessionResultUrlKey(r))) {
             r.status = 'approved';
             approved++;
         }
@@ -306,13 +306,13 @@ export function mergeExtractedContent(sessionDir: string, extracted: Array<{ url
     const results = loadSessionResults(sessionDir);
     const urlMap = new Map<string, SessionResult>();
     for (const r of results) {
-        urlMap.set(normalizeUrl(r.url), r);
+        urlMap.set(sessionResultUrlKey(r), r);
     }
 
     let updated = 0;
     for (const ex of extracted) {
         if (ex.error) continue;
-        const norm = normalizeUrl(ex.url);
+        const norm = sessionResultUrlKey({ url: ex.url, title: '', source: ex.url.startsWith('file:') ? 'local' : undefined });
         const existing = urlMap.get(norm);
         if (existing) {
             existing.content = ex.content;

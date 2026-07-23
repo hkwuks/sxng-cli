@@ -7,6 +7,7 @@ import {
     resolveSessionPath,
     loadSessionResults,
     appendSessionResults,
+    approveResults,
     updateSessionGraph,
     loadSessionGraph,
     mergeExtractedContent,
@@ -95,6 +96,21 @@ describe('session (integration)', () => {
         });
     });
 
+    describe('approveResults', () => {
+        it('approves only the selected local document chunk', () => {
+            appendSessionResults(sessionDir, [
+                { url: 'file:///notes.txt#chunk-0', title: 'Notes', source: 'local' },
+                { url: 'file:///notes.txt#chunk-1', title: 'Notes', source: 'local' },
+            ]);
+
+            const info = approveResults(sessionDir, [0]);
+
+            expect(info.approved).toBe(1);
+            expect(loadSessionResults(sessionDir).map(result => result.status))
+                .toEqual(['approved', 'pending']);
+        });
+    });
+
     describe('mergeExtractedContent', () => {
         it('merges content by URL match', () => {
             initSessionDir(sessionDir);
@@ -111,6 +127,21 @@ describe('session (integration)', () => {
             const results = loadSessionResults(sessionDir);
             const a = results.find(r => r.url === 'https://a.com');
             expect(a?.content).toBe('extracted content for A');
+        });
+
+        it('merges content into only the selected local document chunk', () => {
+            appendSessionResults(sessionDir, [
+                { url: 'file:///notes.txt#chunk-0', title: 'Notes', source: 'local', content: 'first' },
+                { url: 'file:///notes.txt#chunk-1', title: 'Notes', source: 'local', content: 'second' },
+            ]);
+
+            const info = mergeExtractedContent(sessionDir, [
+                { url: 'file:///notes.txt#chunk-1', content: 'updated second' },
+            ]);
+
+            expect(info.updated).toBe(1);
+            expect(loadSessionResults(sessionDir).map(result => result.content))
+                .toEqual(['first', 'updated second']);
         });
     });
 
