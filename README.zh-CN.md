@@ -38,7 +38,7 @@
 - 🗂️ **会话管理** — 跨轮累积搜索结果，自动去重；待审 → 审批 → 注入图谱工作流
 - 🔗 **外部结果融合** — 通过 `results-add` 将 Tavily、Exa 等外部搜索结果注入同一会话管道；共享待审池，统一质量评估
 - ⭐ **质量评估** — 4 个独立指标：内容深度、实体丰富度、来源多样性、新颖度
-- 🕸️ **知识图谱** — 结构层（查询→结果→域名）+ 语义层（实体关系）双层图谱
+- 🕸️ **知识图谱** — 结构层（查询→结果→域名）+ 语义层（带来源轮次的实体关系）双层图谱
 - 🔄 **查询冗余检查** — Jaccard 相似度 + SimHash 避免重复查询
 - 💡 **Agent 优先设计** — 输出结构化分析数据（质量、建议、恢复策略）供 LLM Agent 决策
 - 📁 **本地文档搜索** — 对本地 Markdown/文本文件进行 BM25 全文索引和搜索，支持字段加权排序；结果自动注入会话管道，来源标记为 `source: "local"`
@@ -622,14 +622,14 @@ obscura --version
 | `sxng session-report <session>` | 完整会话分析报告 |
 | `sxng session-list` | 列出所有会话 |
 | `sxng session-delete <session-name>` | 删除指定会话 |
-| `sxng graph-preprocess <session>` | TF-IDF + 共现分析 |
-| `sxng graph-add <session>` | 向知识图谱添加实体/边 |
+| `sxng graph-preprocess <session>` | TF-IDF + 共现分析 + 结果来源轮次 |
+| `sxng graph-add <session>` | 向知识图谱添加实体/边；新实体必须带来源轮次 |
 | `sxng graph-search <session>` | 按关键词发现实体 |
 | `sxng graph-explore <session>` | 查看实体关系 |
 | `sxng graph-drill <session>` | 追踪特定关系 |
 | `sxng graph-traverse <session>` | 遍历推理路径 |
 | `sxng graph-obfuscate <session>` | 列出混淆候选 |
-| `sxng results-add <session> --data <json>` | 将外部搜索结果注入会话（标记为待审） |
+| `sxng results-add <session> --query <query> --data <json>` | 将外部搜索结果注入会话（标记为待审） |
 | `sxng doc-index <path>` | 索引本地文档（用于 BM25 搜索） |
 | `sxng doc-search <session> <query> --path <path>` | 搜索已索引文档并将结果注入会话 |
 | `sxng claim-add <session> --claims <json>` | 提交原子化陈述（支持单条或批量，自动证据搜索） |
@@ -763,14 +763,14 @@ sxng --session new --owner "agent-1" --desc "Rust async study" "rust async ecosy
 # 2. 从结果中提取内容
 sxng extract --session <session-name>
 
-# 3. 预处理（TF-IDF + 共现分析）
+# 3. 预处理（TF-IDF、共现分析与结果来源轮次）
 sxng graph-preprocess <session-name>
 
-# 4. 添加知识图谱实体
+# 4. 根据 graph-preprocess 的 resultProvenance 添加实体来源轮次
 sxng graph-add <session-name> --data '{
   "entities": [
-    {"label": "tokio", "entityType": "runtime", "score": 0.95},
-    {"label": "async-std", "entityType": "runtime", "score": 0.85}
+    {"label": "tokio", "entityType": "runtime", "score": 0.95, "sourceRounds": [1]},
+    {"label": "async-std", "entityType": "runtime", "score": 0.85, "sourceRounds": [1]}
   ],
   "edges": [
     {"source": "e:tokio", "target": "e:async_std", "relation": "alternative_to", "weight": 0.9}
@@ -830,18 +830,20 @@ sxng --session <session-name> --queries "tokio vs async-std,benchmark 2026" --re
 
 图谱导航命令：`graph-search`（发现实体）、`graph-explore`（查看关系）、`graph-drill`（追踪特定关系）、`graph-traverse`（遍历推理路径）。
 
+`graph-preprocess` 会为每条结果输出 `resultProvenance`（`url`、`title`、`rounds`）。每个新实体应选择支持它的结果，合并这些结果的 `rounds`，并作为 `sourceRounds` 提交；这样 `strategy-info` 才能按真实搜索轮次计算实体增长率。
+
 ### 外部搜索结果注入
 
 来自其他搜索工具（Tavily、Exa 等）的结果可通过 `results-add` 注入到任何活跃会话中。它们和原生 sxng 结果走相同的管道：
 
 ```bash
-sxng results-add <session-name> --data '[
+sxng results-add <session-name> --query "async runtime" --data '[
   {"url": "https://...", "title": "...", "source": "tavily"},
   {"url": "https://...", "title": "...", "source": "exa"}
 ]'
 ```
 
-注入后，结果标记为 `pending`（待审），走相同的 `--quality` → `--approve` → `graph-add` 流程。`source` 字段记录每个结果来自哪个工具。所有来源的结果共享同一个待审池，一起参与质量评估。
+注入后，结果标记为 `pending`（待审），走相同的 `--quality` → `--approve` → `graph-add` 流程。`source` 字段记录每个结果来自哪个工具。所有来源的结果共享同一个待审池，一起参与质量评估。必填的 `--query` 会记录来源查询，使 `graph-preprocess` 能输出正确的 `resultProvenance` 轮次。
 
 ### 本地文档搜索
 
@@ -859,7 +861,7 @@ sxng doc-search <session-name> "关键词" --path ./docs
 
 1. **自动索引** — `doc-search` 在首次使用时自动索引目标目录（如索引不存在）。使用 Orama BM25 引擎，字段加权：标题 ×3、标题头 ×2、正文 ×1。
 2. **会话注入** — 搜索结果格式化为 `SessionResult[]`，标记为 `source: "local"`，以待审状态注入会话。
-3. **同一管道** — 结果与网页结果走完全相同的流程：`--quality` → `--approve` → `graph-add`。
+3. **同一管道** — 结果与网页结果走完全相同的流程：`--quality` → `--approve` → `graph-add`。新增实体前先运行 `graph-preprocess`，从结果来源中取得其 `sourceRounds`。
 4. **不消耗轮次** — 本地文档搜索**不增加**会话轮次计数器（通过 `skipRoundIncrement` 与当前网络搜索轮次合并）。
 
 **索引选项：**

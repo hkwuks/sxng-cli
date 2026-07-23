@@ -42,7 +42,7 @@
 - 🗂️ **Session Management** — Accumulate search results across rounds with deduplication; pending → approve → graph injection workflow
 - 🔗 **External Result Fusion** — Inject results from Tavily, Exa, or any search tool into the same session pipeline via `results-add`; shared pending pool, unified quality assessment
 - ⭐ **Quality Assessment** — 4 independent indicators: content depth, entity richness, source diversity, novelty
-- 🕸️ **Knowledge Graph** — Structural (query→result→domain) + semantic (entity relations) graph layers
+- 🕸️ **Knowledge Graph** — Structural (query→result→domain) + semantic (entity relations with source-round provenance) graph layers
 - 🔄 **Query Redundancy Check** — Jaccard similarity + SimHash to avoid repeated queries
 - 💡 **Agent-First Design** — Outputs structured analysis data (quality, suggestions, recovery) for LLM Agent decision-making
 - 📁 **Local Document Search** — Index and BM25-search local Markdown/text files with field-weighted ranking; results auto-injected into the session pipeline as `source: "local"`
@@ -629,14 +629,14 @@ No extra npm dependencies needed — Obscura is called via CLI. Auto-detected fr
 | `sxng session-report <session>` | Full session analysis report |
 | `sxng session-list` | List all sessions |
 | `sxng session-delete <session-name>` | Delete a session |
-| `sxng graph-preprocess <session>` | TF-IDF + co-occurrence analysis |
-| `sxng graph-add <session>` | Add entities/edges to knowledge graph |
+| `sxng graph-preprocess <session>` | TF-IDF + co-occurrence + result provenance analysis |
+| `sxng graph-add <session>` | Add entities/edges to the knowledge graph; new entities require source rounds |
 | `sxng graph-search <session>` | Discover entities by keyword |
 | `sxng graph-explore <session>` | View entity relations |
 | `sxng graph-drill <session>` | Follow specific relations |
 | `sxng graph-traverse <session>` | Traverse reasoning paths |
 | `sxng graph-obfuscate <session>` | List obfuscation candidates |
-| `sxng results-add <session> --data <json>` | Inject external search results into session as pending |
+| `sxng results-add <session> --query <query> --data <json>` | Inject external search results into session as pending |
 | `sxng doc-index <path>` | Index local documents for BM25 search |
 | `sxng doc-search <session> <query> --path <path>` | Search indexed docs and inject results into session |
 | `sxng claim-add <session> --claims <json>` | Submit atomic claims (single or batch, auto evidence-search) |
@@ -770,14 +770,14 @@ sxng --session new --owner "agent-1" --desc "Rust async study" "rust async ecosy
 # 2. Extract content from results
 sxng extract --session <session-name>
 
-# 3. Preprocess for entity discovery (TF-IDF + co-occurrence)
+# 3. Preprocess for entity discovery and result provenance
 sxng graph-preprocess <session-name>
 
-# 4. Add entities to knowledge graph
+# 4. Add entities with source rounds from graph-preprocess resultProvenance
 sxng graph-add <session-name> --data '{
   "entities": [
-    {"label": "tokio", "entityType": "runtime", "score": 0.95},
-    {"label": "async-std", "entityType": "runtime", "score": 0.85}
+    {"label": "tokio", "entityType": "runtime", "score": 0.95, "sourceRounds": [1]},
+    {"label": "async-std", "entityType": "runtime", "score": 0.85, "sourceRounds": [1]}
   ],
   "edges": [
     {"source": "e:tokio", "target": "e:async_std", "relation": "alternative_to", "weight": 0.9}
@@ -837,18 +837,20 @@ Two layers:
 
 Graph navigation commands: `graph-search` (discover entities), `graph-explore` (view relations), `graph-drill` (follow specific relations), `graph-traverse` (traverse reasoning paths).
 
+`graph-preprocess` returns `resultProvenance` (`url`, `title`, `rounds`) for each result. For every new entity, select the supporting results, union their `rounds`, and send that array as `sourceRounds`. This lets `strategy-info` calculate entity growth from verified search rounds.
+
 ### External Search Results
 
 Results from other search tools (Tavily, Exa, etc.) can be injected into any active session via `results-add`. They go through the same pipeline as native sxng results:
 
 ```bash
-sxng results-add <session-name> --data '[
+sxng results-add <session-name> --query "async runtime" --data '[
   {"url": "https://...", "title": "...", "source": "tavily"},
   {"url": "https://...", "title": "...", "source": "exa"}
 ]'
 ```
 
-After injection, results are marked as `pending` and follow the same `--quality` → `--approve` → `graph-add` flow. The `source` field tracks which tool produced each result. Results from all sources share a single pending pool and are evaluated together in quality assessment.
+After injection, results are marked as `pending` and follow the same `--quality` → `--approve` → `graph-add` flow. The `source` field tracks which tool produced each result. Results from all sources share a single pending pool and are evaluated together in quality assessment. The required `--query` records the source query so `graph-preprocess` can provide correct `resultProvenance` rounds.
 
 ### Local Document Search
 
@@ -866,7 +868,7 @@ sxng doc-search <session-name> "search query" --path ./docs
 
 1. **Auto-indexing** — `doc-search` automatically indexes the directory on first use if no index exists. Uses Orama BM25 with field-weighted boosting: title ×3, headings ×2, content ×1.
 2. **Session injection** — Search results are formatted as `SessionResult[]` with `source: "local"` and injected into the session as pending.
-3. **Same pipeline** — Results follow the exact same flow as web results: `--quality` → `--approve` → `graph-add`.
+3. **Same pipeline** — Results follow the exact same flow as web results: `--quality` → `--approve` → `graph-add`. Use `graph-preprocess` before adding new entities so their `sourceRounds` come from result provenance.
 4. **Round-neutral** — Local document searches do **not** increment the session round counter (merged with the current web round via `skipRoundIncrement`).
 
 **Index options:**

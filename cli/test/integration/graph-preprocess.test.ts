@@ -79,4 +79,26 @@ describe('graph-preprocess (integration)', () => {
         expect(result.existingEntities.length).toBe(1);
         expect(result.existingEntities[0].label).toBe('tokio');
     });
+
+    it('lists result provenance with the rounds that support graph entities', () => {
+        initSessionDir(sessionDir);
+        appendSessionResults(sessionDir, [{
+            url: 'https://tokio.rs',
+            title: 'Tokio Runtime',
+            content: 'Tokio is an asynchronous Rust runtime.',
+            origins: [{ query: 'rust async round one' }],
+        }]);
+        appendSessionResults(sessionDir, [{
+            url: 'https://tokio.rs/blog',
+            title: 'Tokio Blog',
+            content: 'Tokio supports asynchronous applications.',
+            origins: [{ query: 'rust async round two' }],
+        }]);
+        const result = graphPreprocess(sessionDir);
+
+        expect(result.resultProvenance).toEqual(expect.arrayContaining([
+            expect.objectContaining({ url: 'https://tokio.rs', rounds: [1] }),
+            expect.objectContaining({ url: 'https://tokio.rs/blog', rounds: [2] }),
+        ]));
+    });
 });

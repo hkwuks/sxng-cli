@@ -3,6 +3,7 @@ import { mkdtempSync, rmSync, existsSync, readFileSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
 import { runGraphAdd } from '../../src/commands/graph-add.js';
+import { deserializeGraph, entityId } from '../../src/deep/graph.js';
 
 describe('graph-add command', () => {
     let tmpDir: string;
@@ -17,7 +18,7 @@ describe('graph-add command', () => {
         rmSync(tmpDir, { recursive: true, force: true });
     });
 
-    it('adds entities with new fields (obfuscatedLabel, sourceRounds, frequency, reasoningPaths)', async () => {
+    it('adds entities with optional semantic fields', async () => {
         const data = JSON.stringify({
             entities: [
                 {
@@ -25,7 +26,7 @@ describe('graph-add command', () => {
                     entityType: 'runtime',
                     score: 0.9,
                     obfuscatedLabel: 'an async runtime',
-                    sourceRounds: [1, 2],
+                    sourceRounds: [1],
                     frequency: 5,
                     reasoningPaths: ['p:chain_001'],
                 },
@@ -42,7 +43,7 @@ describe('graph-add command', () => {
         expect(parsed.data.stats.entities).toBe(1);
     });
 
-    it('adds entities without new fields (backward compat)', async () => {
+    it('rejects a new entity without source rounds', async () => {
         const data = JSON.stringify({
             entities: [
                 { label: 'Tokio', entityType: 'runtime', score: 0.9 },
@@ -50,14 +51,14 @@ describe('graph-add command', () => {
         });
 
         const code = await runGraphAdd({ graphFile, data });
-        expect(code).toBe(0);
+        expect(code).toBe(1);
     });
 
     it('updates existing entity with new fields', async () => {
         // First add without new fields
         await runGraphAdd({
             graphFile,
-            data: JSON.stringify({ entities: [{ label: 'Tokio', entityType: 'runtime' }] }),
+            data: JSON.stringify({ entities: [{ label: 'Tokio', entityType: 'runtime', sourceRounds: [1] }] }),
         });
 
         // Then add same entity with new fields
@@ -74,11 +75,25 @@ describe('graph-add command', () => {
         expect(code).toBe(0);
     });
 
+    it('merges source rounds when an entity appears in later rounds', async () => {
+        const code = await runGraphAdd({
+            graphFile,
+            data: JSON.stringify({
+                entities: [{ label: 'Tokio', sourceRounds: [1, 2] }],
+            }),
+        });
+
+        expect(code).toBe(0);
+        const saved = JSON.parse(readFileSync(graphFile, 'utf-8'));
+        const savedGraph = deserializeGraph(saved.data.graph);
+        expect(savedGraph.getNodeAttribute(entityId('Tokio'), 'sourceRounds')).toEqual([1, 2]);
+    });
+
     it('adds edges with new relation types', async () => {
         const data = JSON.stringify({
             entities: [
-                { label: 'Tokio', id: 'e:tokio' },
-                { label: 'Hyper', id: 'e:hyper' },
+                { label: 'Tokio', id: 'e:tokio', sourceRounds: [1] },
+                { label: 'Hyper', id: 'e:hyper', sourceRounds: [1] },
             ],
             edges: [
                 { source: 'e:tokio', target: 'e:hyper', relation: 'co_occurs_with', weight: 0.8 },
@@ -95,7 +110,7 @@ describe('graph-add command', () => {
 
     it('skips edges when source/target nodes are missing', async () => {
         const data = JSON.stringify({
-            entities: [{ label: 'Tokio', id: 'e:tokio' }],
+            entities: [{ label: 'Tokio', id: 'e:tokio', sourceRounds: [1] }],
             edges: [
                 { source: 'e:tokio', target: 'e:nonexistent', relation: 'depends_on' },
             ],

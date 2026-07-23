@@ -111,6 +111,22 @@ export async function runGraphAdd(options: GraphAddOptions): Promise<number> {
         graph = new DirectedGraph<GraphNodeAttrs, GraphEdgeAttrs>();
     }
 
+    const invalidProvenance = (parsed.entities || []).find(entity => {
+        if (graph.hasNode(entity.id || entityId(entity.label))) return false;
+        return !Array.isArray(entity.sourceRounds)
+            || entity.sourceRounds.length === 0
+            || entity.sourceRounds.some(round => !Number.isSafeInteger(round) || round < 1);
+    });
+    if (invalidProvenance) {
+        const envelope = createErrorEnvelope(
+            'MISSING_ENTITY_PROVENANCE',
+            'Each new entity requires one or more sourceRounds from graph-preprocess resultProvenance',
+            { hint: 'Set sourceRounds from the rounds of the results that support the entity.' }
+        );
+        console.log(JSON.stringify(envelope, null, 2));
+        return 1;
+    }
+
     let entitiesAdded = 0;
 
     // Add entity nodes (semantic layer — goes directly to graph)
@@ -138,15 +154,13 @@ export async function runGraphAdd(options: GraphAddOptions): Promise<number> {
                 entityType: entity.entityType ?? existing.entityType,
                 score: entity.score ?? existing.score,
                 obfuscatedLabel: entity.obfuscatedLabel ?? existing.obfuscatedLabel,
-                sourceRounds: entity.sourceRounds ?? existing.sourceRounds,
+                sourceRounds: Array.from(new Set([...(existing.sourceRounds || []), ...(entity.sourceRounds || [])])).sort((a, b) => a - b),
                 frequency: entity.frequency ?? existing.frequency,
                 reasoningPaths: entity.reasoningPaths ?? existing.reasoningPaths,
             });
         }
     }
 
-    // Add edges (entity-entity relationships only — entity-result edges will be
-    // skipped and reported since result nodes are pending, not yet in graph).
     const skippedEdges: Array<{ source: string; target: string; relation: string }> = [];
     let edgesAdded = 0;
     for (const edge of parsed.edges || []) {

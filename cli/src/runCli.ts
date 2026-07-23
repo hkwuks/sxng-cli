@@ -144,6 +144,17 @@ function formatPreprocessAsMarkdown(data: any): string {
         lines.push('');
     }
 
+    if (data.resultProvenance?.length) {
+        lines.push('### Result Provenance');
+        lines.push('');
+        lines.push('| URL | Title | Rounds |');
+        lines.push('|-----|-------|--------|');
+        for (const result of data.resultProvenance) {
+            lines.push(`| ${result.url} | ${result.title} | ${result.rounds.join(', ') || '-'} |`);
+        }
+        lines.push('');
+    }
+
     return lines.join('\n');
 }
 
@@ -845,7 +856,7 @@ export function createProgram(): Command {
     program
         .command('graph-add')
         .argument('<path>', 'Graph file or session name')
-        .description('Add entities/edges to knowledge graph. Results must be approved first via --quality --approve.')
+        .description('Add entities/edges to knowledge graph. New entities require sourceRounds from graph-preprocess.')
         .requiredOption('--data <json>', 'JSON with entities/edges')
         .action(async (path, opts) => {
             const code = await runGraphAdd({
@@ -964,7 +975,7 @@ and write them back via graph-add.`)
     program
         .command('graph-preprocess')
         .argument('<session>', 'Session directory or name')
-        .description('Preprocess session data: TF-IDF, co-occurrence, entity context')
+        .description('Preprocess session data: TF-IDF, co-occurrence, entity context, and result provenance')
         .option('--top <n>', 'Top N terms to return', val => parseInt(val, 10), 30)
         .option('--co-occurrence-threshold <n>', 'Min co-occurrence count', val => parseInt(val, 10), 2)
         .option('--max-terms <n>', 'Max terms for co-occurrence matrix', val => parseInt(val, 10), 50)

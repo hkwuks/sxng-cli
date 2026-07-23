@@ -32,7 +32,7 @@
 - 🗂️ **Session Management** — Accumulate search results across rounds with deduplication; pending → approve → graph injection workflow
 - 🔗 **External Result Fusion** — Inject results from Tavily, Exa, or any search tool into the same session pipeline via `results-add`; shared pending pool, unified quality assessment
 - ⭐ **Quality Assessment** — 4 independent indicators: content depth, entity richness, source diversity, novelty
-- 🕸️ **Knowledge Graph** — Structural (query→result→domain) + semantic (entity relations) graph layers
+- 🕸️ **Knowledge Graph** — Structural (query→result→domain) + semantic (entity relations with source-round provenance) graph layers
 - 🔄 **Query Redundancy Check** — Jaccard similarity + SimHash to avoid repeated queries
 - 💡 **Agent-First Design** — Outputs structured analysis data (quality, suggestions, recovery) for LLM Agent decision-making
 - 📁 **Local Document Search** — Index and BM25-search local Markdown/text files; results auto-injected into the session pipeline as `source: "local"`
@@ -120,8 +120,8 @@ obscura --version
 | `sxng session-report <session>` | Full session analysis report |
 | `sxng session-list` | List all sessions |
 | `sxng session-delete <name>` | Delete a session |
-| `sxng graph-preprocess <session>` | TF-IDF + co-occurrence analysis |
-| `sxng graph-add <session>` | Add entities/edges to knowledge graph |
+| `sxng graph-preprocess <session>` | TF-IDF + co-occurrence + result provenance analysis |
+| `sxng graph-add <session>` | Add entities/edges to the knowledge graph; new entities require source rounds |
 | `sxng graph-search <session>` | Discover entities by keyword |
 | `sxng graph-explore <session>` | View entity relations |
 | `sxng graph-drill <session>` | Follow specific relations |
@@ -248,14 +248,14 @@ sxng --session new --owner "agent-1" --desc "Rust async study" "rust async ecosy
 # 2. Extract content from results
 sxng extract --session ds_1712345678_abcdef
 
-# 3. Preprocess for entity discovery (TF-IDF + co-occurrence)
+# 3. Preprocess for entity discovery and result provenance
 sxng graph-preprocess ds_1712345678_abcdef
 
-# 4. Add entities to knowledge graph
+# 4. Add entities with source rounds from graph-preprocess resultProvenance
 sxng graph-add ds_1712345678_abcdef --data '{
   "entities": [
-    {"label": "tokio", "entityType": "runtime", "score": 0.95},
-    {"label": "async-std", "entityType": "runtime", "score": 0.85}
+    {"label": "tokio", "entityType": "runtime", "score": 0.95, "sourceRounds": [1]},
+    {"label": "async-std", "entityType": "runtime", "score": 0.85, "sourceRounds": [1]}
   ],
   "edges": [
     {"source": "e:tokio", "target": "e:async_std", "relation": "alternative_to", "weight": 0.9}
@@ -306,6 +306,8 @@ Two layers:
 
 Graph navigation commands: `graph-search` (discover entities), `graph-explore` (view relations), `graph-drill` (follow specific relations), `graph-traverse` (traverse reasoning paths).
 
+`graph-preprocess` returns `resultProvenance` (`url`, `title`, `rounds`) for each result. For every new entity, select the supporting results, union their `rounds`, and send that array as `sourceRounds`. This lets `strategy-info` calculate entity growth from verified search rounds.
+
 ### External Search Results
 
 Results from other search tools (Tavily, Exa, etc.) can be injected into any active session via `results-add`, following the same pipeline as native sxng results:
@@ -316,7 +318,7 @@ sxng results-add <session-name> --query "async runtime" --data '[
 ]'
 ```
 
-After injection, results are `pending` and follow `--quality` → `--approve` → `graph-add`.
+After injection, results are `pending` and follow `--quality` → `--approve` → `graph-add`. The required `--query` records the source query so `graph-preprocess` can provide correct `resultProvenance` rounds.
 
 ### Claim—Evidence—Review Pipeline (L2/L3 Only)
 
@@ -376,7 +378,7 @@ sxng doc-index ./docs
 sxng doc-search <session-name> "query" --path ./docs
 ```
 
-**How it works:** auto-indexing on first use (Orama BM25, title×3 / headings×2 / content×1), results injected as `source: "local"` pending, same `--quality` → `--approve` → `graph-add` flow. Local searches do **not** increment the round counter.
+**How it works:** auto-indexing on first use (Orama BM25, title×3 / headings×2 / content×1), results injected as `source: "local"` pending, same `--quality` → `--approve` → `graph-add` flow. Use `graph-preprocess` before adding new entities so their `sourceRounds` come from result provenance. Local searches do **not** increment the round counter.
 
 **Quality note:** Pure local search yields `sourceDiversity: 1`. Combine with web results for adequate diversity.
 

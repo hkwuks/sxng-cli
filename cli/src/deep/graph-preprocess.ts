@@ -13,6 +13,7 @@ export interface PreprocessResult {
     tfidfTerms: Array<{ term: string; tf: number; idf: number; tfidf: number; docFreq: number }>;
     coOccurrences: Array<{ term1: string; term2: string; count: number }>;
     existingEntities: Array<{ id: string; label: string; degree: number; entityType?: string }>;
+    resultProvenance: Array<{ url: string; title: string; rounds: number[] }>;
     termFrequencies: Array<{ term: string; count: number }>;
     roundsCovered: number;
     totalResults: number;
@@ -43,11 +44,19 @@ export function graphPreprocess(
     });
     const termFreqs = computeCrossResultFrequency(results, { top: opts?.top ?? 50 });
     const entities = getExistingEntityContext(graph);
+    const resultProvenance = results.map(result => ({
+        url: result.url,
+        title: result.title,
+        rounds: Array.from(new Set(
+            (result.origins || []).flatMap(origin => origin.round == null ? [] : [origin.round])
+        )).sort((a, b) => a - b),
+    }));
 
     return {
         tfidfTerms: tfidf.terms,
         coOccurrences: coOcc.pairs,
         existingEntities: entities,
+        resultProvenance,
         termFrequencies: termFreqs,
         roundsCovered: rounds,
         totalResults: results.length,
