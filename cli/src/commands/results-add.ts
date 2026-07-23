@@ -7,11 +7,12 @@
  */
 
 import { createSuccessEnvelope, createErrorEnvelope } from '../protocol.js';
-import { appendSessionResults, resolveSessionPath, getPendingResults } from '../deep/session.js';
+import { appendSessionResults, resolveSessionPath, getPendingResults, injectApprovedResults } from '../deep/session.js';
 
 export interface ResultsAddOptions {
     session: string;
     data: string; // JSON array of results
+    query: string;
 }
 
 export async function runResultsAdd(options: ResultsAddOptions): Promise<number> {
@@ -42,7 +43,11 @@ export async function runResultsAdd(options: ResultsAddOptions): Promise<number>
         return 1;
     }
 
-    const result = appendSessionResults(sessionDir, results);
+    const result = appendSessionResults(sessionDir, results.map(item => ({
+        ...item,
+        origins: [{ query: options.query }],
+    })));
+    injectApprovedResults(sessionDir, result.approvedResults);
     const pendingCount = getPendingResults(sessionDir).length;
 
     const envelope = createSuccessEnvelope({

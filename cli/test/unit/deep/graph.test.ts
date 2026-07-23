@@ -78,7 +78,7 @@ describe('graph', () => {
             const graph = createGraph();
             buildStructuralEdges(graph, 'test', [], 3);
 
-            const qId = queryId('test');
+            const qId = queryId('test', 3);
             const attrs = graph.getNodeAttributes(qId);
             expect(attrs.round).toBe(3);
         });
@@ -111,6 +111,14 @@ describe('graph', () => {
             ]);
 
             expect(graph.order).toBe(orderBefore);
+        });
+
+        it('keeps identical queries from different rounds distinct', () => {
+            const graph = createGraph();
+            buildStructuralEdges(graph, 'repeat query', [{ url: 'https://a.com', title: 'A' }], 1);
+            buildStructuralEdges(graph, 'repeat query', [{ url: 'https://b.com', title: 'B' }], 2);
+
+            expect(graphStats(graph).queries).toBe(2);
         });
 
         it('keeps local chunks with a shared long path as separate result nodes', () => {

@@ -21,6 +21,7 @@ import { DEFAULT_BOOST } from './types.js';
 import {
   appendSessionResults,
   getPendingResults,
+  injectApprovedResults,
   initSessionDir,
   resolveSessionPath,
   SessionResult,
@@ -177,6 +178,7 @@ export async function docSearch(opts: DocSearchOptions): Promise<DocSearchResult
       filePath: doc.filePath,
       headings: doc.headings || [],
       chunkIndex: doc.chunkIndex,
+      origins: [{ query }],
       status: undefined, // set to 'pending' by appendSessionResults
     });
   }
@@ -184,9 +186,10 @@ export async function docSearch(opts: DocSearchOptions): Promise<DocSearchResult
   // Inject into session (skip round increment — merged with current web round)
   const sessionDir = resolveSessionPath(opts.session);
   initSessionDir(sessionDir); // ensure meta.json exists
-  const { added, total } = appendSessionResults(sessionDir, results, {
+  const { added, total, approvedResults } = appendSessionResults(sessionDir, results, {
     skipRoundIncrement: true,
   });
+  injectApprovedResults(sessionDir, approvedResults);
 
   const pendingCount = getPendingResults(sessionDir).length;
 

@@ -373,6 +373,7 @@ describe('local-doc searcher', () => {
         expect(r.score).toBeGreaterThan(0);
         expect(r.title).toBeTruthy();
         expect(r.content).toBeTruthy();
+        expect(r.origins).toEqual([{ query: 'async tokio', round: 1 }]);
     });
 
     it('returns formatted results with correct fields', async () => {

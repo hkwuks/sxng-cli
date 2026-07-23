@@ -4,7 +4,7 @@ import { join, dirname } from 'path';
 import { tmpdir } from 'os';
 import { fileURLToPath } from 'url';
 import { createProgram, runCli } from '../../src/runCli.js';
-import { appendSessionResults } from '../../src/deep/session.js';
+import { appendSessionResults, loadSessionResults } from '../../src/deep/session.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const pkgVersion = JSON.parse(readFileSync(join(__dirname, '../../package.json'), 'utf-8')).version;
@@ -102,6 +102,54 @@ describe('CLI program (commander)', () => {
 
             const result = JSON.parse(output.mock.calls.at(-1)![0] as string);
             expect(result.data.results[0].title).toBe('Fresh title');
+        } finally {
+            rmSync(sessionDir, { recursive: true, force: true });
+        }
+    });
+
+    it('stores the single-query origin and allocated round in the session result', async () => {
+        const sessionDir = mkdtempSync(join(tmpdir(), 'sxng-cli-origin-test-'));
+        const output = vi.spyOn(console, 'log').mockImplementation(() => {});
+        vi.spyOn(process, 'exit').mockImplementation((() => undefined) as never);
+
+        try {
+            await runCli(['origin query', '--session', sessionDir, '--format', 'json'], {
+                search: vi.fn().mockResolvedValue({
+                    query: 'origin query', numberOfResults: 1,
+                    results: [{ url: 'https://example.com/origin', title: 'Origin', content: 'origin', engine: 'test', category: 'general' }],
+                    suggestions: [], answers: [], corrections: [], infoboxes: [], unresponsiveEngines: [],
+                }),
+            } as any);
+
+            expect(loadSessionResults(sessionDir)[0].origins).toEqual([{ query: 'origin query', round: 1 }]);
+        } finally {
+            rmSync(sessionDir, { recursive: true, force: true });
+        }
+    });
+
+    it('stores only the queries that returned each multi-query result', async () => {
+        const sessionDir = mkdtempSync(join(tmpdir(), 'sxng-cli-origin-test-'));
+        const output = vi.spyOn(console, 'log').mockImplementation(() => {});
+        vi.spyOn(process, 'exit').mockImplementation((() => undefined) as never);
+        const search = vi.fn()
+            .mockResolvedValueOnce({
+                query: 'first query', numberOfResults: 1,
+                results: [{ url: 'https://example.com/first', title: 'First', content: 'first', engine: 'test', category: 'general' }],
+                suggestions: [], answers: [], corrections: [], infoboxes: [], unresponsiveEngines: [],
+            })
+            .mockResolvedValueOnce({
+                query: 'second query', numberOfResults: 1,
+                results: [{ url: 'https://example.com/second', title: 'Second', content: 'second', engine: 'test', category: 'general' }],
+                suggestions: [], answers: [], corrections: [], infoboxes: [], unresponsiveEngines: [],
+            });
+
+        try {
+            await runCli(['--queries', 'first query,second query', '--session', sessionDir, '--format', 'json'], { search } as any);
+
+            expect(loadSessionResults(sessionDir).map(result => result.origins)).toEqual([
+                [{ query: 'first query', round: 1 }],
+                [{ query: 'second query', round: 1 }],
+            ]);
         } finally {
             rmSync(sessionDir, { recursive: true, force: true });
         }

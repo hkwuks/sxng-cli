@@ -127,7 +127,7 @@ obscura --version
 | `sxng graph-drill <session>` | Follow specific relations |
 | `sxng graph-traverse <session>` | Traverse reasoning paths |
 | `sxng graph-obfuscate <session>` | List obfuscation candidates |
-| `sxng results-add <session> --data <json>` | Inject external search results into session as pending |
+| `sxng results-add <session> --query <query> --data <json>` | Inject external search results into session as pending |
 | `sxng doc-index <path>` | Index local documents for BM25 search |
 | `sxng doc-search <session> <query> --path <path>` | Search indexed docs and inject results into session |
 | `sxng claim-add <session> --claims <json>` | Submit atomic claims (single or batch, auto evidence-search) |
@@ -311,7 +311,7 @@ Graph navigation commands: `graph-search` (discover entities), `graph-explore` (
 Results from other search tools (Tavily, Exa, etc.) can be injected into any active session via `results-add`, following the same pipeline as native sxng results:
 
 ```bash
-sxng results-add <session-name> --data '[
+sxng results-add <session-name> --query "async runtime" --data '[
   {"url": "https://...", "title": "...", "source": "tavily"}
 ]'
 ```

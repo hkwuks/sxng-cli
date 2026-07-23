@@ -528,9 +528,13 @@ async function runSearch(
             };
             const results = await service.search(searchOptions);
 
-            let sessionInfo: { added: number; total: number } | null = null;
+            let sessionInfo: ReturnType<typeof appendSessionResults> | null = null;
             if (options.session) {
-                sessionInfo = appendSessionResults(options.session, results.results as any[]);
+                sessionInfo = appendSessionResults(options.session, results.results.map(result => ({
+                    ...result,
+                    origins: [{ query: queries[0] }],
+                })));
+                injectApprovedResults(options.session, sessionInfo.approvedResults);
                 // Check pending count and warn if >= 30
                 const pendingCount = countPendingResults(options.session);
                 if (pendingCount >= 30) {
@@ -689,9 +693,22 @@ async function runSearch(
             fusedResults = fusedResults.slice(0, limit);
         }
 
-        let sessionInfo: { added: number; total: number } | null = null;
+        let sessionInfo: ReturnType<typeof appendSessionResults> | null = null;
         if (options.session) {
-            sessionInfo = appendSessionResults(options.session, fusedResults as any[]);
+            const originsByUrl = new Map<string, Array<{ query: string }>>();
+            for (const response of allResponses) {
+                for (const result of response.results) {
+                    const key = normalizeUrl(result.url);
+                    const origins = originsByUrl.get(key) || [];
+                    origins.push({ query: response.query });
+                    originsByUrl.set(key, origins);
+                }
+            }
+            sessionInfo = appendSessionResults(options.session, fusedResults.map(result => ({
+                ...result,
+                origins: originsByUrl.get(normalizeUrl(result.url)),
+            })));
+            injectApprovedResults(options.session, sessionInfo.approvedResults);
             // Check pending count and warn if >= 30
             const pendingCount = countPendingResults(options.session);
             if (pendingCount >= 30) {
@@ -843,9 +860,10 @@ export function createProgram(): Command {
         .argument('<session>', 'Session directory or name')
         .description('Append external search results to session as pending (awaiting quality assessment)')
         .requiredOption('--data <json>', 'JSON array of results or object with "results" array')
+        .requiredOption('--query <query>', 'Search query that produced these results')
         .addHelpText('after', `
 Examples:
-  sxng results-add my-session --data '[{"url":"https://...","title":"...","source":"tavily"}]'
+  sxng results-add my-session --query "async runtime" --data '[{"url":"https://...","title":"...","source":"tavily"}]'
 
 Results are marked as pending and go through the same approve pipeline as sxng-native results.
 Use --quality --approve to inject into graph.`)
@@ -853,6 +871,7 @@ Use --quality --approve to inject into graph.`)
             const code = await runResultsAdd({
                 session,
                 data: opts.data,
+                query: opts.query,
             });
             process.exit(code);
         });
@@ -1363,10 +1382,10 @@ export async function runCli(args: string[], service: SearXNGService): Promise<n
             // Handle Agent approval first (before showing quality assessment)
             if (opts.approve) {
                 const indices = (opts.approve as string).split(',').map((s: string) => parseInt(s.trim(), 10)).filter((n: number) => !isNaN(n));
-                const { approved, total } = approveResults(sessionDir, indices);
+                const { approved, total, approvedResults } = approveResults(sessionDir, indices);
 
-                // Inject approved results into graph
-                const injectInfo = injectApprovedResults(sessionDir);
+                // Inject only the results selected by this approval action.
+                const injectInfo = injectApprovedResults(sessionDir, approvedResults);
 
                 console.log(JSON.stringify(createSuccessEnvelope({
                     approved,

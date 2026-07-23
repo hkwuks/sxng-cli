@@ -24,6 +24,7 @@ export interface SessionResult {
     byline?: string;
     siteName?: string;
     source?: string; // "sxng" | "tavily" | "exa" | "open-web-search" | ... — which tool produced this result
+    origins?: Array<{ query: string; round?: number }>;
     status?: 'pending' | 'approved' | 'rejected'; // Quality assessment status
     [key: string]: unknown;
 }
@@ -107,12 +108,16 @@ export function appendSessionResults(
     sessionDir: string,
     newResults: SessionResult[],
     options?: { skipRoundIncrement?: boolean }
-): { added: number; total: number } {
+): { added: number; total: number; approvedResults: SessionResult[] } {
     // Ensure session directory exists
     if (!existsSync(sessionDir)) {
         mkdirSync(sessionDir, { recursive: true });
     }
     const existing = loadSessionResults(sessionDir);
+    const currentRounds = loadSessionRounds(sessionDir) || 0;
+    const round = options?.skipRoundIncrement
+        ? Math.max(1, currentRounds)
+        : Math.max(1, currentRounds + 1);
     const titleMap = new Map<string, SessionResult>();
     const urlMap = new Map<string, SessionResult>();
 
@@ -123,26 +128,41 @@ export function appendSessionResults(
         urlMap.set(resultUrlKey(r), r);
     }
 
+    const mergeOrigins = (target: SessionResult, origins?: SessionResult['origins']): void => {
+        if (!origins?.length) return;
+        const combined = [...(target.origins || []), ...origins];
+        target.origins = Array.from(new Map(
+            combined.map(origin => [`${origin.round ?? round}\0${origin.query}`, { ...origin, round: origin.round ?? round }])
+        ).values());
+    };
+
     // Add new results (dedup: keep first occurrence)
     let added = 0;
+    const approvedResults: SessionResult[] = [];
     for (const r of newResults) {
         const titleKey = r.title?.toLowerCase().trim();
         const dedupeByTitle = r.source !== 'local';
-        if (dedupeByTitle && titleKey && titleMap.has(titleKey)) continue;
         const norm = resultUrlKey(r);
-        if (urlMap.has(norm)) continue;
+        const existingResult = urlMap.get(norm);
+        if (existingResult) {
+            const originCount = existingResult.origins?.length ?? 0;
+            mergeOrigins(existingResult, r.origins);
+            if (existingResult.status === 'approved' && (existingResult.origins?.length ?? 0) > originCount) {
+                approvedResults.push(existingResult);
+            }
+            continue;
+        }
+        if (dedupeByTitle && titleKey && titleMap.has(titleKey)) continue;
         // Mark new results as pending
         r.status = 'pending';
+        mergeOrigins(r, r.origins);
         if (dedupeByTitle && titleKey) titleMap.set(titleKey, r);
         urlMap.set(norm, r);
         added++;
     }
 
     const all = Array.from(urlMap.values());
-    const currentRounds = loadSessionRounds(sessionDir) || 0;
-    const rounds = options?.skipRoundIncrement
-        ? Math.max(1, currentRounds)
-        : Math.max(1, currentRounds + 1);
+    const rounds = round;
 
     const file = join(sessionDir, 'results.json');
     try {
@@ -154,7 +174,7 @@ export function appendSessionResults(
         throw new Error(`Failed to write session results to ${file}: ${e instanceof Error ? e.message : String(e)}`);
     }
 
-    return { added, total: all.length };
+    return { added, total: all.length, approvedResults };
 }
 
 /** Load graph from session, or create empty */
@@ -207,7 +227,7 @@ export function getApprovedResults(sessionDir: string): SessionResult[] {
 /** Approve results by their indices (0-based) in the pending list.
  *  Returns the number of approved results.
  */
-export function approveResults(sessionDir: string, indices: number[]): { approved: number; total: number } {
+export function approveResults(sessionDir: string, indices: number[]): { approved: number; total: number; approvedResults: SessionResult[] } {
     const results = loadSessionResults(sessionDir);
     const pending = results.filter(r => !r.status || r.status === 'pending');
 
@@ -221,10 +241,12 @@ export function approveResults(sessionDir: string, indices: number[]): { approve
 
     // Update status
     let approved = 0;
+    const approvedResults: SessionResult[] = [];
     for (const r of results) {
         if (approvedResultKeys.has(resultUrlKey(r))) {
             r.status = 'approved';
             approved++;
+            approvedResults.push(r);
         }
     }
 
@@ -240,30 +262,37 @@ export function approveResults(sessionDir: string, indices: number[]): { approve
         throw new Error(`Failed to write session results to ${file}: ${e instanceof Error ? e.message : String(e)}`);
     }
 
-    return { approved, total: results.length };
+    return { approved, total: results.length, approvedResults };
 }
 
 /** Inject approved results into graph (structural layer).
  *  Uses query from session meta.json if not provided.
  */
-export function injectApprovedResults(sessionDir: string, query?: string, round?: number): { nodesAdded: number; edgesAdded: number } {
-    const approved = getApprovedResults(sessionDir);
+export function injectApprovedResults(sessionDir: string, approved: SessionResult[]): { nodesAdded: number; edgesAdded: number } {
     if (approved.length === 0) {
         return { nodesAdded: 0, edgesAdded: 0 };
     }
 
-    // If no query provided, try to get from meta.json
-    let actualQuery = query;
-    if (!actualQuery) {
-        const meta = loadSessionMeta(sessionDir);
-        actualQuery = meta?.query || 'unknown_query';
+    const graph = loadSessionGraph(sessionDir);
+    const beforeNodes = graph.order;
+    const beforeEdges = graph.size;
+    const groups = new Map<string, { query: string; round?: number; results: Array<{ url: string; title: string; source?: string }> }>();
+
+    for (const result of approved) {
+        for (const origin of result.origins || []) {
+            const key = `${origin.round ?? 0}\0${origin.query}`;
+            const group = groups.get(key) ?? { query: origin.query, round: origin.round, results: [] };
+            group.results.push({ url: result.url, title: result.title, source: result.source });
+            groups.set(key, group);
+        }
     }
 
-    return updateSessionGraph(sessionDir, actualQuery, approved.map(r => ({
-        url: r.url,
-        title: r.title,
-        source: r.source,
-    })), round);
+    for (const group of groups.values()) {
+        buildStructuralEdges(graph, group.query, group.results, group.round);
+    }
+    saveSessionGraph(sessionDir, graph);
+
+    return { nodesAdded: graph.order - beforeNodes, edgesAdded: graph.size - beforeEdges };
 }
 
 /** Count pending results */

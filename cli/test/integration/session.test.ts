@@ -8,6 +8,7 @@ import {
     loadSessionResults,
     appendSessionResults,
     approveResults,
+    injectApprovedResults,
     updateSessionGraph,
     loadSessionGraph,
     mergeExtractedContent,
@@ -108,6 +109,49 @@ describe('session (integration)', () => {
             expect(info.approved).toBe(1);
             expect(loadSessionResults(sessionDir).map(result => result.status))
                 .toEqual(['approved', 'pending']);
+        });
+
+        it('injects only selected results into the query and round that found them', () => {
+            appendSessionResults(sessionDir, [
+                { url: 'https://a.com', title: 'A', origins: [{ query: 'first query' }] },
+            ]);
+            appendSessionResults(sessionDir, [
+                { url: 'https://b.com', title: 'B', origins: [{ query: 'second query' }] },
+            ]);
+
+            const { approvedResults } = approveResults(sessionDir, [1]);
+            injectApprovedResults(sessionDir, approvedResults);
+
+            const graph = loadSessionGraph(sessionDir);
+            const queries = graph.filterNodes((_id, attrs) => attrs.type === 'query');
+            const results = graph.filterNodes((_id, attrs) => attrs.type === 'result');
+
+            expect(queries).toHaveLength(1);
+            expect(graph.getNodeAttributes(queries[0])).toMatchObject({ query: 'second query', round: 2 });
+            expect(results).toHaveLength(1);
+            expect(graph.getNodeAttributes(results[0]).url).toBe('https://b.com');
+        });
+
+        it('adds a new query edge when an already approved URL appears in a later round', () => {
+            appendSessionResults(sessionDir, [
+                { url: 'https://a.com', title: 'A', origins: [{ query: 'first query' }] },
+            ]);
+            const { approvedResults } = approveResults(sessionDir, [0]);
+            injectApprovedResults(sessionDir, approvedResults);
+
+            const appendInfo = appendSessionResults(sessionDir, [
+                { url: 'https://a.com', title: 'A', origins: [{ query: 'second query' }] },
+            ]);
+            injectApprovedResults(sessionDir, appendInfo.approvedResults);
+
+            const graph = loadSessionGraph(sessionDir);
+            const queries = graph.filterNodes((_id, attrs) => attrs.type === 'query');
+
+            expect(queries).toHaveLength(2);
+            expect(loadSessionResults(sessionDir)[0].origins).toEqual([
+                { query: 'first query', round: 1 },
+                { query: 'second query', round: 2 },
+            ]);
         });
     });
 

@@ -80,8 +80,8 @@ export function resultId(url: string): string {
 }
 
 /** Generate a node ID for a query */
-export function queryId(query: string): string {
-    return generateId('q', query);
+export function queryId(query: string, round?: number): string {
+    return generateId('q', `${query}\0${round ?? 0}`);
 }
 
 /** Generate a node ID for a domain */
@@ -133,7 +133,7 @@ export function buildStructuralEdges(
     results: Array<{ url: string; title: string; rank?: number; source?: string }>,
     round?: number
 ): void {
-    const qId = queryId(query);
+    const qId = queryId(query, round);
 
     // Ensure query node exists
     if (!graph.hasNode(qId)) {
