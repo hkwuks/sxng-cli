@@ -91,6 +91,7 @@ import {
   aggregateAll,
   PolicyInput,
 } from '../src/claims/policy.js';
+import { runEvidenceVerify } from '../src/commands/evidence.js';
 
 // ── Setup / Teardown ────────────────────────────────────────────────
 
@@ -239,6 +240,34 @@ describe('store (CRUD)', () => {
 // ── Section 2: Deterministic Checks ─────────────────────────────────
 
 describe('deterministic checks', () => {
+  describe('evidence verification', () => {
+    it('rejects a quote that differs from the approved content at its offsets', async () => {
+      saveClaims(sessionDir, [{
+        id: 'cl_001',
+        text: 'Tokio is widely used',
+        riskLevel: 'medium',
+        status: 'pending',
+        sessionDir,
+        createdAt: Date.now(),
+      }]);
+
+      const code = await runEvidenceVerify(sessionDir, {
+        claimId: 'cl_001',
+        evidence: JSON.stringify({
+          resultUrl: 'https://example.com/article',
+          quote: 'This quote was never in the source.',
+          charStart: 0,
+          charEnd: 5,
+        }),
+        stance: 'support',
+        reason: 'test',
+      });
+
+      expect(code).toBe(1);
+      expect(loadEvidences(sessionDir)).toEqual([]);
+    });
+  });
+
   describe('checkAnchor', () => {
     it('should pass when all anchors are valid', () => {
       const content = 'Tokio is the most widely used async runtime in the Rust ecosystem.';

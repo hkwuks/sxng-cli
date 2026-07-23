@@ -131,6 +131,10 @@ export async function runEvidenceVerify(
   // Verify content hash
   const { createHash } = await import('crypto');
   const slice = content.slice(evInput.charStart, evInput.charEnd);
+  if (slice !== evInput.quote) {
+    console.log(JSON.stringify(createErrorEnvelope('QUOTE_MISMATCH', 'Quote does not match source content at the provided offsets'), null, 2));
+    return 1;
+  }
   const computedHash = createHash('sha256').update(slice).digest('hex');
   const providedHash = evInput.contentHash || computedHash;
   if (providedHash !== computedHash) {
