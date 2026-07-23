@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { createGraph, entityId, buildStructuralEdges, GraphNodeAttrs, GraphEdgeAttrs } from '../../src/deep/graph.js';
+import { createGraph, entityId, queryId, buildStructuralEdges, GraphNodeAttrs, GraphEdgeAttrs } from '../../src/deep/graph.js';
 import { getEntityDegree, getEntitiesWithDegrees, adaptiveDegreeRange, filterEntitiesByDegree } from '../../src/deep/degree-utils.js';
 import { DirectedGraph } from 'graphology';
 
@@ -61,7 +61,7 @@ describe('degree-utils', () => {
             ]);
             // The query node has degree (from yields edge), but getEntityDegree
             // can technically be called on any node ID — it just computes degree.
-            const qId = 'q:test';
+            const qId = queryId('test');
             expect(getEntityDegree(graph, qId)).toBe(1);
         });
     });

@@ -18,30 +18,39 @@ import {
 describe('graph', () => {
     describe('ID generation', () => {
         it('generates entity ID with e: prefix', () => {
-            expect(entityId('Tokio')).toBe('e:tokio');
+            expect(entityId('Tokio')).toMatch(/^e:tokio_/);
         });
 
         it('generates result ID with r: prefix', () => {
-            expect(resultId('https://example.com')).toBe('r:https_example_com');
+            expect(resultId('https://example.com')).toMatch(/^r:https_example_com_/);
         });
 
         it('generates query ID with q: prefix', () => {
-            expect(queryId('rust async')).toBe('q:rust_async');
+            expect(queryId('rust async')).toMatch(/^q:rust_async_/);
         });
 
         it('generates domain ID with d: prefix', () => {
-            expect(domainId('example.com')).toBe('d:example_com');
+            expect(domainId('example.com')).toMatch(/^d:example_com_/);
         });
 
-        it('truncates long values to 60 chars after prefix', () => {
+        it('keeps long values within a bounded ID length', () => {
             const longLabel = 'a'.repeat(100);
             const id = entityId(longLabel);
-            expect(id.length).toBeLessThanOrEqual(62); // 'e:' + 60 chars max
+            expect(id.length).toBeLessThanOrEqual(60);
         });
 
         it('replaces non-word characters with underscore', () => {
-            expect(entityId('tokio runtime')).toBe('e:tokio_runtime');
-            expect(entityId('async-std')).toBe('e:async_std');
+            expect(entityId('tokio runtime')).toMatch(/^e:tokio_runtime_/);
+            expect(entityId('async-std')).toMatch(/^e:async_std_/);
+        });
+
+        it('keeps collision-prone identifiers distinct', () => {
+            const longPrefix = 'a'.repeat(70);
+
+            expect(resultId(`${longPrefix}-one`)).not.toBe(resultId(`${longPrefix}-two`));
+            expect(queryId(`${longPrefix}-one`)).not.toBe(queryId(`${longPrefix}-two`));
+            expect(domainId(`${longPrefix}-one`)).not.toBe(domainId(`${longPrefix}-two`));
+            expect(entityId('中文实体 A')).not.toBe(entityId('中文实体 B'));
         });
     });
 
@@ -102,6 +111,18 @@ describe('graph', () => {
             ]);
 
             expect(graph.order).toBe(orderBefore);
+        });
+
+        it('keeps local chunks with a shared long path as separate result nodes', () => {
+            const graph = createGraph();
+            const baseUrl = `file:///D:/documents/${'very-long-folder/'.repeat(6)}notes.md`;
+
+            buildStructuralEdges(graph, 'local chunks', [
+                { url: `${baseUrl}#chunk-1`, title: 'Notes' },
+                { url: `${baseUrl}#chunk-2`, title: 'Notes' },
+            ]);
+
+            expect(graphStats(graph).results).toBe(2);
         });
     });
 

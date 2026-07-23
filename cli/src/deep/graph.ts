@@ -10,6 +10,7 @@
  */
 
 import { DirectedGraph } from 'graphology';
+import { createHash } from 'crypto';
 
 /** Semantic edge relation types */
 export const EDGE_RELATIONS = {
@@ -57,7 +58,10 @@ export interface GraphEdgeAttrs {
 }
 
 function generateId(prefix: string, value: string): string {
-    return `${prefix}:${value.toLowerCase().replace(/[^\w]+/g, '_').slice(0, 60)}`;
+    const normalized = value.toLowerCase();
+    const readable = normalized.replace(/[^\w]+/g, '_').replace(/^_+|_+$/g, '') || 'node';
+    const hash = createHash('sha256').update(normalized).digest('hex').slice(0, 16);
+    return `${prefix}:${readable.slice(0, 41)}_${hash}`;
 }
 
 /** Create an empty entity-centric knowledge graph */
