@@ -161,6 +161,12 @@ export async function runSessionDelete(names: string[], olderHours?: number, roo
     const notFound: string[] = [];
 
     for (const name of names) {
+        // Delete only sessions named directly under the configured root.
+        if (!name || name.includes('/') || name.includes('\\') || name === '.' || name === '..') {
+            notFound.push(name);
+            continue;
+        }
+
         const sessionDir = join(root, name);
         try {
             if (statSync(sessionDir).isDirectory()) {

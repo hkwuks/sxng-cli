@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtempSync, rmSync } from 'fs';
+import { existsSync, mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
 import {
@@ -11,7 +11,7 @@ import {
     loadSessionGraph,
     mergeExtractedContent,
 } from '../../src/deep/session.js';
-import { getDefaultSessionRoot } from '../../src/commands/session.js';
+import { getDefaultSessionRoot, runSessionDelete } from '../../src/commands/session.js';
 
 describe('session (integration)', () => {
     let sessionDir: string;
@@ -109,6 +109,22 @@ describe('session (integration)', () => {
             expect(getDefaultSessionRoot()).toBe(join(process.cwd(), '.sxng', 'sessions'));
             expect(resolveSessionPath('named')).toBe(join(process.cwd(), '.sxng', 'sessions', 'named'));
             expect(resolveSessionPath('new').startsWith(join(process.cwd(), '.sxng', 'sessions', 'ds_'))).toBe(true);
+        });
+    });
+
+    describe('runSessionDelete', () => {
+        it('rejects paths that escape the session root', async () => {
+            const root = join(sessionDir, 'sessions');
+            const outside = join(sessionDir, 'outside');
+            mkdirSync(root, { recursive: true });
+            mkdirSync(outside, { recursive: true });
+            writeFileSync(join(outside, 'keep.txt'), 'keep');
+
+            const code = await runSessionDelete(['../outside'], undefined, root);
+
+            expect(code).toBe(1);
+            expect(existsSync(outside)).toBe(true);
+            expect(existsSync(join(outside, 'keep.txt'))).toBe(true);
         });
     });
 });
