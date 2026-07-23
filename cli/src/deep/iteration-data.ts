@@ -15,7 +15,7 @@
 import { DirectedGraph } from 'graphology';
 import { GraphNodeAttrs, GraphEdgeAttrs } from './graph.js';
 import { SessionResult } from './session.js';
-import { QualityScore, QualityThresholds, assessResultQuality } from './quality-assess.js';
+import { QualityScore, QualityThresholds, assessLatestResultQuality } from './quality-assess.js';
 import { QuerySuggestionData, SearchStage, generateQuerySuggestions } from './query-suggest.js';
 import { StrategyConfig, StrategyInfo, getStrategyInfo } from './search-strategy.js';
 import { RecoveryAnalysis, analyzeRecoveryOptions } from './recovery-analysis.js';
@@ -44,11 +44,7 @@ export function getSessionAnalysis(
     }
 ): SessionAnalysis {
     // Quality assessment
-    const quality = assessResultQuality(
-        sessionResults,
-        sessionResults,
-        options?.qualityThresholds
-    );
+    const quality = assessLatestResultQuality(sessionResults, options?.qualityThresholds);
 
     // Strategy info
     const strategy = getStrategyInfo(graph, options?.strategyConfig);

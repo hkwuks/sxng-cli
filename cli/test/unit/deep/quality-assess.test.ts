@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
     assessResultQuality,
+    assessLatestResultQuality,
     QualityScore,
     QualityThresholds,
 } from '../../src/deep/quality-assess.js';
@@ -141,6 +142,57 @@ describe('quality-assess', () => {
             // Identical text → similarity ~1 → not novel
             expect(result.breakdown.novelty.value).toBe(0);
             expect(result.breakdown.novelty.pass).toBe(false);
+        });
+
+        it('does not compare a result against itself when assessing novelty', () => {
+            const results = makeResults([
+                { url: 'https://a.com/1', title: 'A1', content: 'A unique extracted result with enough content to assess.', status: 'approved' },
+            ]);
+
+            const result = assessResultQuality(results, results);
+
+            expect(result.breakdown.novelty.value).toBe(1);
+            expect(result.breakdown.novelty.pass).toBe(true);
+        });
+
+        it('treats distinct Chinese content as novel', () => {
+            const existingResults = makeResults([
+                { url: 'https://a.com/1', title: '政策', content: '城市轨道交通项目已经完成环境影响评估并对外公示。', status: 'approved' },
+            ]);
+            const newResults = makeResults([
+                { url: 'https://b.com/2', title: '教育', content: '本市新增三所学校并计划在秋季学期正式招生。' },
+            ]);
+
+            const result = assessResultQuality(newResults, existingResults);
+
+            expect(result.breakdown.novelty.value).toBe(1);
+        });
+
+        it('compares the latest round against only earlier approved results', () => {
+            const results = makeResults([
+                {
+                    url: 'https://a.com/1', title: 'Round one', content: 'The complete approved report describes a verified infrastructure milestone.',
+                    status: 'approved', origins: [{ query: 'first', round: 1 }],
+                },
+                {
+                    url: 'https://b.com/2', title: 'Round two', content: 'The complete approved report describes a verified infrastructure milestone.',
+                    status: 'approved', origins: [{ query: 'second', round: 2 }],
+                },
+            ]);
+
+            const result = assessLatestResultQuality(results);
+
+            expect(result.breakdown.novelty.value).toBe(0);
+        });
+
+        it('assesses sessions without recorded rounds without self-comparison', () => {
+            const results = makeResults([
+                { url: 'https://a.com/1', title: 'Legacy', content: 'A unique result retained from a session created before round tracking.' },
+            ]);
+
+            const result = assessLatestResultQuality(results);
+
+            expect(result.breakdown.novelty.value).toBe(1);
         });
 
         it('supports custom thresholds via thresholdOverride', () => {

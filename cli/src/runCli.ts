@@ -28,7 +28,7 @@ import { initSessionDir, resolveSessionPath, appendSessionResults, loadSessionRe
 import { runSessionList, runSessionDelete, getDefaultSessionRoot } from './commands/session.js';
 import { graphPreprocess } from './deep/graph-preprocess.js';
 import { checkQueryRedundancy, RedundancyConfig } from './deep/query-redundancy.js';
-import { assessResultQuality, QualityThresholds } from './deep/quality-assess.js';
+import { assessLatestResultQuality, assessResultQuality, QualityThresholds } from './deep/quality-assess.js';
 import { generateQuerySuggestions } from './deep/query-suggest.js';
 import { determineSearchStage, getStrategyInfo } from './deep/search-strategy.js';
 import { analyzeRecoveryOptions, RecoveryAnalysis, RoundQuality } from './deep/recovery-analysis.js';
@@ -1013,7 +1013,7 @@ Examples:
             const graph = loadSessionGraph(sessionDir);
             const results = loadSessionResults(sessionDir);
             const stage = determineSearchStage(graph);
-            const quality = assessResultQuality(results, results);
+            const quality = assessLatestResultQuality(results);
 
             const data = generateQuerySuggestions(graph, results, stage, quality);
 
@@ -1066,7 +1066,7 @@ Examples:
             const sessionDir = resolveSessionPath(session);
             const graph = loadSessionGraph(sessionDir);
             const results = loadSessionResults(sessionDir);
-            const quality = assessResultQuality(results, results);
+            const quality = assessLatestResultQuality(results);
 
             const analysis = analyzeRecoveryOptions(graph, results, quality);
 

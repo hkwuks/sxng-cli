@@ -8,18 +8,18 @@
  * Three indicators (independent thresholds, no weighted sum):
  * - contentDepth: average extracted content length
  * - sourceDiversity: number of distinct domains
- * - novelty: fraction not similar to existing results (SimHash)
+ * - novelty: fraction not similar to earlier approved results (Jaccard)
  *
  * Verdict logic:
  * - good:    all pass
  * - acceptable: 1 fails
- * - poor:    ≥2 fail
+ * - poor:    鈮? fail
  */
 
-import { SimHash } from './simhash.js';
+import { jaccardSimilarity } from './dedupe.js';
 import { SessionResult } from './session.js';
 
-// ── Types ─────────────────────────────────────────────────────────
+// 鈹€鈹€ Types 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
 
 export interface IndicatorResult {
     value: number;
@@ -51,11 +51,13 @@ const DEFAULT_THRESHOLDS: QualityThresholds = {
     novelty: 0.3,
 };
 
-// ── Indicator computations ────────────────────────────────────────
+const NOVELTY_SIMILARITY_THRESHOLD = 0.75;
+
+// 鈹€鈹€ Indicator computations 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
 
 /** Extract domain from URL */
 function extractDomain(url: string): string {
-    if (url.startsWith('file://')) return ''; // local docs → no domain
+    if (url.startsWith('file://')) return ''; // local docs 鈫?no domain
     try {
         return new URL(url).hostname;
     } catch {
@@ -63,7 +65,7 @@ function extractDomain(url: string): string {
     }
 }
 
-/** Compute content depth indicator — average content length of extracted results only */
+/** Compute content depth indicator 鈥?average content length of extracted results only */
 function computeContentDepth(results: SessionResult[], threshold: number): IndicatorResult {
     const extracted = results.filter(r => r.content && r.content.length > 0);
     if (extracted.length === 0) {
@@ -74,7 +76,7 @@ function computeContentDepth(results: SessionResult[], threshold: number): Indic
     return { value, threshold, pass: value >= threshold };
 }
 
-/** Compute source diversity indicator — number of distinct domains */
+/** Compute source diversity indicator 鈥?number of distinct domains */
 function computeSourceDiversity(newResults: SessionResult[], threshold: number): IndicatorResult {
     const domains = new Set<string>();
     for (const r of newResults) {
@@ -85,9 +87,7 @@ function computeSourceDiversity(newResults: SessionResult[], threshold: number):
     return { value, threshold, pass: value >= threshold };
 }
 
-/** Compute novelty indicator — fraction of new results not similar to existing session results.
- *  Uses SimHash similarity < 0.75 as "not similar" threshold.
- *  Caches SimHash results for performance. */
+/** Compute text novelty against distinct historical URLs. */
 function computeNovelty(
     newResults: SessionResult[],
     sessionResults: SessionResult[],
@@ -98,27 +98,16 @@ function computeNovelty(
     }
 
     if (sessionResults.length === 0) {
-        // No prior results → everything is novel
         return { value: 1, threshold, pass: true };
     }
 
-    const simhash = new SimHash();
-
-    // Cache existing hashes to avoid recomputation
-    const existingHashes = sessionResults.map(r =>
-        simhash.hash(`${r.title} ${r.content || ''}`)
-    );
-
     let novelCount = 0;
     for (const r of newResults) {
-        const h = simhash.hash(`${r.title} ${r.content || ''}`);
-        let isSimilar = false;
-        for (const existing of existingHashes) {
-            if (simhash.similarity(h, existing) >= 0.75) {
-                isSimilar = true;
-                break;
-            }
-        }
+        const text = r.content || r.title;
+        const isSimilar = sessionResults.some(existing =>
+            existing.url !== r.url
+            && jaccardSimilarity(text, existing.content || existing.title) >= NOVELTY_SIMILARITY_THRESHOLD
+        );
         if (!isSimilar) novelCount++;
     }
 
@@ -126,11 +115,32 @@ function computeNovelty(
     return { value, threshold, pass: value >= threshold };
 }
 
-// ── Main assessment ───────────────────────────────────────────────
+/** Assess results from the newest recorded round against earlier approved results. */
+export function assessLatestResultQuality(
+    sessionResults: SessionResult[],
+    thresholds?: Partial<QualityThresholds>
+): QualityScore {
+    const rounds = sessionResults.flatMap(result =>
+        (result.origins || []).map(origin => origin.round).filter((round): round is number => Number.isInteger(round))
+    );
+    if (rounds.length === 0) return assessResultQuality(sessionResults, sessionResults, thresholds);
+
+    const latestRound = Math.max(...rounds);
+    const isFromRound = (result: SessionResult, predicate: (round: number) => boolean): boolean =>
+        (result.origins || []).some(origin => origin.round !== undefined && predicate(origin.round));
+    const latestResults = sessionResults.filter(result => isFromRound(result, round => round === latestRound));
+    const priorApproved = sessionResults.filter(result =>
+        result.status === 'approved' && isFromRound(result, round => round < latestRound)
+    );
+
+    return assessResultQuality(latestResults, priorApproved, thresholds);
+}
+
+// 鈹€鈹€ Main assessment 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
 
 /** Assess the quality of results against session context.
- *  Programmatic pre-filter only — Agent makes final quality decision.
- *  All indicators use independent thresholds — no weighted sum.
+ *  Programmatic pre-filter only 鈥?Agent makes final quality decision.
+ *  All indicators use independent thresholds 鈥?no weighted sum.
  */
 export function assessResultQuality(
     results: SessionResult[],
