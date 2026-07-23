@@ -61,6 +61,16 @@ describe('session (integration)', () => {
             expect(info.added).toBe(1);
             expect(info.total).toBe(2);
         });
+
+        it('continues to deduplicate web results with matching titles', () => {
+            const info = appendSessionResults(sessionDir, [
+                { url: 'https://a.com', title: 'Same title', source: 'sxng' },
+                { url: 'https://b.com', title: 'Same title', source: 'sxng' },
+            ]);
+
+            expect(info.added).toBe(1);
+            expect(info.total).toBe(1);
+        });
     });
 
     describe('updateSessionGraph', () => {

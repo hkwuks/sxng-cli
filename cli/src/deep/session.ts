@@ -36,6 +36,18 @@ export interface SessionResultsFile {
     };
 }
 
+function sessionResultUrlKey(result: SessionResult): string {
+    const normalized = normalizeUrl(result.url);
+    if (result.source !== 'local') return normalized;
+
+    // The fragment identifies a local document chunk and must survive deduplication.
+    try {
+        return `${normalized}${new URL(result.url).hash}`;
+    } catch {
+        return result.url;
+    }
+}
+
 /** Resolve session path. Supports:
  *  - "new": auto-create under default root with unique name
  *  - pure name (no separators): resolve to default session root
@@ -99,7 +111,7 @@ export function loadSessionResults(sessionDir: string): SessionResult[] {
     }
 }
 
-/** Append new results to session results (dedup by title then URL).
+/** Append new results to session results (web results dedup by title then URL; local results by URL).
  *  New results are marked as 'pending' and will not be injected into graph
  *  until approved by Agent quality assessment.
  */
@@ -116,23 +128,24 @@ export function appendSessionResults(
     const titleMap = new Map<string, SessionResult>();
     const urlMap = new Map<string, SessionResult>();
 
-    // Index existing results by normalized title and URL
+    // Local document chunks can share a title, so only web results use title deduplication.
     for (const r of existing) {
         const titleKey = r.title?.toLowerCase().trim();
-        if (titleKey) titleMap.set(titleKey, r);
-        urlMap.set(normalizeUrl(r.url), r);
+        if (r.source !== 'local' && titleKey) titleMap.set(titleKey, r);
+        urlMap.set(sessionResultUrlKey(r), r);
     }
 
     // Add new results (dedup: keep first occurrence)
     let added = 0;
     for (const r of newResults) {
         const titleKey = r.title?.toLowerCase().trim();
-        if (titleKey && titleMap.has(titleKey)) continue;
-        const norm = normalizeUrl(r.url);
+        const dedupeByTitle = r.source !== 'local';
+        if (dedupeByTitle && titleKey && titleMap.has(titleKey)) continue;
+        const norm = sessionResultUrlKey(r);
         if (urlMap.has(norm)) continue;
         // Mark new results as pending
         r.status = 'pending';
-        if (titleKey) titleMap.set(titleKey, r);
+        if (dedupeByTitle && titleKey) titleMap.set(titleKey, r);
         urlMap.set(norm, r);
         added++;
     }

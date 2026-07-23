@@ -434,6 +434,39 @@ describe('local-doc searcher', () => {
         expect(roundsAfter).toBe(1); // no increment from doc-search
     });
 
+    it('keeps distinct local chunks that share a document title', async () => {
+        await withIndexRoot(async () => {
+            writeFileSync(join(testDir, 'notes.txt'), [
+                'deploy alpha configuration',
+                'deploy beta configuration',
+                'deploy gamma configuration',
+            ].join('\n\n'), 'utf-8');
+
+            const first = await docSearch({
+                session: 'local-chunks',
+                query: 'deploy',
+                path: testDir,
+                topK: 5,
+            });
+
+            const noteResults = first.results.filter(result => result.filePath === 'notes.txt');
+            expect(noteResults.length).toBeGreaterThan(1);
+            expect(first.added).toBe(first.results.length);
+            const sessionResults = loadSessionResults(first.session);
+            expect(sessionResults).toHaveLength(first.results.length);
+            expect(sessionResults.filter(result => result.filePath === 'notes.txt'))
+                .toHaveLength(noteResults.length);
+
+            const second = await docSearch({
+                session: 'local-chunks',
+                query: 'deploy',
+                path: testDir,
+                topK: 5,
+            });
+            expect(second.added).toBe(0);
+        });
+    });
+
     it('refreshes a stale index before searching', async () => {
         await withIndexRoot(async () => {
             const initial = await docSearch({
