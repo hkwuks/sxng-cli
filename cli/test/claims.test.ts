@@ -389,6 +389,36 @@ describe('deterministic checks', () => {
       expect(computeSourceClusterId(ev1)).not.toBe(computeSourceClusterId(ev2));
     });
 
+    it('should group different quotes from the same publisher', () => {
+      const ev1: EvidenceSpan = {
+        id: 'ev_001', claimId: 'cl_001',
+        resultUrl: 'https://publisher.example/article-one',
+        quote: 'The first article provides one supporting fact.',
+        charStart: 0, charEnd: 45,
+        contentHash: 'x', retrievedAt: 0,
+      };
+      const ev2: EvidenceSpan = {
+        ...ev1,
+        id: 'ev_002',
+        resultUrl: 'https://www.publisher.example/article-two',
+        quote: 'A different article provides another supporting fact.',
+      };
+      expect(computeSourceClusterId(ev1)).toBe(computeSourceClusterId(ev2));
+    });
+
+    it('should conservatively group evidence without a publisher domain', () => {
+      const ev1: EvidenceSpan = {
+        id: 'ev_001', claimId: 'cl_001',
+        resultUrl: 'file:///notes/first.md', quote: 'First local source.',
+        charStart: 0, charEnd: 19, contentHash: 'x', retrievedAt: 0,
+      };
+      const ev2: EvidenceSpan = {
+        ...ev1,
+        id: 'ev_002', resultUrl: 'file:///notes/second.md', quote: 'Second local source.',
+      };
+      expect(computeSourceClusterId(ev1)).toBe(computeSourceClusterId(ev2));
+    });
+
     it('should return 16 hex characters', () => {
       const ev: EvidenceSpan = {
         id: 'ev_001', claimId: 'cl_001',

@@ -56,11 +56,9 @@ export async function runPolicyAggregate(
     }
     const evidences = allEvidences.filter(e => e.claimId === claim.id);
 
-    // Compute source cluster IDs on demand
+    // Refresh source cluster IDs using the current publisher-identity rule.
     for (const ev of evidences) {
-      if (!ev.sourceClusterId) {
-        ev.sourceClusterId = computeSourceClusterId(ev);
-      }
+      ev.sourceClusterId = computeSourceClusterId(ev);
     }
     // Persist computed cluster IDs
     saveEvidences(sessionDir, allEvidences);

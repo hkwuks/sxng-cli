@@ -73,7 +73,7 @@ export interface EvidenceSpan {
   /**
    * Source independence cluster ID.
    * null on write; computed on-demand during policy-aggregate.
-   * Derived from: domain + byline + content SimHash → SHA256 → 16 hex chars.
+   * Derived from: normalized publisher domain → SHA256 → 16 hex chars.
    */
   sourceClusterId?: string;
 }

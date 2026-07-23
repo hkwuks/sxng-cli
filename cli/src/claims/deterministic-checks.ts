@@ -2,12 +2,11 @@
  * Deterministic checks — no LLM dependency.
  *
  * - checkAnchor: URL in approved results, offset in range, hash matches
- * - computeSourceClusterId: domain + author/name + SimHash → SHA256 fingerprint
+ * - computeSourceClusterId: normalized publisher domain → SHA256 fingerprint
  * - searchCandidates: keyword + Jaccard sentence matching
  */
 
 import { createHash } from 'crypto';
-import { SimHash } from '../deep/simhash.js';
 import { EvidenceSpan } from './types.js';
 import { SessionResult, getApprovedResults } from '../deep/session.js';
 import { loadSessionResults } from '../deep/session.js';
@@ -55,25 +54,20 @@ export function resolveApprovedContent(
 
 // ── Source clustering ───────────────────────────────────────────────
 
-const _simhash = new SimHash();
-
 /**
  * Compute a source cluster ID for an EvidenceSpan.
- * Concatenates: domain + author|siteName + SimHash(quote) → SHA256 → 16 hex chars.
+ * Groups evidence by normalized publisher domain for source-independence checks.
  */
 export function computeSourceClusterId(
   evidence: EvidenceSpan
 ): string {
-  let domain = '';
+  let publisher = '';
   try {
-    domain = new URL(evidence.resultUrl).hostname;
+    publisher = new URL(evidence.resultUrl).hostname.toLowerCase().replace(/^www\./, '');
   } catch { /* empty */ }
 
-  const authorSig = (evidence.author || evidence.siteName || '').toLowerCase().trim();
-  const quoteSim = _simhash.hash(evidence.quote);
-
-  const input = `${domain}|${authorSig}|${quoteSim.toString(16)}`;
-  return createHash('sha256').update(input).digest('hex').slice(0, 16);
+  // Unknown publishers share one cluster so they cannot inflate source independence.
+  return createHash('sha256').update(publisher).digest('hex').slice(0, 16);
 }
 
 // ── Candidate search (keyword + Jaccard) ────────────────────────────

@@ -189,11 +189,9 @@ export async function runEvidenceVerify(
     const allEvs = loadEvidences(sessionDir).filter(e => e.claimId === options.claimId);
     const allVds = loadVerdicts(sessionDir).filter(v => v.claimId === options.claimId);
 
-    // Compute source cluster IDs on demand
+    // Refresh source cluster IDs using the current publisher-identity rule.
     for (const ev of allEvs) {
-      if (!ev.sourceClusterId) {
-        ev.sourceClusterId = computeSourceClusterId(ev);
-      }
+      ev.sourceClusterId = computeSourceClusterId(ev);
     }
 
     const input: PolicyInput = {
