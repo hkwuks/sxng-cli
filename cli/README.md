@@ -29,14 +29,14 @@
 - 📄 **Multiple Formats** — Markdown (LLM-optimized) or JSON output
 - 🧠 **Deep Search** — Multi-round iterative research with session accumulation, quality assessment, and recovery strategies
 - 🔍 **Content Extraction** — Extract full article content from URLs or session results, with Obscura (JS rendering) and Jina Reader fallbacks
-- 🗂️ **Session Management** — Accumulate search results across rounds with deduplication; pending → approve → graph injection workflow
+- 🗂️ **Session Management** — Accumulate search results across rounds; normalized URLs and full-text character 5-gram Jaccard remove duplicates before the pending → approve → graph injection workflow
 - 🔗 **External Result Fusion** — Inject results from Tavily, Exa, or any search tool into the same session pipeline via `results-add`; shared pending pool, unified quality assessment
-- ⭐ **Quality Assessment** — 4 independent indicators: content depth, entity richness, source diversity, novelty
+- ⭐ **Quality Assessment** — 3 independent indicators: content depth, source diversity, and novelty
 - 🕸️ **Knowledge Graph** — Structural (query→result→domain) + semantic (entity relations with source-round provenance) graph layers
-- 🔄 **Query Redundancy Check** — Jaccard similarity + SimHash to avoid repeated queries
+- 🔄 **Query Redundancy Check** — Word-level or character-bigram Jaccard detects repeated queries
 - 💡 **Agent-First Design** — Outputs structured analysis data (quality, suggestions, recovery) for LLM Agent decision-making
 - 📁 **Local Document Search** — Index and BM25-search local Markdown/text files; results auto-injected into the session pipeline as `source: "local"`
-- ✅ **Claim—Evidence—Review Pipeline** — L2/L3 only: submit atomic claims, auto-search evidence, verify with stance, policy-aggregate for auto-approval or flag for Agent review
+- ✅ **Claim—Evidence—Review Pipeline** — L2/L3 only: submit atomic claims, auto-search evidence, verify with stance, then policy-aggregate by publisher-domain diversity for auto-approval or Agent review
 
 ## 📦 Installation
 
@@ -272,6 +272,12 @@ sxng --session ds_1712345678_abcdef --quality --approve "0,1,2,3"
 sxng --session ds_1712345678_abcdef --queries "tokio vs async-std,benchmark 2026" --redundancy warn
 ```
 
+### Quality and Evidence Semantics
+
+- Extracted web content is deduplicated by normalized URL, then by full-text character 5-gram Jaccard similarity. Query redundancy uses a separate word-level or character-bigram Jaccard check.
+- `--quality` assesses the newest recorded round against earlier approved results. A URL already seen in an earlier round is non-novel, even when it reappears in the newest round.
+- Claim policy treats two normalized publisher domains as two sources. It does not infer corporate ownership, editorial relationships, or syndication across domains.
+
 ### Session Management
 
 | Command | Description |
@@ -381,6 +387,15 @@ sxng doc-search <session-name> "query" --path ./docs
 **How it works:** auto-indexing on first use (Orama BM25, title×3 / headings×2 / content×1), results injected as `source: "local"` pending, same `--quality` → `--approve` → `graph-add` flow. Use `graph-preprocess` before adding new entities so their `sourceRounds` come from result provenance. Local searches do **not** increment the round counter.
 
 **Quality note:** Pure local search yields `sourceDiversity: 1`. Combine with web results for adequate diversity.
+
+### Known Limitations
+
+- Session and claim state is stored across JSON files without transactional concurrent-write protection.
+- URL extraction is not an SSRF security boundary; use only trusted public URLs.
+- Local document scanning has no defined symbolic-link boundary or cycle policy.
+- Index rebuilds overwrite the current persistence files; an interruption or disk failure can require re-indexing.
+
+See [PRD-005 design improvements](docs/prds/PRD-005-design-improvements.md) for the deferred remediation plan.
 
 ## 🔗 Links
 
