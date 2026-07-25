@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { graphPreprocess } from '../../src/deep/graph-preprocess.js';
 import { initSessionDir, appendSessionResults, updateSessionGraph, loadSessionGraph, saveSessionGraph } from '../../src/deep/session.js';
-import { entityId } from '../../src/deep/graph.js';
+import { entityId, resultId } from '../../src/deep/graph.js';
 import { mkdtempSync, rmSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
@@ -97,8 +97,8 @@ describe('graph-preprocess (integration)', () => {
         const result = graphPreprocess(sessionDir);
 
         expect(result.resultProvenance).toEqual(expect.arrayContaining([
-            expect.objectContaining({ url: 'https://tokio.rs', rounds: [1] }),
-            expect.objectContaining({ url: 'https://tokio.rs/blog', rounds: [2] }),
+            expect.objectContaining({ id: resultId('https://tokio.rs'), url: 'https://tokio.rs', rounds: [1] }),
+            expect.objectContaining({ id: resultId('https://tokio.rs/blog'), url: 'https://tokio.rs/blog', rounds: [2] }),
         ]));
     });
 });

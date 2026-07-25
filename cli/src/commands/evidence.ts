@@ -127,6 +127,10 @@ export async function runEvidenceVerify(
     console.log(JSON.stringify(createErrorEnvelope('OFFSET_OUT_OF_RANGE', `charStart/charEnd out of range (content length: ${content.length})`), null, 2));
     return 1;
   }
+  if (result.extractedAt === undefined) {
+    console.log(JSON.stringify(createErrorEnvelope('EXTRACTION_TIME_MISSING', 'Approved result has no extraction timestamp; re-extract the source before verifying evidence'), null, 2));
+    return 1;
+  }
 
   // Verify content hash
   const { createHash } = await import('crypto');
@@ -154,7 +158,7 @@ export async function runEvidenceVerify(
     charStart: evInput.charStart,
     charEnd: evInput.charEnd,
     contentHash: computedHash,
-    retrievedAt: now,
+    extractedAt: result.extractedAt,
     sourceClusterId: undefined, // computed during policy-aggregate
   };
 

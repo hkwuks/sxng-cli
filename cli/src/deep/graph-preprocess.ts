@@ -7,13 +7,13 @@ import { DirectedGraph } from 'graphology';
 import { computeTfIdf } from './tfidf.js';
 import { buildCoOccurrence, computeCrossResultFrequency, getExistingEntityContext } from './co-occurrence.js';
 import { loadSessionResults, loadSessionGraph, loadSessionRounds } from './session.js';
-import { GraphNodeAttrs, GraphEdgeAttrs } from './graph.js';
+import { GraphNodeAttrs, GraphEdgeAttrs, resultId } from './graph.js';
 
 export interface PreprocessResult {
     tfidfTerms: Array<{ term: string; tf: number; idf: number; tfidf: number; docFreq: number }>;
     coOccurrences: Array<{ term1: string; term2: string; count: number }>;
     existingEntities: Array<{ id: string; label: string; degree: number; entityType?: string }>;
-    resultProvenance: Array<{ url: string; title: string; rounds: number[] }>;
+    resultProvenance: Array<{ id: string; url: string; title: string; rounds: number[] }>;
     termFrequencies: Array<{ term: string; count: number }>;
     roundsCovered: number;
     totalResults: number;
@@ -45,6 +45,7 @@ export function graphPreprocess(
     const termFreqs = computeCrossResultFrequency(results, { top: opts?.top ?? 50 });
     const entities = getExistingEntityContext(graph);
     const resultProvenance = results.map(result => ({
+        id: resultId(result.url),
         url: result.url,
         title: result.title,
         rounds: Array.from(new Set(

@@ -102,10 +102,28 @@ const STOPWORDS = new Set([
 ]);
 
 function tokenize(text: string): string[] {
-  return text
-    .toLowerCase()
-    .split(/[^a-z0-9]+/)
-    .filter(t => t.length > 1 && !STOPWORDS.has(t));
+  const normalized = text.toLowerCase();
+  const tokens: string[] = [];
+
+  // CJK text has no reliable whitespace boundaries, so use adjacent-character bigrams.
+  for (const match of normalized.matchAll(/[\u3400-\u9fff]+/gu)) {
+    const run = match[0];
+    if (run.length === 1) {
+      tokens.push(run);
+      continue;
+    }
+    for (let index = 0; index < run.length - 1; index++) {
+      tokens.push(run.slice(index, index + 2));
+    }
+  }
+
+  // Keep dotted versions intact so "1.2.4" and "v1.2.4" remain searchable terms.
+  for (const match of normalized.matchAll(/[a-z]+(?:[._-][a-z0-9]+)*|\d+(?:[._-]\d+)+|[a-z0-9]+/g)) {
+    const token = match[0];
+    if (token.length > 1 && !STOPWORDS.has(token)) tokens.push(token);
+  }
+
+  return tokens;
 }
 
 function jaccardSimilarity(a: Set<string>, b: Set<string>): number {
@@ -119,6 +137,7 @@ function jaccardSimilarity(a: Set<string>, b: Set<string>): number {
 }
 
 const JACCARD_THRESHOLD = 0.3;
+const CJK_JACCARD_THRESHOLD = 0.2;
 const MAX_CANDIDATES = 5;
 
 /**
@@ -133,6 +152,9 @@ export function searchCandidates(
   if (keywords.length === 0) return [];
 
   const keywordSet = new Set(keywords);
+  const threshold = /[\u3400-\u9fff]/u.test(claimText)
+    ? CJK_JACCARD_THRESHOLD
+    : JACCARD_THRESHOLD;
   const allResults = loadSessionResults(sessionDir);
   const approved = allResults.filter(r => r.status === 'approved' && r.content);
 
@@ -141,7 +163,7 @@ export function searchCandidates(
   for (const result of approved) {
     const content = result.content!;
     // Split into sentences
-    const sentences = content.split(/(?<=[.!?])\s+|(?<=\n)\s*/);
+    const sentences = content.split(/(?<=[!?。！？])\s*|(?<=\.)\s+|(?<=\n)\s*/);
 
     for (const sentence of sentences) {
       const trimmed = sentence.trim();
@@ -152,7 +174,7 @@ export function searchCandidates(
 
       const wordSet = new Set(words);
       const score = jaccardSimilarity(keywordSet, wordSet);
-      if (score < JACCARD_THRESHOLD) continue;
+      if (score < threshold) continue;
 
       const charStart = content.indexOf(trimmed);
       if (charStart === -1) continue;

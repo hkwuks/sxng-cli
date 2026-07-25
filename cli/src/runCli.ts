@@ -147,10 +147,10 @@ function formatPreprocessAsMarkdown(data: any): string {
     if (data.resultProvenance?.length) {
         lines.push('### Result Provenance');
         lines.push('');
-        lines.push('| URL | Title | Rounds |');
-        lines.push('|-----|-------|--------|');
+        lines.push('| ID | URL | Title | Rounds |');
+        lines.push('|----|-----|-------|--------|');
         for (const result of data.resultProvenance) {
-            lines.push(`| ${result.url} | ${result.title} | ${result.rounds.join(', ') || '-'} |`);
+            lines.push(`| ${result.id} | ${result.url} | ${result.title} | ${result.rounds.join(', ') || '-'} |`);
         }
         lines.push('');
     }

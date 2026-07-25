@@ -55,7 +55,7 @@ All results — whether from sxng search, external tools (tavily/exa), or any ot
 | Source | Command | Status |
 |--------|---------|--------|
 | sxng search | `sxng --session <session> "query"` | pending |
-| External search | `sxng results-add <session> --data '[...]'` | pending |
+| External search | `sxng results-add <session> --query "source query" --data '[...]'` | pending |
 | Content extraction | `sxng extract --session <session>` | updates content, same status |
 | Entity/edge injection | `sxng graph-add <session> --data '{...}'` | entities/edges only |
 
@@ -95,15 +95,15 @@ After approval, the result nodes exist in the graph and can be referenced by `gr
 
 ## Adding Entities & Edges (After Approval)
 
-Once results are in the graph, use `graph-add` for the semantic layer:
+Once results are in the graph, run `graph-preprocess` and use `graph-add` for the semantic layer. New entities require `sourceRounds` from the supporting `resultProvenance` rows; result edges must use `resultProvenance[].id`, not a URL-derived guess. Give a new entity an explicit `id` when an edge in the same request references it.
 
 ```bash
 sxng graph-add <session> --data '{
   "entities": [
-    {"label": "tokio", "entityType": "runtime"}
+    {"id": "e:tokio", "label": "tokio", "entityType": "runtime", "sourceRounds": [1]}
   ],
   "edges": [
-    {"source": "e:tokio", "target": "r:https://docs.rs/tokio", "relation": "documented_by"}
+    {"source": "e:tokio", "target": "<resultProvenance id>", "relation": "documented_by"}
   ]
 }'
 ```
@@ -112,7 +112,7 @@ Edges can reference any existing node type: `e:` (entity), `r:` (result), `q:` (
 
 ## Claim—Evidence—Review Pipeline (L2/L3 Only)
 
-After the knowledge graph is built, the Agent can run the claim audit pipeline to verify individual statements before output. This is a **post-search** step — it does not modify the search pool or graph.
+After the knowledge graph is built, the Agent can run the claim audit pipeline to verify individual statements before output. This is a **post-search** step — it does not modify the search pool or graph. Re-extract any chosen evidence URL first if it lacks `extractedAt`; verification rejects evidence without a real extraction time.
 
 ```
 Synthesize draft → claim-add → evidence-search (auto) → 

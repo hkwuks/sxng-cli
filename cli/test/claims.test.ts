@@ -6,7 +6,7 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { existsSync, mkdirSync, rmSync, writeFileSync } from 'fs';
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
 import { createHash, randomBytes } from 'crypto';
@@ -30,6 +30,7 @@ function makeSession(): string {
           content: 'Tokio is the most widely used async runtime in the Rust ecosystem. It provides a powerful asynchronous programming model. Many production systems rely on Tokio for network services.',
           status: 'approved',
           publishedDate: '2025-01-15',
+          extractedAt: 1_700_000_000_000,
         },
         {
           url: 'https://other-source.org/report',
@@ -37,6 +38,23 @@ function makeSession(): string {
           content: 'The Rust async ecosystem has evolved significantly. While Tokio dominates, async-std also offers a compelling alternative for certain use cases. Community adoption trends show Tokio leading.',
           status: 'approved',
           publishedDate: '2025-06-01',
+          extractedAt: 1_700_000_000_001,
+        },
+        {
+          url: 'https://policy.example.cn/ai-platform',
+          title: '人工智能产业发展政策',
+          content: '上海市发布人工智能产业发展政策，AI 平台版本 1.2.4 已上线并支持本地模型部署。',
+          status: 'approved',
+          publishedDate: '2025-06-15',
+          extractedAt: 1_700_000_000_002,
+        },
+        {
+          url: 'https://unrelated.example.cn/recruiting',
+          title: '年度招聘计划',
+          content: '人工智能研究团队发布年度招聘计划，重点招聘算法和工程岗位。',
+          status: 'approved',
+          publishedDate: '2025-06-15',
+          extractedAt: 1_700_000_000_003,
         },
         {
           url: 'https://pending-source.dev/note',
@@ -169,7 +187,7 @@ describe('store (CRUD)', () => {
         charStart: 0,
         charEnd: 10,
         contentHash: 'abc',
-        retrievedAt: Date.now(),
+        extractedAt: Date.now(),
       },
     ];
     saveEvidences(sessionDir, evs);
@@ -227,8 +245,8 @@ describe('store (CRUD)', () => {
 
   it('should get evidence/verdicts by claim ID', () => {
     const evs: EvidenceSpan[] = [
-      { id: 'ev_001', claimId: 'cl_001', resultUrl: 'https://x.com', quote: 'q', charStart: 0, charEnd: 1, contentHash: 'a', retrievedAt: 0 },
-      { id: 'ev_002', claimId: 'cl_002', resultUrl: 'https://y.com', quote: 'r', charStart: 0, charEnd: 1, contentHash: 'b', retrievedAt: 0 },
+      { id: 'ev_001', claimId: 'cl_001', resultUrl: 'https://x.com', quote: 'q', charStart: 0, charEnd: 1, contentHash: 'a', extractedAt: 0 },
+      { id: 'ev_002', claimId: 'cl_002', resultUrl: 'https://y.com', quote: 'r', charStart: 0, charEnd: 1, contentHash: 'b', extractedAt: 0 },
     ];
     saveEvidences(sessionDir, evs);
     expect(getEvidenceForClaim(sessionDir, 'cl_001')).toHaveLength(1);
@@ -267,6 +285,65 @@ describe('deterministic checks', () => {
       expect(loadEvidences(sessionDir)).toEqual([]);
     });
 
+    it('records the source extraction time instead of evidence verification time', async () => {
+      const extractedAt = 1_700_000_000_000;
+      saveClaims(sessionDir, [{
+        id: 'cl_001',
+        text: 'Tokio is widely used',
+        riskLevel: 'medium',
+        status: 'pending',
+        sessionDir,
+        createdAt: Date.now(),
+      }]);
+
+      const quote = 'Tokio is the most widely used async runtime in the Rust ecosystem.';
+      const code = await runEvidenceVerify(sessionDir, {
+        claimId: 'cl_001',
+        evidence: JSON.stringify({
+          resultUrl: 'https://example.com/article',
+          quote,
+          charStart: 0,
+          charEnd: quote.length,
+        }),
+        stance: 'support',
+        reason: 'The approved source directly supports the claim.',
+      });
+
+      expect(code).toBe(0);
+      expect(loadEvidences(sessionDir)[0].extractedAt).toBe(extractedAt);
+    });
+
+    it('requires an extraction time before evidence can be verified', async () => {
+      const resultsFile = join(sessionDir, 'results.json');
+      const results = JSON.parse(readFileSync(resultsFile, 'utf-8'));
+      delete results.data.results[0].extractedAt;
+      writeFileSync(resultsFile, JSON.stringify(results), 'utf-8');
+      saveClaims(sessionDir, [{
+        id: 'cl_001',
+        text: 'Tokio is widely used',
+        riskLevel: 'medium',
+        status: 'pending',
+        sessionDir,
+        createdAt: Date.now(),
+      }]);
+
+      const quote = 'Tokio is the most widely used async runtime in the Rust ecosystem.';
+      const code = await runEvidenceVerify(sessionDir, {
+        claimId: 'cl_001',
+        evidence: JSON.stringify({
+          resultUrl: 'https://example.com/article',
+          quote,
+          charStart: 0,
+          charEnd: quote.length,
+        }),
+        stance: 'support',
+        reason: 'The approved source directly supports the claim.',
+      });
+
+      expect(code).toBe(1);
+      expect(loadEvidences(sessionDir)).toEqual([]);
+    });
+
     it('persists refreshed domain clusters when completing a review', async () => {
       saveClaims(sessionDir, [
         {
@@ -294,7 +371,7 @@ describe('deterministic checks', () => {
         charStart: 0,
         charEnd: 32,
         contentHash: 'existing',
-        retrievedAt: Date.now(),
+        extractedAt: Date.now(),
       }]);
 
       const quote = 'Tokio is the most widely used async runtime in the Rust ecosystem.';
@@ -336,7 +413,7 @@ describe('deterministic checks', () => {
         charStart,
         charEnd,
         contentHash,
-        retrievedAt: Date.now(),
+        extractedAt: Date.now(),
       };
       const result = checkAnchor(evidence, content);
       expect(result.url).toBe(true);
@@ -354,7 +431,7 @@ describe('deterministic checks', () => {
         charStart: 0,
         charEnd: 47,
         contentHash: 'deadbeef',
-        retrievedAt: Date.now(),
+        extractedAt: Date.now(),
       };
       const result = checkAnchor(evidence, content);
       expect(result.hashMatches).toBe(false);
@@ -370,7 +447,7 @@ describe('deterministic checks', () => {
         charStart: 0,
         charEnd: 999,
         contentHash: createHash('sha256').update('Short').digest('hex'),
-        retrievedAt: Date.now(),
+        extractedAt: Date.now(),
       };
       const result = checkAnchor(evidence, content);
       expect(result.offsetInRange).toBe(false);
@@ -386,7 +463,7 @@ describe('deterministic checks', () => {
         charStart: -5,
         charEnd: 4,
         contentHash: 'x',
-        retrievedAt: Date.now(),
+        extractedAt: Date.now(),
       };
       const result = checkAnchor(evidence, content);
       expect(result.offsetInRange).toBe(false);
@@ -418,7 +495,7 @@ describe('deterministic checks', () => {
         resultUrl: 'https://example.com/article',
         quote: 'Tokio is the most widely used async runtime',
         charStart: 0, charEnd: 47,
-        contentHash: 'x', retrievedAt: 0,
+        contentHash: 'x', extractedAt: 0,
       };
       const ev2: EvidenceSpan = { ...ev1, id: 'ev_002' };
       expect(computeSourceClusterId(ev1)).toBe(computeSourceClusterId(ev2));
@@ -430,14 +507,14 @@ describe('deterministic checks', () => {
         resultUrl: 'https://site-a.com/article',
         quote: 'Same quote text here',
         charStart: 0, charEnd: 20,
-        contentHash: 'x', retrievedAt: 0,
+        contentHash: 'x', extractedAt: 0,
       };
       const ev2: EvidenceSpan = {
         id: 'ev_002', claimId: 'cl_001',
         resultUrl: 'https://site-b.com/article',
         quote: 'Same quote text here',
         charStart: 0, charEnd: 20,
-        contentHash: 'x', retrievedAt: 0,
+        contentHash: 'x', extractedAt: 0,
       };
       expect(computeSourceClusterId(ev1)).not.toBe(computeSourceClusterId(ev2));
     });
@@ -448,7 +525,7 @@ describe('deterministic checks', () => {
         resultUrl: 'https://publisher.example/article-one',
         quote: 'The first article provides one supporting fact.',
         charStart: 0, charEnd: 45,
-        contentHash: 'x', retrievedAt: 0,
+        contentHash: 'x', extractedAt: 0,
       };
       const ev2: EvidenceSpan = {
         ...ev1,
@@ -463,7 +540,7 @@ describe('deterministic checks', () => {
       const ev1: EvidenceSpan = {
         id: 'ev_001', claimId: 'cl_001',
         resultUrl: 'file:///notes/first.md', quote: 'First local source.',
-        charStart: 0, charEnd: 19, contentHash: 'x', retrievedAt: 0,
+        charStart: 0, charEnd: 19, contentHash: 'x', extractedAt: 0,
       };
       const ev2: EvidenceSpan = {
         ...ev1,
@@ -478,7 +555,7 @@ describe('deterministic checks', () => {
         resultUrl: 'https://example.com/article',
         quote: 'A sample quote for testing',
         charStart: 0, charEnd: 26,
-        contentHash: 'x', retrievedAt: 0,
+        contentHash: 'x', extractedAt: 0,
       };
       const id = computeSourceClusterId(ev);
       expect(id).toHaveLength(16);
@@ -494,6 +571,32 @@ describe('deterministic checks', () => {
       const match = candidates.find(c => c.quote.includes('Tokio'));
       expect(match).toBeDefined();
       expect(match!.domain).toBe('example.com');
+    });
+
+    it('should find candidate evidence for a pure Chinese claim', () => {
+      const candidates = searchCandidates(sessionDir, '上海市发布人工智能产业发展政策');
+
+      expect(candidates).toContainEqual(expect.objectContaining({
+        resultUrl: 'https://policy.example.cn/ai-platform',
+        quote: expect.stringContaining('人工智能产业发展政策'),
+      }));
+    });
+
+    it('should retain Chinese and dotted version tokens in mixed claims', () => {
+      const candidates = searchCandidates(sessionDir, '人工智能平台版本 1.2.4 已上线');
+
+      expect(candidates).toContainEqual(expect.objectContaining({
+        resultUrl: 'https://policy.example.cn/ai-platform',
+        quote: expect.stringContaining('版本 1.2.4'),
+      }));
+    });
+
+    it('should exclude Chinese content that only overlaps a short generic phrase', () => {
+      const candidates = searchCandidates(sessionDir, '人工智能平台版本 1.2.4 已上线');
+
+      expect(candidates).not.toContainEqual(expect.objectContaining({
+        resultUrl: 'https://unrelated.example.cn/recruiting',
+      }));
     });
 
     it('should not return results from pending (unapproved) results', () => {
@@ -558,7 +661,7 @@ describe('policy engine', () => {
       charStart: 0,
       charEnd: 36,
       contentHash: 'a'.repeat(64),
-      retrievedAt: Date.now(),
+      extractedAt: Date.now(),
       sourceClusterId: 'cluster_a',
       ...overrides,
     };

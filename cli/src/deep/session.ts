@@ -21,6 +21,7 @@ export interface SessionResult {
     category?: string;
     score?: number;
     publishedDate?: string;
+    extractedAt?: number;
     byline?: string;
     siteName?: string;
     source?: string; // "sxng" | "tavily" | "exa" | "open-web-search" | ... — which tool produced this result
@@ -100,7 +101,7 @@ export function loadSessionResults(sessionDir: string): SessionResult[] {
     }
 }
 
-/** Append new results to session results (web results dedup by title then URL; local results by URL).
+/** Append new results to session results (dedup by normalized URL).
  *  New results are marked as 'pending' and will not be injected into graph
  *  until approved by Agent quality assessment.
  */
@@ -118,13 +119,9 @@ export function appendSessionResults(
     const round = options?.skipRoundIncrement
         ? Math.max(1, currentRounds)
         : Math.max(1, currentRounds + 1);
-    const titleMap = new Map<string, SessionResult>();
     const urlMap = new Map<string, SessionResult>();
 
-    // Local document chunks can share a title, so only web results use title deduplication.
     for (const r of existing) {
-        const titleKey = r.title?.toLowerCase().trim();
-        if (r.source !== 'local' && titleKey) titleMap.set(titleKey, r);
         urlMap.set(resultUrlKey(r), r);
     }
 
@@ -140,8 +137,6 @@ export function appendSessionResults(
     let added = 0;
     const approvedResults: SessionResult[] = [];
     for (const r of newResults) {
-        const titleKey = r.title?.toLowerCase().trim();
-        const dedupeByTitle = r.source !== 'local';
         const norm = resultUrlKey(r);
         const existingResult = urlMap.get(norm);
         if (existingResult) {
@@ -152,11 +147,9 @@ export function appendSessionResults(
             }
             continue;
         }
-        if (dedupeByTitle && titleKey && titleMap.has(titleKey)) continue;
         // Mark new results as pending
         r.status = 'pending';
         mergeOrigins(r, r.origins);
-        if (dedupeByTitle && titleKey) titleMap.set(titleKey, r);
         urlMap.set(norm, r);
         added++;
     }
@@ -319,7 +312,7 @@ export function updateSessionGraph(
 }
 
 /** Merge extracted content into session results (update content field by URL match) */
-export function mergeExtractedContent(sessionDir: string, extracted: Array<{ url: string; content: string; title?: string; excerpt?: string; byline?: string; siteName?: string; length?: number; error?: string }>): { updated: number; total: number } {
+export function mergeExtractedContent(sessionDir: string, extracted: Array<{ url: string; content: string; title?: string; excerpt?: string; byline?: string; siteName?: string; length?: number; extractedAt?: number; error?: string }>): { updated: number; total: number } {
     const results = loadSessionResults(sessionDir);
     const urlMap = new Map<string, SessionResult>();
     for (const r of results) {
@@ -337,6 +330,7 @@ export function mergeExtractedContent(sessionDir: string, extracted: Array<{ url
             if (ex.byline) existing.byline = ex.byline;
             if (ex.siteName) existing.siteName = ex.siteName;
             if (ex.length) existing.contentLength = ex.length;
+            if (ex.extractedAt !== undefined) existing.extractedAt = ex.extractedAt;
             updated++;
         }
     }

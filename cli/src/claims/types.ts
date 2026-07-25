@@ -60,8 +60,8 @@ export interface EvidenceSpan {
   /** SHA256 hex digest of the exact quote slice */
   contentHash: string;
 
-  /** Retrieval timestamp */
-  retrievedAt: number;
+  /** Timestamp of the source content extraction used for this evidence */
+  extractedAt: number;
 
   /** Source publish date (inherited from SessionResult.publishedDate) */
   publishedDate?: string;

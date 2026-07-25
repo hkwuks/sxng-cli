@@ -64,14 +64,14 @@ describe('session (integration)', () => {
             expect(info.total).toBe(2);
         });
 
-        it('continues to deduplicate web results with matching titles', () => {
+        it('keeps web results with matching titles when their URLs differ', () => {
             const info = appendSessionResults(sessionDir, [
                 { url: 'https://a.com', title: 'Same title', source: 'sxng' },
                 { url: 'https://b.com', title: 'Same title', source: 'sxng' },
             ]);
 
-            expect(info.added).toBe(1);
-            expect(info.total).toBe(1);
+            expect(info.added).toBe(2);
+            expect(info.total).toBe(2);
         });
     });
 
@@ -164,13 +164,14 @@ describe('session (integration)', () => {
             ]);
 
             const info = mergeExtractedContent(sessionDir, [
-                { url: 'https://a.com', content: 'extracted content for A', length: 100 },
+                { url: 'https://a.com', content: 'extracted content for A', length: 100, extractedAt: 1_700_000_000_000 },
             ]);
             expect(info.updated).toBe(1);
 
             const results = loadSessionResults(sessionDir);
             const a = results.find(r => r.url === 'https://a.com');
             expect(a?.content).toBe('extracted content for A');
+            expect(a?.extractedAt).toBe(1_700_000_000_000);
         });
 
         it('merges content into only the selected local document chunk', () => {

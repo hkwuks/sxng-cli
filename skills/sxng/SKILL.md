@@ -7,7 +7,7 @@ description: "Search the web for ANY current information, facts, docs, answers, 
 
 > **CRITICAL: Use this skill PROACTIVELY.** The default answer to any information-seeking question should be a web search, not your training data. When in doubt, search — a search costs seconds, a confidently wrong answer costs trust. This section is your trigger guide.
 
-Use `sxng` CLI to search the web. Results are automatically deduplicated (URL normalization + SimHash near-duplicate removal). CLI automatically filters out results with empty title or content.
+Use `sxng` CLI to search the web. Results are deduplicated by normalized URL and content Jaccard similarity; session accumulation preserves same-title results when their URLs differ. CLI automatically filters out results with empty title or content.
 
 ## Proactive Usage — Always Search When
 
@@ -65,7 +65,7 @@ sxng session-report <session>               # Full session report
 
 # Knowledge graph
 sxng graph-preprocess <session>             # TF-IDF + co-occurrence analysis
-sxng results-add <session> --data '[...]'  # Append external results as pending
+sxng results-add <session> --query "source query" --data '[...]'  # Append external results as pending
 sxng graph-add <session> --data '{...}'     # Add entities/edges (after approval)
 sxng graph-search <session> --keyword "x"   # Discover entities
 sxng graph-search <session> --keyword "x" --limit 5  # Limit results
@@ -145,13 +145,26 @@ Deep search enables multi-round iterative research with session accumulation, qu
 >
 > **Exception**: Only create a new session if the current one is **corrupted** (e.g. `results.json` is unreadable). A search backend returning 0 results or errors is NOT corruption — switch backends, not sessions.
 
+### Query Plan (L2/L3 Hard Requirement)
+
+For L2/L3 research, keep a small **Query Plan in the Agent's working notes**. It combines the initial query decomposition with execution-time coverage tracking; it is not a new CLI command or session file.
+
+| Sub-question / Claim | Required evidence | Status | Next query, if needed |
+|---|---|---|---|
+| What must be answered? | official / independent / counter-evidence / date-sensitive source | unsearched / partial / covered / blocked | query only for the recorded gap |
+
+- Before the first query, decompose the task into 3-7 non-overlapping sub-questions and record the evidence requirement for each.
+- Before every follow-up query, update the plan from approved results and Claim review. A new query must close a recorded gap (for example: missing official source, independent confirmation, counter-evidence, current version, or unresolved conflict).
+- Do not treat a search result as coverage until it is extracted when needed and approved; a rejected or pending result can only motivate the next query.
+- Before final output, disclose any core sub-question still marked `partial` or `blocked`. Do not make a definitive conclusion for a Claim that lacks its required evidence.
+
 ### Pipeline Overview
 
 All results go into the same pool, same pipeline:
 
 ```bash
 sxng --session <session> "query"  ──┐
-sxng results-add <session> ...    ──┤──→ results.json (pending)
+sxng results-add <session> --query "source query" ... ──┤──→ results.json (pending)
                                     │
 sxng extract --session <session>  ──┘   (updates content only)
                                     │
@@ -182,7 +195,7 @@ sxng extract --session <session>  ──┘   (updates content only)
 - **Extract** only fills `content` — does not add new results
 - **Approve** injects approved results into graph (structural edges)
 - **graph-add** only adds entities/edges — results go through approve first
-- **Claim pipeline** (L2/L3 only): Agent submits claims → CLI auto-searches evidence → Agent verifies → CLI aggregates policy → Agent adjusts output
+- **Claim pipeline** (L2/L3 only): before a Claim can use a result as evidence, extract that URL in the session so the evidence records its actual `extractedAt`; then Agent submits claims → CLI auto-searches evidence → Agent verifies → CLI aggregates policy → Agent adjusts output
 
 ### Quick Start
 
@@ -253,37 +266,36 @@ Results must be approved first (→ structural layer). Then use `graph-add` to a
 # Correct order:
 # 1. Search or results-add
 sxng --session <session> "query"
-sxng results-add <session> --data '[...]'  # external results
+sxng results-add <session> --query "source query" --data '[...]'  # external results
 
-# 2. Extract content (optional, any time)
+# 2. Extract and preprocess before approval; retain resultProvenance IDs and rounds
 sxng extract --session <session>
+sxng graph-preprocess <session>
 
 # 3. Approve pending → structural graph built
 sxng --session <session> --quality --approve "0,1,2"
 
-# 4. Add entities/edges (now result nodes exist)
+# 4. Add entities/edges (include sourceRounds; use explicit entity IDs for same-request edges and resultProvenance IDs for result edges)
 sxng graph-add <session> --data '{"entities":[...],"edges":[...]}'
 ```
 
-**External search results**: When using other search tools (tavily, exa, etc.), inject results via the same pipeline—`results-add` → `--approve` → `graph-add` — exactly like sxng results.
+**External search results**: When using other search tools (tavily, exa, etc.), inject results via the same pipeline—`results-add --query` → `extract` → `--approve` → `graph-add`—exactly like sxng results.
 
-When adding edges, `source`/`target` must reference existing node IDs:
+When adding edges, `source`/`target` must reference existing node IDs. Do not hand-build IDs from a URL: use the `id` returned in `graph-preprocess.resultProvenance` for result nodes. Every new entity must include `sourceRounds` from the supporting provenance rows. If an edge references an entity created in the same `graph-add` call, give that entity an explicit `id` and use the same value in the edge.
 
 | Prefix | Type | Format | Example |
 |--------|------|--------|---------|
-| `e:` | Entity | `e:<label>` | `e:tokio` |
-| `r:` | Result | `r:<url>` | `r:https_tokio_rs_` |
-| `q:` | Query | `q:<query>` | `q:rust_async` |
-| `d:` | Domain | `d:<domain>` | `d:github_com` |
+| `e:` | Entity | explicit ID when an edge needs it | `e:tokio` |
+| `r:` | Result | generated ID | `graph-preprocess.resultProvenance[].id` |
+| `q:` | Query | generated ID | graph structural node |
+| `d:` | Domain | generated ID | graph structural node |
 | `p:` | Path | `p:<type>_<num>` | `p:chain_001` |
 
 Graph navigation commands: `graph-search` (discover), `graph-explore` (view relations), `graph-drill` (follow specific relations), `graph-traverse` (reasoning paths).
 
 ### When to Stop
 
-- Quality verdict is "good"
-- Already 3+ search rounds
-- New unique results < 3 per round
+For L2/L3, stop only when all core Query Plan rows are `covered`, or remaining rows are explicitly `blocked` and will be disclosed. A good quality verdict, 3+ rounds, or fewer than 3 new results are signals to reassess the plan; they do not override an unresolved core evidence gap.
 
 ## When to Use
 

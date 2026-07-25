@@ -13,7 +13,7 @@
 **Workflow**:
 
 ```
-Intent Analysis → Query Planning → Multi-source Search → Content Extraction → Graph Building → Quality Assessment → Recovery/Suggestions → (Loop or Output)
+Intent Analysis → Query Planning (with coverage status) → Multi-source Search → Content Extraction → Quality Assessment → Graph Building → Recovery/Suggestions → (Loop or Output)
 ```
 
 ---
@@ -77,6 +77,8 @@ sxng extract --urls "https://pypi.org/project/fastapi/"
 - Multiple dimensions needed (performance / features / pricing)
 - Information requires cross-validation
 
+**Query Plan**: Before the first search, create the same working-note Query Plan used by L3: list each comparison dimension, required evidence, initial `unsearched` status, and its next gap.
+
 **Tool Sequence**:
 
 ```bash
@@ -84,32 +86,35 @@ sxng extract --urls "https://pypi.org/project/fastapi/"
 sxng --session new --owner "agent-1" --desc "Vector DB comparison" \
      "vector database 2026 Pinecone Weaviate Qdrant comparison"
 
-# Step 2: Preprocess + extract
-sxng graph-preprocess <session> --format json
+# Step 2: Extract, then preprocess the extracted content
 sxng extract --session <session>
+sxng graph-preprocess <session> --format json
 # For JS-heavy pages (SPAs), add --obscura fallback:
 # sxng extract --session <session> --obscura
 
-# Step 3: Build knowledge graph (entities only — results go through approve)
-sxng graph-add <session> --data '{
-  "entities": [
-    {"label": "Pinecone", "entityType": "product", "score": 0.9},
-    {"label": "Weaviate", "entityType": "product", "score": 0.85},
-    {"label": "Qdrant", "entityType": "product", "score": 0.8}
-  ],
-  "edges": [
-    {"source": "e:Pinecone", "target": "e:Weaviate", "relation": "competitor", "weight": 0.9}
-  ]
-}'
-
-# Step 4: Quality assessment + approve
+# Step 3: Quality assessment + approve results into the structural graph
 sxng --session <session> --quality
 sxng --session <session> --quality --approve "0,1,2"
 
-# Step 5: If quality not met, get suggestions + supplementary search
+# Step 4: Build semantic knowledge graph (after approval; include sourceRounds from Step 2 provenance)
+sxng graph-add <session> --data '{
+  "entities": [
+    {"id": "e:pinecone", "label": "Pinecone", "entityType": "product", "score": 0.9, "sourceRounds": [1]},
+    {"id": "e:weaviate", "label": "Weaviate", "entityType": "product", "score": 0.85, "sourceRounds": [1]},
+    {"id": "e:qdrant", "label": "Qdrant", "entityType": "product", "score": 0.8, "sourceRounds": [1]}
+  ],
+  "edges": [
+    {"source": "e:pinecone", "target": "e:weaviate", "relation": "competitor", "weight": 0.9}
+  ]
+}'
+
+# Step 5: If a Query Plan gap remains, get suggestions + supplementary search
 sxng suggest-queries <session> --format json
 sxng --session <session> --queries \
      "Pinecone pricing 2026,Weaviate vs Qdrant benchmark" --redundancy warn
+
+# Return to Steps 2-4 for every new result batch: extract, preprocess,
+# approve, then add any needed entities or edges.
 
 # Step 6: Explore graph to verify coverage
 sxng graph-explore <session> --seed "Pinecone" --format json
@@ -119,6 +124,7 @@ sxng graph-explore <session> --seed "Pinecone" --format json
 - [x] Quality assessment verdict is good or acceptable
 - [x] Each candidate has >= 2 independent sources
 - [x] Key entities connected in graph
+- [x] Every core Query Plan row is `covered`, or any `blocked` row is disclosed in the output
 
 ---
 
@@ -138,6 +144,13 @@ Sessions are stored under `.sxng/sessions/` by default.
 **Output**:
 - Core question in one sentence
 - Decomposed into 3-7 sub-queries
+- Query Plan: each sub-question's required evidence and initial `unsearched` status
+
+Before searching, create this plan in the Agent's working notes. It is not persisted by the CLI:
+
+| Sub-question / Claim | Required evidence | Status | Next query, if needed |
+|---|---|---|---|
+| `<question>` | official / independent / counter-evidence / current source | unsearched | `<query only when a gap exists>` |
 
 ```bash
 sxng --session new --owner "researcher" --desc "RAG Vector DB deep research" \
@@ -147,11 +160,11 @@ sxng --session new --owner "researcher" --desc "RAG Vector DB deep research" \
 #### Phase 2: Preprocessing & Entity Discovery
 
 ```bash
-# Get TF-IDF terms, co-occurrence pairs, existing entities
-sxng graph-preprocess <session> --format json
-
 # Extract key page content
 sxng extract --session <session>
+
+# Get TF-IDF terms, co-occurrence pairs, existing entities from extracted content
+sxng graph-preprocess <session> --format json
 ```
 
 **Agent Decision Logic**:
@@ -159,14 +172,23 @@ sxng extract --session <session>
 - Prioritize terms with high co-occurrence count (high connectivity)
 - Avoid overly broad terms
 
-#### Phase 3: Build Knowledge Graph
+#### Phase 3: Quality Assessment & Agent Approval
 
-> **Before Phase 3**: Approved results must already exist in the graph via `--quality --approve`. `graph-add` only accepts entities and edges — results go through the pending pipeline first.
+Approve the extracted results before adding semantic entities or edges. This creates the structural result nodes that later edges can reference.
+
+```bash
+sxng --session <session> --quality
+sxng --session <session> --quality --approve "0,1,2"
+```
+
+#### Phase 4: Build Knowledge Graph
+
+> **Before Phase 4**: Approved results must already exist in the graph via `--quality --approve`. `graph-add` only accepts entities and edges — results go through the pending pipeline first.
 
 ```bash
 sxng graph-add <session> --data '{
-  "entities": [...],
-  "edges": [...]
+  "entities": [{"id": "e:<entity>", "label": "<entity>", "sourceRounds": [1]}],
+  "edges": [{"source": "<resultProvenance id>", "target": "e:<entity>", "relation": "mentions"}]
 }'
 ```
 
@@ -174,14 +196,14 @@ The knowledge graph has two layers:
 - **Structural** (auto-built via --approve): query→result→domain nodes and edges
 - **Semantic** (added by you via `graph-add`): entity nodes with custom relation edges
 
-When adding edges, `source`/`target` must reference existing node IDs. Node ID prefix rules:
+When adding edges, `source`/`target` must reference existing node IDs. Run `graph-preprocess` after extraction and use `resultProvenance[].id` for result nodes; never construct a result ID from its URL. Every new entity needs `sourceRounds` from the supporting provenance rows. When an edge references a newly created entity in the same request, set an explicit `id` such as `e:entity-name`. Node ID prefix rules:
 
 | Prefix | Type | Format | Example |
 |--------|------|--------|---------|
-| `e:` | Entity | `e:<label>` | `e:tokio` |
-| `r:` | Result | `r:<url>` | `r:https_tokio_rs_` |
-| `q:` | Query | `q:<query>` | `q:rust_async` |
-| `d:` | Domain | `d:<domain>` | `d:github_com` |
+| `e:` | Entity | explicit ID when an edge needs it | `e:tokio` |
+| `r:` | Result | generated ID | `resultProvenance[].id` |
+| `q:` | Query | generated ID | graph structural node |
+| `d:` | Domain | generated ID | graph structural node |
 | `p:` | Path | `p:<type>_<num>` | `p:chain_001` |
 
 References to non-existent nodes are skipped and reported in `skippedEdges`.
@@ -190,23 +212,23 @@ References to non-existent nodes are skipped and reported in `skippedEdges`.
 
 ```bash
 # Step 1: Inject external results (become pending)
-sxng results-add <session> --data '[
+sxng results-add <session> --query "external source query" --data '[
   {"url": "https://...", "title": "...", "source": "tavily"},
   {"url": "https://...", "title": "...", "source": "exa"}
 ]'
 
-# Step 2: Run quality assessment → approve (injects into graph)
+# Step 2: Extract, then run quality assessment → approve (injects into graph)
+sxng extract --session <session>
 sxng --session <session> --quality
 sxng --session <session> --quality --approve "0,1,2"
 
 # Step 3: Add entities and edges (after result nodes exist in graph)
 sxng graph-add <session> --data '{
   "entities": [
-    {"label": "EntityName", "entityType": "concept", "score": 0.8}
+    {"id": "e:entity-name", "label": "EntityName", "entityType": "concept", "score": 0.8, "sourceRounds": [1]}
   ],
   "edges": [
-    {"source": "r:https_...", "target": "e:EntityName", "relation": "mentions", "weight": 1},
-    {"source": "e:EntityA", "target": "e:EntityB", "relation": "depends_on", "weight": 0.9}
+    {"source": "<resultProvenance id>", "target": "e:entity-name", "relation": "mentions", "weight": 1}
   ]
 }'
 ```
@@ -214,17 +236,6 @@ sxng graph-add <session> --data '{
 The `source` field (`"sxng"` | `"tavily"` | `"exa"` | `"open-web-search"` | ...) marks which tool produced each result. sxng-native results default to `"sxng"`. External results participate equally in quality assessment, path discovery, and domain diversity — the graph treats them identically regardless of source.
 
 > **Note**: `results-add` marks results as `pending`. They are not in the graph until Agent approval via `--quality --approve`. After approval, use `graph-add` for entities and edges.
-
-#### Phase 4: Quality Assessment & Agent Approval
-
-```bash
-# Assess quality and list pending results with content previews for Agent review
-sxng --session <session> --quality
-
-# Agent reviews title, content preview, source, and domain for each pending result
-# Then approves selected indices (injects into graph automatically)
-sxng --session <session> --quality --approve "0,1,2"
-```
 
 > **Two-layer quality assessment:**
 > 1. **Programmatic pre-filter**: CLI computes 3 indicators (contentDepth, sourceDiversity, novelty) to flag obviously poor batches
@@ -253,6 +264,8 @@ sxng --session <session> --quality --approve "0,1,2"
 > - **Redundancy**: Does it add new information vs. already-approved results?
 > - **Recency**: Is the information current enough for the query?
 
+**Query Plan update (mandatory):** Mark each sub-question as `covered`, `partial`, or `blocked` only from approved and, where needed, extracted results. Record the concrete missing item for every non-covered row: an official source, independent confirmation, counter-evidence, a current version, or a resolved conflict.
+
 #### Phase 5: Query Suggestions
 
 ```bash
@@ -263,6 +276,8 @@ sxng suggest-queries <session> --format json
 - `topEntities` has high degree × frequency but unexplored entities → search using them as keywords
 - `unexploredDomains` is non-empty → choose query terms related to new domains
 - `qualityLastRound.failedIndicators` contains "sourceDiversity" → add `-e` flag to use different engines
+- Choose only a query that closes one recorded Query Plan gap. If no gap remains, stop rather than searching for more supporting material.
+- When the gap is an official source, target the official publisher; when it is independence, seek a non-cross-posted source; when it is a conflict, seek the primary record or retain the disagreement.
 
 #### Phase 6: Continue Search (with Redundancy Check)
 
@@ -270,7 +285,7 @@ sxng suggest-queries <session> --format json
 sxng "follow-up query" --session <session> --redundancy warn
 ```
 
-→ Return to Phase 2, loop until quality is satisfactory
+Before this command, update the Query Plan and state which row and evidence gap the query addresses. Then return to Phase 2. Stop when all core rows are `covered`, the round budget is exhausted, or remaining core rows are explicitly `blocked` and will be disclosed.
 
 #### Phase 7: Recovery Analysis (when consecutive poor quality)
 
@@ -301,11 +316,11 @@ sxng strategy-info <session> --format json
 **Correct Response**:
 
 1. **Switch backends, not sessions.** Use alternative search tools (tavily, exa, open-web-search, web search MCP tools) to get results.
-2. **Inject all results into the current session** via `results-add`:
+2. **Inject all results into the current session** via `results-add`, retaining the query that produced them:
    ```bash
-   sxng results-add <session> --data '[{...}]'
+   sxng results-add <session> --query "failed-backend query" --data '[{...}]'
    ```
-3. **Continue the normal pipeline**: extract → `--quality` → `--approve` → `graph-add`.
+3. **Continue the normal pipeline**: extract → `--quality` → `--approve` → graph-preprocess → `graph-add`.
 
 **What NOT to do**:
 
@@ -367,6 +382,8 @@ Extract from user question:
 - **Non-overlapping**: Sub-queries should not duplicate each other
 - **Dependency annotation**: When B depends on A's results, annotate `depends_on: [A]`
 - **Quantity limit**: 3-7 sub-queries; if exceeded, split the topic
+- **Evidence requirement**: For every sub-query, state whether completion requires an official source, independent confirmation, counter-evidence, or recency verification.
+- **Closure rule**: A sub-query is `covered` only after its required evidence is approved; otherwise it remains `partial` or `blocked` with a named gap.
 
 ### 4.3 Strategy Selection
 
@@ -413,7 +430,7 @@ Local-only results (`source: "local"`) will have `sourceDiversity: 1` because al
 
 ---
 
-## Phase 9–10：Claim—Evidence—Review 自动审核（L2/L3 专用）
+## Claim—Evidence—Review 自动审核（L2/L3 专用）
 
 > **仅 L2/L3 deep search 时可用。** L1 简单搜索无 session、无 approved results 池，不触发。
 >
@@ -422,22 +439,22 @@ Local-only results (`source: "local"`) will have `sourceDiversity: 1` because al
 ### 完整时间线
 
 ```
-Phase 1-7: deep search SOP（现有，不变）
+Phase 1-8: deep search SOP
          ↓
-Phase 8: Agent 基于 approved results + 知识图谱合成草稿
+Agent 基于 approved results + 知识图谱合成草稿
          ↓
-Phase 9: Claim—Evidence—Review（新增，2 步完成）
+Claim—Evidence—Review（2 步完成）
          ↓
-Phase 10: Agent 根据 Review 调整最终输出
+Agent 根据 Review 调整最终输出
          ↓
 最终输出（只引用 approved Claim）
 ```
 
-### Phase 9 展开（CLI 交互）
+### CLI 交互
 
 ```bash
 # Step 1: 批量提交所有 Claim + 自动证据搜索
-sxng claim-add --session <s> --claims '[
+sxng claim-add <s> --claims '[
   {"text":"Tokio is the most widely used async runtime in Rust ecosystem","riskLevel":"medium"},
   {"text":"Rust 2024 edition introduced async closures","riskLevel":"low"},
   {"text":"async-std is no longer actively maintained","riskLevel":"medium"}
@@ -445,7 +462,7 @@ sxng claim-add --session <s> --claims '[
 # → 返回 claims + 每个 claim 的候选证据
 
 # Step 2: 对每个 Claim，确认证据+提交 stance
-sxng evidence-verify --session <s> --claim-id "cl_001" \
+sxng evidence-verify <s> --claim-id "cl_001" \
   --evidence '{"resultUrl":"https://tokio.rs/","quote":"Tokio is the most widely used async runtime...","charStart":1284,"charEnd":1359}' \
   --stance 'support' --reason 'Official docs confirm directly' \
   --complete
@@ -456,7 +473,7 @@ sxng evidence-verify --session <s> --claim-id "cl_001" \
 
 **共 4 次 CLI 调用：** 1 次批量 claim-add + 3 次 evidence-verify。
 
-### Phase 10 Agent 决策分支
+### Agent 决策分支
 
 ```
 Review 返回后
