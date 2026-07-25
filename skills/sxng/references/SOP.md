@@ -430,64 +430,11 @@ Local-only results (`source: "local"`) will have `sourceDiversity: 1` because al
 
 ---
 
-## Claim—Evidence—Review 自动审核（L2/L3 专用）
+## Claim—Evidence—Review Audit (L2/L3 Only)
 
-> **仅 L2/L3 deep search 时可用。** L1 简单搜索无 session、无 approved results 池，不触发。
->
-> 在 Phase 1–8 deep search SOP 完成、Agent 合成草稿之后、输出最终回答前插入。
-
-### 完整时间线
-
-```
-Phase 1-8: deep search SOP
-         ↓
-Agent 基于 approved results + 知识图谱合成草稿
-         ↓
-Claim—Evidence—Review（2 步完成）
-         ↓
-Agent 根据 Review 调整最终输出
-         ↓
-最终输出（只引用 approved Claim）
-```
-
-### CLI 交互
-
-```bash
-# Step 1: 批量提交所有 Claim + 自动证据搜索
-sxng claim-add <s> --claims '[
-  {"text":"Tokio is the most widely used async runtime in Rust ecosystem","riskLevel":"medium"},
-  {"text":"Rust 2024 edition introduced async closures","riskLevel":"low"},
-  {"text":"async-std is no longer actively maintained","riskLevel":"medium"}
-]'
-# → 返回 claims + 每个 claim 的候选证据
-
-# Step 2: 对每个 Claim，确认证据+提交 stance
-sxng evidence-verify <s> --claim-id "cl_001" \
-  --evidence '{"resultUrl":"https://tokio.rs/","quote":"Tokio is the most widely used async runtime...","charStart":1284,"charEnd":1359}' \
-  --stance 'support' --reason 'Official docs confirm directly' \
-  --complete
-# → 返回 evidence + verdict + review（--complete 触发聚合）
-
-# Step 2 重复：对 cl_002、cl_003 各自调一次 evidence-verify
-```
-
-**共 4 次 CLI 调用：** 1 次批量 claim-add + 3 次 evidence-verify。
-
-### Agent 决策分支
-
-```
-Review 返回后
-         │
-    ┌────┴────┐
-    │         │
- approved   needsReview
-    │         │
- 可引用  ┌───┴──────────────┐
-         │                  │
-    修改 Claim +          有冲突
-    重新验证              保留分歧→输出标注
-                         无操作 → 丢弃（不引用）
-```
+After completing Phase 1–8 and synthesizing a draft, run the
+[Claim-Evidence-Review Audit](claim-evidence-review.md) before final output.
+L1 searches have no session or approved-results pool, so they do not run it.
 
 ---
 

@@ -119,7 +119,7 @@ Synthesize draft → claim-add → evidence-search (auto) →
 evidence-verify → policy-aggregate (auto) → Agent adjusts output
 ```
 
-See [SOP Phase 9-10](SOP.md) for the full procedure.
+See [Claim-Evidence-Review Audit](claim-evidence-review.md) for the full procedure.
 
 ## Content Extraction
 

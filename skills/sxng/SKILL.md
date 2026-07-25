@@ -127,7 +127,7 @@ sxng extract --urls "https://spa-site.com" --jina
 
 Deep search enables multi-round iterative research with session accumulation, quality assessment, recovery strategies, and knowledge graph navigation.
 
-> Read the [SOP](references/SOP.md) for core procedures and [Evidence Standards](references/evidence-standards.md) for source quality rules before starting.
+> Read the [SOP](references/SOP.md) for core procedures and [Evidence Standards](references/evidence-standards.md) for source quality rules before starting. For the final L2/L3 claim audit, read [Claim-Evidence-Review Audit](references/claim-evidence-review.md) after synthesizing the draft.
 
 > **🔗 Session Continuity Rule (Hard Requirement)**
 >
