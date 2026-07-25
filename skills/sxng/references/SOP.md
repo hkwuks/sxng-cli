@@ -434,7 +434,7 @@ Local-only results (`source: "local"`) will have `sourceDiversity: 1` because al
 
 > **仅 L2/L3 deep search 时可用。** L1 简单搜索无 session、无 approved results 池，不触发。
 >
-> 在 Phase 1–7 deep search SOP 完成、Phase 8 Agent 合成草稿之后、输出最终回答前插入。
+> 在 Phase 1–8 deep search SOP 完成、Agent 合成草稿之后、输出最终回答前插入。
 
 ### 完整时间线
 
