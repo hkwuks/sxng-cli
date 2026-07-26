@@ -553,7 +553,7 @@ npm link
 
 ### Obscura（可选 — 用于 JS 密集页面）
 
-[sxng extract](#-使用指南) 默认使用 **Defuddle + linkedom** 进行轻量级内容提取。当页面需要 JavaScript 渲染（SPA、动态内容）时，可启用 [Obscura](https://github.com/h4ckf0r0day/obscura) 作为回退：
+[sxng extract](#-使用指南) 默认使用 **Defuddle + linkedom** 进行轻量级内容提取。当页面需要 JavaScript 渲染（SPA、动态内容）时，可启用 [Obscura](https://github.com/h4ckf0r0day/obscura) 作为回退。使用 `--obscura` 且本机缺少二进制文件时，sxng 会从官方 GitHub HTTPS 下载入口自动下载对应平台的发布包：
 
 ```bash
 # Linux x86_64

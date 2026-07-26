@@ -9,7 +9,6 @@ import { EvidenceCandidate } from '../claims/deterministic-checks.js';
 import {
   loadClaims,
   saveClaims,
-  nextClaimId,
   getClaimsByStatus,
 } from '../claims/store.js';
 import { searchCandidates } from '../claims/deterministic-checks.js';
@@ -72,11 +71,12 @@ export async function runClaimAdd(
   }
 
   const now = Date.now();
+  const existing = loadClaims(sessionDir);
   const newClaims: Claim[] = [];
   const candidates: Record<string, EvidenceCandidate[]> = {};
 
-  for (const input of inputs) {
-    const id = nextClaimId(sessionDir);
+  for (const [index, input] of inputs.entries()) {
+    const id = `cl_${String(existing.length + index + 1).padStart(3, '0')}`;
     const claim: Claim = {
       id,
       text: input.text,
@@ -96,7 +96,6 @@ export async function runClaimAdd(
   }
 
   // Append to existing claims
-  const existing = loadClaims(sessionDir);
   saveClaims(sessionDir, [...existing, ...newClaims]);
 
   const result: Record<string, any> = {

@@ -100,7 +100,11 @@ const PATH_TYPE_PREFIX: Record<PathType, string> = {
 
 /** Generate the next path node ID for a given path type.
  *  Scans existing graph nodes to find the current max counter. */
-export function nextPathId(graph: DirectedGraph<GraphNodeAttrs, GraphEdgeAttrs>, pathType: PathType): string {
+export function nextPathId(
+    graph: DirectedGraph<GraphNodeAttrs, GraphEdgeAttrs>,
+    pathType: PathType,
+    batchOffset = 0,
+): string {
     const prefix = PATH_TYPE_PREFIX[pathType];
     let maxCounter = 0;
     graph.forEachNode((node: string, attrs: GraphNodeAttrs) => {
@@ -113,7 +117,7 @@ export function nextPathId(graph: DirectedGraph<GraphNodeAttrs, GraphEdgeAttrs>,
             }
         }
     });
-    const next = maxCounter + 1;
+    const next = maxCounter + batchOffset + 1;
     return `p:${prefix}_${String(next).padStart(3, '0')}`;
 }
 

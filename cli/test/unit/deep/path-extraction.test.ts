@@ -122,6 +122,22 @@ describe('path-extraction', () => {
                 expect(chains[0].id).toMatch(/^p:chain_\d{3}$/);
             }
         });
+
+        it('assigns unique IDs to every chain detected in one batch', () => {
+            const graph = createGraph();
+            for (const label of ['a', 'b', 'c', 'd', 'e', 'f']) {
+                graph.mergeNode(entityId(label), { type: 'entity', label });
+            }
+            graph.addEdge(entityId('a'), entityId('b'), { relation: 'depends_on', weight: 1 });
+            graph.addEdge(entityId('b'), entityId('c'), { relation: 'depends_on', weight: 1 });
+            graph.addEdge(entityId('d'), entityId('e'), { relation: 'depends_on', weight: 1 });
+            graph.addEdge(entityId('e'), entityId('f'), { relation: 'depends_on', weight: 1 });
+
+            const chains = detectCompositionChains(graph, { minChainHops: 2, maxChainHops: 2 });
+
+            expect(chains).toHaveLength(2);
+            expect(new Set(chains.map(chain => chain.id)).size).toBe(chains.length);
+        });
     });
 
     describe('detectConjunctions', () => {
@@ -200,6 +216,21 @@ describe('path-extraction', () => {
 
             const conjunctions = detectConjunctions(graph);
             expect(conjunctions[0].id).toMatch(/^p:conj_\d{3}$/);
+        });
+
+        it('assigns unique IDs to every conjunction detected in one batch', () => {
+            const graph = createGraph();
+            for (const label of ['a', 'b', 'c', 'target']) {
+                graph.mergeNode(entityId(label), { type: 'entity', label });
+            }
+            graph.addEdge(entityId('a'), entityId('target'), { relation: 'depends_on', weight: 1 });
+            graph.addEdge(entityId('b'), entityId('target'), { relation: 'depends_on', weight: 1 });
+            graph.addEdge(entityId('c'), entityId('target'), { relation: 'depends_on', weight: 1 });
+
+            const conjunctions = detectConjunctions(graph, { maxConjunctionDepth: 1 });
+
+            expect(conjunctions).toHaveLength(3);
+            expect(new Set(conjunctions.map(conjunction => conjunction.id)).size).toBe(conjunctions.length);
         });
 
         it('deduplicates conjunction pairs', () => {

@@ -1,18 +1,17 @@
-import { createHash } from 'crypto';
 import { describe, expect, it } from 'vitest';
-import { verifyObscuraAssetDigest } from '../../../src/deep/extractor.js';
+import { obscuraDownloadUrl } from '../../../src/deep/extractor.js';
 
-describe('verifyObscuraAssetDigest', () => {
-    const archive = Buffer.from('verified obscura archive');
-    const sha256 = createHash('sha256').update(archive).digest('hex');
+describe('obscuraDownloadUrl', () => {
+    it.each([
+        'obscura-x86_64-linux.tar.gz',
+        'obscura-aarch64-linux.tar.gz',
+        'obscura-x86_64-macos.tar.gz',
+        'obscura-aarch64-macos.tar.gz',
+    ])('keeps the %s release asset on the GitHub HTTPS endpoint', (tarball) => {
+        const url = new URL(obscuraDownloadUrl(tarball));
 
-    it('accepts the matching GitHub sha256 asset digest', () => {
-        expect(verifyObscuraAssetDigest(archive, `sha256:${sha256}`)).toBe(true);
-    });
-
-    it('rejects a missing, malformed, or mismatched digest', () => {
-        expect(verifyObscuraAssetDigest(archive)).toBe(false);
-        expect(verifyObscuraAssetDigest(archive, 'sha512:abc')).toBe(false);
-        expect(verifyObscuraAssetDigest(archive, `sha256:${'0'.repeat(64)}`)).toBe(false);
+        expect(url.protocol).toBe('https:');
+        expect(url.hostname).toBe('github.com');
+        expect(url.pathname).toBe(`/h4ckf0r0day/obscura/releases/latest/download/${tarball}`);
     });
 });

@@ -87,7 +87,7 @@ export function detectCompositionChains(
                 seenEntitySets.add(key);
             }
 
-            const id = nextPathId(graph, 'composition_chain');
+            const id = nextPathId(graph, 'composition_chain', chains.length);
             chains.push({
                 id,
                 entities: path.entities,
@@ -218,7 +218,7 @@ export function detectConjunctions(
                 if (dedup && seenPairs.has(pairKey)) continue;
                 seenPairs.add(pairKey);
 
-                const id = nextPathId(graph, 'conjunction');
+                const id = nextPathId(graph, 'conjunction', conjunctions.length);
                 conjunctions.push({
                     id,
                     seed1: e1,

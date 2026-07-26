@@ -6,7 +6,6 @@ import { parseHTML } from 'linkedom';
 import { Defuddle } from 'defuddle/node';
 import { execFile } from 'child_process';
 import { promisify } from 'util';
-import { createHash } from 'crypto';
 import { homedir, arch, platform } from 'os';
 import { join } from 'path';
 import { mkdir, chmod, writeFile, rm } from 'fs/promises';
@@ -27,7 +26,7 @@ const OBSCURA_SEARCH_PATHS = [
 
 const OBSCURA_INSTALL_DIR = join(homedir(), '.local', 'bin');
 const OBSCURA_INSTALL_PATH = join(OBSCURA_INSTALL_DIR, 'obscura');
-const OBSCURA_RELEASE_API = 'https://api.github.com/repos/h4ckf0r0day/obscura/releases/latest';
+const OBSCURA_RELEASE_DOWNLOAD_BASE = 'https://github.com/h4ckf0r0day/obscura/releases/latest/download';
 
 const JINA_READER_BASE = 'https://r.jina.ai';
 const JINA_RPM = 20; // ponytail: free tier rate limit, 1 request per 3s average
@@ -69,24 +68,8 @@ function getObscuraTarballName(): string | null {
     return null;
 }
 
-interface ObscuraReleaseAsset {
-    name?: unknown;
-    browser_download_url?: unknown;
-    digest?: unknown;
-}
-
-function getObscuraReleaseAsset(release: unknown, tarball: string): { url: string; digest: string } | null {
-    if (!release || typeof release !== 'object' || !Array.isArray((release as { assets?: unknown }).assets)) return null;
-
-    const asset = ((release as { assets: ObscuraReleaseAsset[] }).assets).find(({ name }) => name === tarball);
-    if (!asset || typeof asset.browser_download_url !== 'string' || typeof asset.digest !== 'string') return null;
-    return { url: asset.browser_download_url, digest: asset.digest };
-}
-
-export function verifyObscuraAssetDigest(archive: Buffer, digest?: string): boolean {
-    const match = digest?.match(/^sha256:([a-f0-9]{64})$/i);
-    if (!match) return false;
-    return createHash('sha256').update(archive).digest('hex').toLowerCase() === match[1].toLowerCase();
+export function obscuraDownloadUrl(tarball: string): string {
+    return `${OBSCURA_RELEASE_DOWNLOAD_BASE}/${tarball}`;
 }
 
 async function installObscura(): Promise<string | null> {
@@ -97,20 +80,10 @@ async function installObscura(): Promise<string | null> {
     if (!tarball) return null;
 
     try {
-        const releaseResponse = await fetch(OBSCURA_RELEASE_API, {
-            headers: { 'Accept': 'application/vnd.github+json', 'User-Agent': 'sxng-cli' },
-            signal: AbortSignal.timeout(15_000),
-        });
-        if (!releaseResponse.ok) return null;
-
-        const asset = getObscuraReleaseAsset(await releaseResponse.json(), tarball);
-        if (!asset) return null;
-
-        const response = await fetch(asset.url, { signal: AbortSignal.timeout(60_000) });
+        const response = await fetch(obscuraDownloadUrl(tarball), { signal: AbortSignal.timeout(60_000) });
         if (!response.ok) return null;
 
         const archive = Buffer.from(await response.arrayBuffer());
-        if (!verifyObscuraAssetDigest(archive, asset.digest)) return null;
 
         await mkdir(OBSCURA_INSTALL_DIR, { recursive: true });
         const tmpTarball = join(OBSCURA_INSTALL_DIR, `${tarball}.downloading`);

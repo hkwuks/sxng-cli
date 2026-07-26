@@ -5,7 +5,7 @@
  * and policy engine (all 7 rules + edge cases).
  */
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
@@ -109,6 +109,7 @@ import {
   aggregateAll,
   PolicyInput,
 } from '../src/claims/policy.js';
+import { runClaimAdd } from '../src/commands/claim.js';
 import { runEvidenceVerify } from '../src/commands/evidence.js';
 
 // ── Setup / Teardown ────────────────────────────────────────────────
@@ -252,6 +253,37 @@ describe('store (CRUD)', () => {
     expect(getEvidenceForClaim(sessionDir, 'cl_001')).toHaveLength(1);
     expect(getEvidenceForClaim(sessionDir, 'cl_002')).toHaveLength(1);
     expect(getEvidenceForClaim(sessionDir, 'cl_003')).toHaveLength(0);
+  });
+});
+
+describe('claim-add', () => {
+  it('assigns distinct sequential IDs to every claim in a batch', async () => {
+    const log = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+
+    expect(await runClaimAdd(sessionDir, {
+      claims: JSON.stringify([
+        { text: 'Tokio is widely used.' },
+        { text: 'Rust 2024 introduced async closures.' },
+        { text: 'async-std is no longer actively maintained.' },
+      ]),
+    })).toBe(0);
+
+    expect(loadClaims(sessionDir).map(claim => claim.id)).toEqual(['cl_001', 'cl_002', 'cl_003']);
+    const output = JSON.parse(log.mock.calls[0][0]);
+    expect(Object.keys(output.data.candidates)).toEqual(['cl_001', 'cl_002', 'cl_003']);
+  });
+
+  it('continues a batch after previously stored claims', async () => {
+    saveClaims(sessionDir, [
+      { id: 'cl_001', text: 'Existing claim.', riskLevel: 'low', status: 'pending', sessionDir, createdAt: 0 },
+    ]);
+    vi.spyOn(console, 'log').mockImplementation(() => undefined);
+
+    expect(await runClaimAdd(sessionDir, {
+      claims: JSON.stringify([{ text: 'Second claim.' }, { text: 'Third claim.' }]),
+    })).toBe(0);
+
+    expect(loadClaims(sessionDir).map(claim => claim.id)).toEqual(['cl_001', 'cl_002', 'cl_003']);
   });
 });
 
