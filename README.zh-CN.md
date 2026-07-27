@@ -990,6 +990,16 @@ Engine: google | Category: general | Score: 1
 
 ---
 
+## 💡 使用 SXNG CLI 的项目
+
+SXNG CLI 的深度搜索工作流（会话积累、质量评估、知识图谱、声明-证据-审核）已被需要持久化、多轮研究能力的项目采用：
+
+- **[1052 OS](https://github.com/1052666/1052-OS)** — 个人 AI 操作系统。其 `search-pack` 集成了持久化研究会话、质量评估、内容提取和声明-证据-审核流程，这些功能均由与 SXNG CLI 相同的深度搜索理念驱动。
+
+> 欢迎提交 PR 添加你的项目。
+
+---
+
 ## ⭐ Star 历史
 
 [![Star History Chart](https://api.star-history.com/svg?repos=hkwuks/sxng-cli&type=date&legend=top-left&sealed_token=ugUt7g0kbmlxX_n5CevCTurOYzaaFJAXvBaDFvk81lpD4N7zYb5wbyXxkyisyxMZm2E2uFHH9cvA7Q8i84MG0izcZNqaQfgUeIxVEwuvCp_kVtv0BiKaLKkM6s2vhnnZTOaBp8wEnwWGZ2HWqLgvKlLjDWAiBh2GrCl3N7bAMTNrU3MMojGskEP7UK26)](https://www.star-history.com/?repos=hkwuks%2Fsxng-cli&type=date&legend=top-left)

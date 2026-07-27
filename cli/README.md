@@ -397,6 +397,14 @@ sxng doc-search <session-name> "query" --path ./docs
 
 See [PRD-005 design improvements](docs/prds/PRD-005-design-improvements.md) for the deferred remediation plan.
 
+## 💡 Projects Using SXNG CLI
+
+SXNG CLI's deep search workflow (session accumulation, quality assessment, knowledge graph, claim–evidence–review) is used by projects that need persistent, multi-round research capabilities:
+
+- **[1052 OS](https://github.com/1052666/1052-OS)** — A personal AI operating system. Its `search-pack` integrates persistent research sessions, quality assessment, content extraction, and a claim–evidence–review pipeline, all powered by the same deep search concepts that drive SXNG CLI.
+
+> Open a PR to add your project here.
+
 ## 🔗 Links
 
 - **GitHub:** https://github.com/hkwuks/sxng-cli
