@@ -21,17 +21,14 @@ Final output (cite approved claims only)
 ## CLI Interaction
 
 ```bash
-# Step 1: Submit all claims and automatically search for evidence.
-sxng claim-add <session> --claims '[
-  {"text":"Tokio is the most widely used async runtime in Rust ecosystem","riskLevel":"medium"},
-  {"text":"Rust 2024 edition introduced async closures","riskLevel":"low"},
-  {"text":"async-std is no longer actively maintained","riskLevel":"medium"}
-]'
+# Step 1: Save all claims as UTF-8 JSON under this session, then submit them.
+sxng claim-add <session> --claims-file ./.sxng/sessions/<session>/agent-inputs/claims.json
 # Returns claims and evidence candidates for every claim.
 
-# Step 2: For each claim, confirm evidence and submit a stance.
+# Step 2: Save {resultId, quote, charStart, charEnd} as UTF-8 JSON under this
+# session. For each claim, confirm evidence and submit a stance.
 sxng evidence-verify <session> --claim-id "cl_001" \
-  --evidence '{"resultUrl":"https://tokio.rs/","quote":"Tokio is the most widely used async runtime...","charStart":1284,"charEnd":1359}' \
+  --evidence-file ./.sxng/sessions/<session>/agent-inputs/evidence-cl_001.json \
   --stance 'support' --reason 'Official docs confirm directly' \
   --complete
 # Returns evidence, verdict, and review; --complete triggers aggregation.
@@ -40,7 +37,8 @@ sxng evidence-verify <session> --claim-id "cl_001" \
 ```
 
 For the three-claim example, this uses four CLI calls: one batch `claim-add`
-and three `evidence-verify` calls.
+and three `evidence-verify` calls. Evidence is anchored to an approved `resultId`,
+not a URL; only verified extracted bodies are eligible.
 
 ## Review Decision
 

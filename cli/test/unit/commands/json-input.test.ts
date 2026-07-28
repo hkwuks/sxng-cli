@@ -2,9 +2,10 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { mkdtempSync, rmSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
-import { readSingleJsonInput } from '../../../src/commands/json-input.js';
+import { readSessionJsonInput } from '../../../src/commands/json-input.js';
+import { initSessionDir } from '../../../src/deep/session.js';
 
-describe('readSingleJsonInput', () => {
+describe('readSessionJsonInput', () => {
     const directories: string[] = [];
 
     afterEach(() => {
@@ -16,12 +17,13 @@ describe('readSingleJsonInput', () => {
     it('reads UTF-8 BOM JSON files containing Chinese, newlines, and quotes', () => {
         const directory = mkdtempSync(join(tmpdir(), 'sxng-json-input-'));
         directories.push(directory);
-        const file = join(directory, 'exa-results.json');
+        initSessionDir(directory);
+        const file = join(directory, 'agent-inputs', 'exa-results.json');
         writeFileSync(file, `\uFEFF${JSON.stringify([
             { title: '中文 "引号"', content: '第一行\n第二行' },
         ], null, 2)}`, 'utf8');
 
-        const result = readSingleJsonInput([{ option: '--data-file', value: file, file: true }]);
+        const result = readSessionJsonInput(directory, [{ option: '--data-file', value: file, file: true }]);
 
         expect(result).toEqual({
             ok: true,
@@ -31,31 +33,38 @@ describe('readSingleJsonInput', () => {
     });
 
     it('rejects missing or multiple JSON input sources before parsing', () => {
-        expect(readSingleJsonInput([{ option: '--data' }, { option: '--data-file', file: true }]))
+        const directory = mkdtempSync(join(tmpdir(), 'sxng-json-input-'));
+        directories.push(directory);
+        initSessionDir(directory);
+        const file = join(directory, 'agent-inputs', 'results.json');
+        writeFileSync(file, '[]', 'utf8');
+        expect(readSessionJsonInput(directory, [{ option: '--data' }, { option: '--data-file', file: true }]))
             .toMatchObject({ ok: false, code: 'MISSING_JSON_INPUT' });
-        expect(readSingleJsonInput([
+        expect(readSessionJsonInput(directory, [
             { option: '--data', value: '[]' },
-            { option: '--data-file', value: 'results.json', file: true },
+            { option: '--data-file', value: file, file: true },
         ])).toMatchObject({ ok: false, code: 'MULTIPLE_JSON_INPUTS' });
     });
 
     it('rejects UTF-16 input instead of treating it as malformed UTF-8 JSON', () => {
         const directory = mkdtempSync(join(tmpdir(), 'sxng-json-input-'));
         directories.push(directory);
-        const file = join(directory, 'utf16.json');
+        initSessionDir(directory);
+        const file = join(directory, 'agent-inputs', 'utf16.json');
         writeFileSync(file, Buffer.from([0xff, 0xfe, 0x5b, 0x00, 0x5d, 0x00]));
 
-        expect(readSingleJsonInput([{ option: '--data-file', value: file, file: true }]))
+        expect(readSessionJsonInput(directory, [{ option: '--data-file', value: file, file: true }]))
             .toMatchObject({ ok: false, code: 'UNSUPPORTED_JSON_ENCODING' });
     });
 
     it('rejects invalid UTF-8 bytes before JSON parsing', () => {
         const directory = mkdtempSync(join(tmpdir(), 'sxng-json-input-'));
         directories.push(directory);
-        const file = join(directory, 'invalid-utf8.json');
+        initSessionDir(directory);
+        const file = join(directory, 'agent-inputs', 'invalid-utf8.json');
         writeFileSync(file, Buffer.from([0x5b, 0xff, 0x5d]));
 
-        expect(readSingleJsonInput([{ option: '--data-file', value: file, file: true }]))
+        expect(readSessionJsonInput(directory, [{ option: '--data-file', value: file, file: true }]))
             .toMatchObject({ ok: false, code: 'UNSUPPORTED_JSON_ENCODING' });
     });
 });

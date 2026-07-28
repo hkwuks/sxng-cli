@@ -89,8 +89,9 @@ function collectEdge(
     source: string,
     target: string
 ): SampledEdge | null {
-    if (!graph.hasEdge(source, target)) return null;
-    const attrs = graph.getEdgeAttributes(source, target);
+    const edge = graph.edges(source, target)[0];
+    if (!edge) return null;
+    const attrs = graph.getEdgeAttributes(edge);
     return { source, target, relation: attrs.relation, weight: attrs.weight };
 }
 

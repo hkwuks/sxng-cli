@@ -41,19 +41,26 @@ const DEFAULT_CONFIG: StrategyConfig = {
 
 // ── Stage determination ───────────────────────────────────────────
 
-/** Count entities that first appeared in each round (via sourceRounds attribute). */
+/** Count entities by their supporting result count; rounds are no longer semantic provenance. */
 function entityCountsByRound(
     graph: DirectedGraph<GraphNodeAttrs, GraphEdgeAttrs>
 ): Map<number, number> {
     const counts = new Map<number, number>();
 
+    const roundForResult = (resultId: string): number | undefined => {
+        if (!graph.hasNode(resultId)) return undefined;
+        const attrs = graph.getNodeAttributes(resultId);
+        const rounds = attrs.origins?.map(origin => origin.round).filter((round): round is number => Number.isSafeInteger(round)) ?? [];
+        return rounds.length ? Math.max(...rounds) : undefined;
+    };
+
     graph.forEachNode((_node: string, attrs: GraphNodeAttrs) => {
         if (attrs.type !== 'entity') return;
-        const rounds = attrs.sourceRounds;
-        if (rounds && rounds.length > 0) {
-            // Entity counts for its earliest round
-            const earliestRound = Math.min(...rounds);
-            counts.set(earliestRound, (counts.get(earliestRound) ?? 0) + 1);
+        const sources = attrs.sourceResultIds;
+        const rounds = sources?.map(roundForResult).filter((round): round is number => round !== undefined) ?? [];
+        if (rounds.length > 0) {
+            const bucket = Math.max(...rounds);
+            counts.set(bucket, (counts.get(bucket) ?? 0) + 1);
         } else {
             // No round info → count as round 0
             counts.set(0, (counts.get(0) ?? 0) + 1);

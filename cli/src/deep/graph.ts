@@ -9,8 +9,9 @@
  * The CLI only stores what the Agent sends via graph-add.
  */
 
-import { DirectedGraph } from 'graphology';
+import { DirectedGraph, MultiDirectedGraph } from 'graphology';
 import { createHash } from 'crypto';
+import { resultUrlKey } from './dedupe.js';
 
 /** Semantic edge relation types */
 export const EDGE_RELATIONS = {
@@ -33,7 +34,7 @@ export interface GraphNodeAttrs {
     entityType?: string; // e.g. "person", "technology", "concept"
     score?: number;
     reasoningPaths?: string[]; // path node IDs this entity participates in
-    sourceRounds?: number[]; // search rounds where this entity appeared
+    sourceResultIds?: string[]; // approved extracted results that support this semantic node
     frequency?: number; // how many results mention this entity
     obfuscatedLabel?: string; // LLM-generated obfuscated label (Phase 5)
     // Result-specific
@@ -41,6 +42,7 @@ export interface GraphNodeAttrs {
     rank?: number;
     title?: string;
     source?: string; // "sxng" | "tavily" | "exa" | "open-web-search" | ... — which tool produced this result
+    origins?: Array<{ tool: string; engine?: string; query: string; round?: number }>;
     // Query-specific
     query?: string;
     round?: number;
@@ -55,6 +57,7 @@ export interface GraphNodeAttrs {
 export interface GraphEdgeAttrs {
     relation: string;
     weight: number;
+    sourceResultIds?: string[];
 }
 
 function generateId(prefix: string, value: string): string {
@@ -66,7 +69,7 @@ function generateId(prefix: string, value: string): string {
 
 /** Create an empty entity-centric knowledge graph */
 export function createGraph(): DirectedGraph<GraphNodeAttrs, GraphEdgeAttrs> {
-    return new DirectedGraph<GraphNodeAttrs, GraphEdgeAttrs>();
+    return new MultiDirectedGraph<GraphNodeAttrs, GraphEdgeAttrs>();
 }
 
 /** Generate a node ID for an entity */
@@ -76,7 +79,7 @@ export function entityId(label: string): string {
 
 /** Generate a node ID for a result */
 export function resultId(url: string): string {
-    return generateId('r', url);
+    return generateId('r', resultUrlKey({ url }));
 }
 
 /** Generate a node ID for a query */
@@ -134,7 +137,7 @@ function extractDomain(url: string): string {
 export function buildStructuralEdges(
     graph: DirectedGraph<GraphNodeAttrs, GraphEdgeAttrs>,
     query: string,
-    results: Array<{ url: string; title: string; rank?: number; source?: string }>,
+    results: Array<{ url: string; title: string; rank?: number; origins?: GraphNodeAttrs['origins'] }>,
     round?: number
 ): void {
     const qId = queryId(query, round);
@@ -161,7 +164,7 @@ export function buildStructuralEdges(
                 url: r.url,
                 title: r.title,
                 rank: r.rank ?? i + 1,
-                source: r.source ?? 'sxng',
+                origins: r.origins ?? [],
             });
         }
 
@@ -216,7 +219,7 @@ export function bfsSubgraph(
         });
     }
 
-    const subgraph = new DirectedGraph<GraphNodeAttrs, GraphEdgeAttrs>();
+    const subgraph = new MultiDirectedGraph<GraphNodeAttrs, GraphEdgeAttrs>();
     for (const nodeId of visited) {
         const attrs = graph.getNodeAttributes(nodeId);
         subgraph.mergeNode(nodeId, attrs);
@@ -236,7 +239,7 @@ export function serializeGraph(graph: DirectedGraph<GraphNodeAttrs, GraphEdgeAtt
 }
 
 export function deserializeGraph(data: any): DirectedGraph<GraphNodeAttrs, GraphEdgeAttrs> {
-    const graph = new DirectedGraph<GraphNodeAttrs, GraphEdgeAttrs>();
+    const graph = new MultiDirectedGraph<GraphNodeAttrs, GraphEdgeAttrs>();
     graph.import(data);
     return graph;
 }

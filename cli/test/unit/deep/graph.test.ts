@@ -94,8 +94,8 @@ describe('graph', () => {
             const r1 = resultId('https://a.com');
             const r2 = resultId('https://b.com');
 
-            const w1 = graph.getEdgeAttributes(qId, r1).weight;
-            const w2 = graph.getEdgeAttributes(qId, r2).weight;
+            const w1 = graph.getEdgeAttributes(graph.edges(qId, r1)[0]).weight;
+            const w2 = graph.getEdgeAttributes(graph.edges(qId, r2)[0]).weight;
             expect(w1).toBeGreaterThan(w2);
         });
 
@@ -396,7 +396,7 @@ describe('graph', () => {
                 weight: 0.8,
             });
 
-            const edge = graph.getEdgeAttributes(entityId('tokio'), entityId('hyper'));
+            const edge = graph.getEdgeAttributes(graph.edges(entityId('tokio'), entityId('hyper'))[0]);
             expect(edge.relation).toBe('co_occurs_with');
             expect(edge.weight).toBe(0.8);
         });
@@ -410,7 +410,7 @@ describe('graph', () => {
                 weight: 1,
             });
 
-            const edge = graph.getEdgeAttributes('p:chain_001', entityId('tokio'));
+            const edge = graph.getEdgeAttributes(graph.edges('p:chain_001', entityId('tokio'))[0]);
             expect(edge.relation).toBe('includes');
         });
     });

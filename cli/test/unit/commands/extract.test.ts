@@ -3,94 +3,45 @@ import { mkdtempSync, rmSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
 import { runExtract } from '../../../src/commands/extract.js';
-import type { ContentExtractor, ExtractedContent } from '../../../src/deep/extractor.js';
-import { appendSessionResults, loadSessionResults } from '../../../src/deep/session.js';
-
-function extractedContent(url: string, content: string): ExtractedContent {
-    return {
-        title: url,
-        content,
-        excerpt: '',
-        url,
-        length: content.length,
-        extractedAt: 0,
-    };
-}
+import { appendSessionResults, initSessionDir, loadSessionResults } from '../../../src/deep/session.js';
 
 describe('runExtract', () => {
-    afterEach(() => vi.restoreAllMocks());
+  const sessionDir = mkdtempSync(join(tmpdir(), 'sxng-extract-'));
+  afterEach(() => { vi.restoreAllMocks(); rmSync(sessionDir, { recursive: true, force: true }); });
 
-    it('compares complete extracted content instead of only its first 500 characters', async () => {
-        const prefix = 'This shared introduction appears on both pages before their independent analysis. '.repeat(20);
-        const extractor = {
-            extractBatch: vi.fn().mockResolvedValue([
-                extractedContent('https://example.com/a', `${prefix}${'The first report examines renewable energy storage. '.repeat(60)}`),
-                extractedContent('https://example.com/b', `${prefix}${'The second report examines quantum error correction. '.repeat(60)}`),
-            ]),
-        } as unknown as ContentExtractor;
-        const log = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+  it('requires explicit URLs for rate-limited special extractors', async () => {
+    const extractor = { extractBatch: vi.fn() } as any;
+    const log = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    expect(await runExtract(extractor, { jina: true, session: 'named' })).toBe(1);
+    expect(JSON.parse(log.mock.calls[0][0]).error.code).toBe('SPECIAL_EXTRACTOR_REQUIRES_URLS');
+    expect(extractor.extractBatch).not.toHaveBeenCalled();
+  });
 
-        expect(await runExtract(extractor, { urls: ['https://example.com/a', 'https://example.com/b'] })).toBe(0);
+  it('convenience mode extracts only pending discovery records and treats short nonempty content as success', async () => {
+    initSessionDir(sessionDir);
+    appendSessionResults(sessionDir, [
+      { url: 'https://example.com/pending', title: 'Pending', origins: [{ tool: 'sxng', query: 'q' }] },
+      { url: 'https://example.com/done', title: 'Done', contentType: 'extracted', content: 'Already present.', extractor: 'defuddle', origins: [{ tool: 'sxng', query: 'q' }] },
+    ]);
+    const extractor = { extractBatch: vi.fn().mockResolvedValue([{
+      url: 'https://example.com/pending', title: 'Pending', content: 'Short.', excerpt: '', length: 6, extractedAt: 1,
+    }]) } as any;
+    vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    expect(await runExtract(extractor, { session: sessionDir })).toBe(0);
+    expect(extractor.extractBatch).toHaveBeenCalledWith(['https://example.com/pending']);
+    expect(loadSessionResults(sessionDir).find(result => result.url.endsWith('/pending'))).toMatchObject({ content: 'Short.', contentType: 'extracted' });
+  });
 
-        const envelope = JSON.parse(log.mock.calls[0][0]);
-        expect(envelope.data.extracted).toHaveLength(2);
-        expect(envelope.data.stats).toMatchObject({ success: 2, failed: 0 });
+  it('returns a retryable error with the Jina retry schedule', async () => {
+    const extractor = { extractBatch: vi.fn().mockResolvedValue([{
+      url: 'https://example.com/article', title: '', content: '', excerpt: '', length: 0, extractedAt: 1,
+      error: 'Jina Reader rate limit reached', retryAfterMs: 3000, retryAt: 4000,
+    }]) } as any;
+    const log = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+
+    expect(await runExtract(extractor, { urls: ['https://example.com/article'], jina: true })).toBe(1);
+    expect(JSON.parse(log.mock.calls[0][0])).toMatchObject({
+      status: 'error', error: { code: 'JINA_RATE_LIMITED', retryable: true, details: { retryAfterMs: 3000, retryAt: 4000 } },
     });
-
-    it('merges successful session extraction with its capture timestamp', async () => {
-        const sessionDir = mkdtempSync(join(tmpdir(), 'sxng-extract-session-test-'));
-        const url = 'https://example.com/article';
-        const content = 'Captured source text. '.repeat(12);
-        appendSessionResults(sessionDir, [{ url, title: 'Article', content: 'Caller-provided summary.' }]);
-        const extractor = {
-            extractBatch: vi.fn().mockResolvedValue([extractedContent(url, content)]),
-        } as unknown as ContentExtractor;
-        const log = vi.spyOn(console, 'log').mockImplementation(() => undefined);
-
-        try {
-            expect(await runExtract(extractor, { session: sessionDir })).toBe(0);
-
-            const envelope = JSON.parse(log.mock.calls[0][0]);
-            expect(envelope.data).toMatchObject({
-                stats: { success: 1, failed: 0 },
-                session: { updated: 1, total: 1 },
-            });
-            expect(loadSessionResults(sessionDir)[0]).toMatchObject({ content, extractedAt: expect.any(Number) });
-        } finally {
-            rmSync(sessionDir, { recursive: true, force: true });
-        }
-    });
-
-    it('rejects rate-limited Jina extraction without explicit URLs', async () => {
-        const extractor = {
-            extractBatch: vi.fn(),
-        } as unknown as ContentExtractor;
-        const log = vi.spyOn(console, 'log').mockImplementation(() => undefined);
-
-        expect(await runExtract(extractor, { session: 'research', jina: true })).toBe(1);
-
-        const envelope = JSON.parse(log.mock.calls[0][0]);
-        expect(envelope.error.code).toBe('JINA_REQUIRES_URLS');
-        expect(extractor.extractBatch).not.toHaveBeenCalled();
-    });
-
-    it('allows an explicitly selected Jina URL to merge back into a session', async () => {
-        const sessionDir = mkdtempSync(join(tmpdir(), 'sxng-jina-session-test-'));
-        const url = 'https://example.com/article';
-        const content = 'Jina-captured source text. '.repeat(12);
-        appendSessionResults(sessionDir, [{ url, title: 'Article' }]);
-        const extractor = {
-            extractBatch: vi.fn().mockResolvedValue([extractedContent(url, content)]),
-        } as unknown as ContentExtractor;
-        const log = vi.spyOn(console, 'log').mockImplementation(() => undefined);
-
-        try {
-            expect(await runExtract(extractor, { urls: [url], session: sessionDir, jina: true })).toBe(0);
-
-            expect(extractor.extractBatch).toHaveBeenCalledWith([url]);
-            expect(loadSessionResults(sessionDir)[0]).toMatchObject({ content, extractedAt: expect.any(Number) });
-        } finally {
-            rmSync(sessionDir, { recursive: true, force: true });
-        }
-    });
+  });
 });

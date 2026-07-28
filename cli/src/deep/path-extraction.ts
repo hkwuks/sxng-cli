@@ -129,7 +129,7 @@ function dfsEntityChains(
             if (visited.has(target)) continue;
             if (graph.getNodeAttributes(target).type !== 'entity') continue;
 
-            const attrs = graph.getEdgeAttributes(current, target);
+            const attrs = graph.getEdgeAttributes(edge);
             visited.add(target);
             path.push(target);
             relations.push(attrs.relation);
@@ -149,7 +149,7 @@ function dfsEntityChains(
             if (visited.has(source)) continue;
             if (graph.getNodeAttributes(source).type !== 'entity') continue;
 
-            const attrs = graph.getEdgeAttributes(source, current);
+            const attrs = graph.getEdgeAttributes(edge);
             visited.add(source);
             path.push(source);
             relations.push(attrs.relation);

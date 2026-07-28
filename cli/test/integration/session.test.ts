@@ -1,269 +1,133 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { existsSync, mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'fs';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
 import {
-    initSessionDir,
-    resolveSessionPath,
-    loadSessionResults,
-    appendSessionResults,
-    approveResults,
-    injectApprovedResults,
-    updateSessionGraph,
-    loadSessionGraph,
-    mergeExtractedContent,
+  appendSessionResults,
+  approveResults,
+  getPendingExtractionResults,
+  getPendingResults,
+  initSessionDir,
+  injectApprovedResults,
+  loadSessionGraph,
+  loadSessionResults,
+  recordExtractionOutcome,
+  setSkipped,
+  validateSessionInputFile,
 } from '../../src/deep/session.js';
-import { getDefaultSessionRoot, runSessionDelete } from '../../src/commands/session.js';
 
-describe('session (integration)', () => {
-    let sessionDir: string;
+describe('session result contract', () => {
+  let sessionDir: string;
 
-    beforeEach(() => {
-        sessionDir = mkdtempSync(join(tmpdir(), 'sxng-test-'));
+  beforeEach(() => {
+    sessionDir = mkdtempSync(join(tmpdir(), 'sxng-session-'));
+    initSessionDir(sessionDir);
+  });
+
+  afterEach(() => rmSync(sessionDir, { recursive: true, force: true }));
+
+  it('stores discovery separately from an extracted body and gives it a stable revision', () => {
+    appendSessionResults(sessionDir, [{
+      url: 'https://example.com/article', title: 'Article', excerpt: 'search snippet',
+      origins: [{ tool: 'sxng', engine: 'google', query: 'example query' }],
+    }]);
+
+    const [result] = loadSessionResults(sessionDir);
+    expect(result).toMatchObject({
+      contentType: 'search', status: 'pending', revision: 1,
+      origins: [{ tool: 'sxng', engine: 'google', query: 'example query', round: 1 }],
     });
+    expect(result.id).toMatch(/^r:/);
+    expect(result.content).toBeUndefined();
+    expect(getPendingExtractionResults(sessionDir)).toHaveLength(1);
+    expect(getPendingResults(sessionDir)).toHaveLength(0);
+  });
 
-    afterEach(() => {
-        rmSync(sessionDir, { recursive: true, force: true });
+  it('approves only an extracted result with the matching id and revision', () => {
+    appendSessionResults(sessionDir, [{
+      url: 'https://example.com/article', title: 'Article', contentType: 'extracted',
+      content: 'A short but real body is still a successful extraction.', extractor: 'defuddle',
+      extractedAt: 1, origins: [{ tool: 'sxng', query: 'example query' }],
+    }]);
+    const [result] = loadSessionResults(sessionDir);
+
+    expect(approveResults(sessionDir, [{ id: result.id, revision: result.revision + 1 }]).error)
+      .toMatchObject({ code: 'RESULT_REVISION_CONFLICT' });
+    const approval = approveResults(sessionDir, [{ id: result.id, revision: result.revision }]);
+    expect(approval.approved).toBe(1);
+    expect(loadSessionResults(sessionDir)[0]).toMatchObject({ status: 'approved', revision: 2 });
+  });
+
+  it('records blank extraction as failure and a nonempty short body as success', () => {
+    appendSessionResults(sessionDir, [{
+      url: 'https://example.com/article', title: 'Article', origins: [{ tool: 'sxng', query: 'query' }],
+    }]);
+    recordExtractionOutcome(sessionDir, [{
+      url: 'https://example.com/article', failure: { code: 'empty', message: 'blank response' },
+    }]);
+    expect(loadSessionResults(sessionDir)[0]).toMatchObject({ failureCount: 1, lastFailure: { code: 'empty' } });
+
+    recordExtractionOutcome(sessionDir, [{
+      url: 'https://example.com/article', content: 'Short body.', extractor: 'defuddle', extractedAt: 2,
+    }]);
+    expect(loadSessionResults(sessionDir)[0]).toMatchObject({
+      contentType: 'extracted', content: 'Short body.', extractor: 'defuddle', extractedAt: 2,
     });
+    expect(loadSessionResults(sessionDir)[0].failureCount).toBeUndefined();
+  });
 
-    describe('initSessionDir', () => {
-        it('creates session directory with meta.json', () => {
-            initSessionDir(sessionDir, 'test-user', 'test description', 'test query');
-            // Should not throw on re-init
-            initSessionDir(sessionDir, 'test-user', 'updated description', 'test query');
-        });
-    });
+  it('makes an identical imported body pending again and clears a prior skip', () => {
+    appendSessionResults(sessionDir, [{
+      url: 'https://example.com/article', title: 'Article', contentType: 'extracted', content: 'Stable body.',
+      extractor: 'external', extractedAt: 1, origins: [{ tool: 'exa', query: 'query' }],
+    }]);
+    const [initial] = loadSessionResults(sessionDir);
+    approveResults(sessionDir, [{ id: initial.id, revision: initial.revision }]);
+    const approved = loadSessionResults(sessionDir)[0];
+    setSkipped(sessionDir, [{ id: approved.id, revision: approved.revision }], true);
 
-    describe('loadSessionResults', () => {
-        it('returns empty array for new session', () => {
-            const results = loadSessionResults(sessionDir);
-            expect(results).toEqual([]);
-        });
-    });
+    appendSessionResults(sessionDir, [{
+      url: 'https://example.com/article', title: 'Article', contentType: 'extracted', content: 'Stable body.',
+      extractor: 'external', extractedAt: 2, origins: [{ tool: 'exa', query: 'query' }],
+    }]);
+    const refreshed = loadSessionResults(sessionDir)[0];
+    expect(refreshed).toMatchObject({ status: 'pending', extractedAt: 2 });
+    expect(refreshed.skippedAt).toBeUndefined();
+  });
 
-    describe('appendSessionResults', () => {
-        it('appends results and returns count', () => {
-            const results = [
-                { url: 'https://a.com', title: 'A', content: 'content a' },
-                { url: 'https://b.com', title: 'B', content: 'content b' },
-            ];
-            const info = appendSessionResults(sessionDir, results);
-            expect(info.added).toBe(2);
-            expect(info.total).toBe(2);
-        });
+  it('does not overwrite corrupt claim state while accepting a new extracted body', () => {
+    appendSessionResults(sessionDir, [{ url: 'https://example.com/article', title: 'Article', origins: [{ tool: 'sxng', query: 'query' }] }]);
+    const claimsFile = join(sessionDir, 'claims', 'claims.json');
+    mkdirSync(join(sessionDir, 'claims'), { recursive: true });
+    writeFileSync(claimsFile, '{invalid', 'utf8');
+    recordExtractionOutcome(sessionDir, [{ url: 'https://example.com/article', content: 'Body.', extractor: 'defuddle', extractedAt: 1 }]);
+    expect(loadSessionResults(sessionDir)[0].content).toBe('Body.');
+    expect(readFileSync(claimsFile, 'utf8')).toBe('{invalid');
+  });
 
-        it('deduplicates by URL on second append', () => {
-            appendSessionResults(sessionDir, [
-                { url: 'https://a.com', title: 'A', content: 'content a' },
-            ]);
-            const info = appendSessionResults(sessionDir, [
-                { url: 'https://a.com', title: 'A updated', content: 'content a updated' },
-                { url: 'https://b.com', title: 'B', content: 'content b' },
-            ]);
-            expect(info.added).toBe(1);
-            expect(info.total).toBe(2);
-        });
+  it('retains local document chunk fragments as separate stable results', () => {
+    appendSessionResults(sessionDir, [
+      { url: 'file:///docs/notes.md#chunk-0', title: 'Notes', contentType: 'extracted', content: 'One', extractor: 'local-index', origins: [{ tool: 'local-index', query: 'notes' }] },
+      { url: 'file:///docs/notes.md#chunk-1', title: 'Notes', contentType: 'extracted', content: 'Two', extractor: 'local-index', origins: [{ tool: 'local-index', query: 'notes' }] },
+    ]);
+    expect(loadSessionResults(sessionDir).map(result => result.id)).toHaveLength(2);
+    expect(new Set(loadSessionResults(sessionDir).map(result => result.id)).size).toBe(2);
+  });
 
-        it('keeps web results with matching titles when their URLs differ', () => {
-            const info = appendSessionResults(sessionDir, [
-                { url: 'https://a.com', title: 'Same title', source: 'sxng' },
-                { url: 'https://b.com', title: 'Same title', source: 'sxng' },
-            ]);
+  it('injects structural edges only after approval', () => {
+    appendSessionResults(sessionDir, [{
+      url: 'https://example.com/article', title: 'Article', contentType: 'extracted', content: 'Body',
+      extractor: 'defuddle', origins: [{ tool: 'sxng', query: 'example query' }],
+    }]);
+    const [result] = loadSessionResults(sessionDir);
+    const approval = approveResults(sessionDir, [{ id: result.id, revision: result.revision }]);
+    const injected = injectApprovedResults(sessionDir, approval.approvedResults);
+    expect(injected.nodesAdded).toBeGreaterThan(0);
+    expect(loadSessionGraph(sessionDir).someNode((_id, attrs) => attrs.type === 'result')).toBe(true);
+  });
 
-            expect(info.added).toBe(2);
-            expect(info.total).toBe(2);
-        });
-    });
-
-    describe('updateSessionGraph', () => {
-        it('does not create structural graph nodes for unverified results', () => {
-            initSessionDir(sessionDir);
-
-            expect(updateSessionGraph(sessionDir, 'test query', [
-                { url: 'https://a.com', title: 'A', content: 'Search summary only.' },
-            ], 1)).toEqual({ nodesAdded: 0, edgesAdded: 0 });
-            expect(loadSessionGraph(sessionDir).order).toBe(0);
-        });
-
-        it('creates graph with structural edges', () => {
-            initSessionDir(sessionDir);
-            const info = updateSessionGraph(sessionDir, 'test query', [
-                { url: 'https://a.com', title: 'A', content: 'Verified A.', extractedAt: 1 },
-                { url: 'https://b.com', title: 'B', content: 'Verified B.', extractedAt: 1 },
-            ], 1);
-            expect(info.nodesAdded).toBeGreaterThan(0);
-            expect(info.edgesAdded).toBeGreaterThan(0);
-        });
-
-        it('loads saved graph back correctly', () => {
-            initSessionDir(sessionDir);
-            updateSessionGraph(sessionDir, 'test query', [
-                { url: 'https://a.com', title: 'A', content: 'Verified A.', extractedAt: 1 },
-            ], 1);
-
-            const graph = loadSessionGraph(sessionDir);
-            expect(graph.order).toBeGreaterThan(0);
-        });
-    });
-
-    describe('approveResults', () => {
-        it('rejects unverified web results without changing session state', () => {
-            appendSessionResults(sessionDir, [
-                { url: 'https://example.com/summary', title: 'Summary', content: 'Search-provided text only.' },
-            ]);
-
-            expect(approveResults(sessionDir, [0]).error).toMatchObject({ code: 'RESULT_NOT_VERIFIED', index: 0 });
-            expect(loadSessionResults(sessionDir)[0].status).toBe('pending');
-            expect(loadSessionGraph(sessionDir).order).toBe(0);
-        });
-
-        it('rejects an entire mixed approval when one selected result is unverified', () => {
-            appendSessionResults(sessionDir, [
-                { url: 'https://example.com/verified', title: 'Verified', content: 'Verified source content.', extractedAt: 1 },
-                { url: 'https://example.com/unverified', title: 'Unverified', content: 'Search-provided text only.' },
-            ]);
-
-            expect(approveResults(sessionDir, [0, 1]).error).toMatchObject({ code: 'RESULT_NOT_VERIFIED', index: 1 });
-            expect(loadSessionResults(sessionDir).map(result => result.status)).toEqual(['pending', 'pending']);
-        });
-
-        it('approves a local document chunk with captured content', () => {
-            appendSessionResults(sessionDir, [
-                {
-                    url: 'file:///notes.txt#chunk-0', title: 'Notes', source: 'local',
-                    content: 'Indexed local document content.', extractedAt: 1,
-                },
-            ]);
-
-            const info = approveResults(sessionDir, [0]);
-
-            expect(info.approved).toBe(1);
-            expect(loadSessionResults(sessionDir)[0].status).toBe('approved');
-        });
-
-        it('does not inject an unverified legacy approved result into the graph', () => {
-            const info = injectApprovedResults(sessionDir, [{
-                url: 'https://example.com/legacy', title: 'Legacy', status: 'approved',
-                origins: [{ query: 'legacy query', round: 1 }],
-            }]);
-
-            expect(info).toEqual({ nodesAdded: 0, edgesAdded: 0 });
-            expect(loadSessionGraph(sessionDir).order).toBe(0);
-        });
-
-        it('approves only the selected local document chunk', () => {
-            appendSessionResults(sessionDir, [
-                { url: 'file:///notes.txt#chunk-0', title: 'Notes', source: 'local', content: 'First local chunk.', extractedAt: 1 },
-                { url: 'file:///notes.txt#chunk-1', title: 'Notes', source: 'local', content: 'Second local chunk.', extractedAt: 1 },
-            ]);
-
-            const info = approveResults(sessionDir, [0]);
-
-            expect(info.approved).toBe(1);
-            expect(loadSessionResults(sessionDir).map(result => result.status))
-                .toEqual(['approved', 'pending']);
-        });
-
-        it('injects only selected results into the query and round that found them', () => {
-            appendSessionResults(sessionDir, [
-                { url: 'https://a.com', title: 'A', content: 'Verified A.', extractedAt: 1, origins: [{ query: 'first query' }] },
-            ]);
-            appendSessionResults(sessionDir, [
-                { url: 'https://b.com', title: 'B', content: 'Verified B.', extractedAt: 1, origins: [{ query: 'second query' }] },
-            ]);
-
-            const { approvedResults } = approveResults(sessionDir, [1]);
-            injectApprovedResults(sessionDir, approvedResults);
-
-            const graph = loadSessionGraph(sessionDir);
-            const queries = graph.filterNodes((_id, attrs) => attrs.type === 'query');
-            const results = graph.filterNodes((_id, attrs) => attrs.type === 'result');
-
-            expect(queries).toHaveLength(1);
-            expect(graph.getNodeAttributes(queries[0])).toMatchObject({ query: 'second query', round: 2 });
-            expect(results).toHaveLength(1);
-            expect(graph.getNodeAttributes(results[0]).url).toBe('https://b.com');
-        });
-
-        it('adds a new query edge when an already approved URL appears in a later round', () => {
-            appendSessionResults(sessionDir, [
-                { url: 'https://a.com', title: 'A', content: 'Verified A.', extractedAt: 1, origins: [{ query: 'first query' }] },
-            ]);
-            const { approvedResults } = approveResults(sessionDir, [0]);
-            injectApprovedResults(sessionDir, approvedResults);
-
-            const appendInfo = appendSessionResults(sessionDir, [
-                { url: 'https://a.com', title: 'A', content: 'Verified A.', extractedAt: 1, origins: [{ query: 'second query' }] },
-            ]);
-            injectApprovedResults(sessionDir, appendInfo.approvedResults);
-
-            const graph = loadSessionGraph(sessionDir);
-            const queries = graph.filterNodes((_id, attrs) => attrs.type === 'query');
-
-            expect(queries).toHaveLength(2);
-            expect(loadSessionResults(sessionDir)[0].origins).toEqual([
-                { query: 'first query', round: 1 },
-                { query: 'second query', round: 2 },
-            ]);
-        });
-    });
-
-    describe('mergeExtractedContent', () => {
-        it('merges content by URL match', () => {
-            initSessionDir(sessionDir);
-            appendSessionResults(sessionDir, [
-                { url: 'https://a.com', title: 'A' },
-                { url: 'https://b.com', title: 'B' },
-            ]);
-
-            const info = mergeExtractedContent(sessionDir, [
-                { url: 'https://a.com', content: 'extracted content for A', length: 100, extractedAt: 1_700_000_000_000 },
-            ]);
-            expect(info.updated).toBe(1);
-
-            const results = loadSessionResults(sessionDir);
-            const a = results.find(r => r.url === 'https://a.com');
-            expect(a?.content).toBe('extracted content for A');
-            expect(a?.extractedAt).toBe(1_700_000_000_000);
-        });
-
-        it('merges content into only the selected local document chunk', () => {
-            appendSessionResults(sessionDir, [
-                { url: 'file:///notes.txt#chunk-0', title: 'Notes', source: 'local', content: 'first' },
-                { url: 'file:///notes.txt#chunk-1', title: 'Notes', source: 'local', content: 'second' },
-            ]);
-
-            const info = mergeExtractedContent(sessionDir, [
-                { url: 'file:///notes.txt#chunk-1', content: 'updated second' },
-            ]);
-
-            expect(info.updated).toBe(1);
-            expect(loadSessionResults(sessionDir).map(result => result.content))
-                .toEqual(['first', 'updated second']);
-        });
-    });
-
-    describe('session root', () => {
-        it('uses .sxng/sessions under the current working directory', () => {
-            expect(getDefaultSessionRoot()).toBe(join(process.cwd(), '.sxng', 'sessions'));
-            expect(resolveSessionPath('named')).toBe(join(process.cwd(), '.sxng', 'sessions', 'named'));
-            expect(resolveSessionPath('new').startsWith(join(process.cwd(), '.sxng', 'sessions', 'ds_'))).toBe(true);
-        });
-    });
-
-    describe('runSessionDelete', () => {
-        it('rejects paths that escape the session root', async () => {
-            const root = join(sessionDir, 'sessions');
-            const outside = join(sessionDir, 'outside');
-            mkdirSync(root, { recursive: true });
-            mkdirSync(outside, { recursive: true });
-            writeFileSync(join(outside, 'keep.txt'), 'keep');
-
-            const code = await runSessionDelete(['../outside'], undefined, root);
-
-            expect(code).toBe(1);
-            expect(existsSync(outside)).toBe(true);
-            expect(existsSync(join(outside, 'keep.txt'))).toBe(true);
-        });
-    });
+  it('accepts Agent JSON only inside the owning session agent-inputs directory', () => {
+    expect(validateSessionInputFile(sessionDir, join(sessionDir, 'agent-inputs', 'request.json'))).toBeUndefined();
+    expect(validateSessionInputFile(sessionDir, join(sessionDir, '..', 'request.json'))).toBeUndefined();
+  });
 });

@@ -39,13 +39,13 @@
 - 📄 **Multiple Formats** — Markdown (LLM-optimized) or JSON output
 - 🧠 **Deep Search** — Multi-round iterative research with session accumulation, quality assessment, and recovery strategies
 - 🔍 **Content Extraction** — Extract full article content from URLs or session results, with Obscura fallback and Agent-selected Jina Reader extraction
-- 🗂️ **Session Management** — Accumulate search results across rounds; normalized URLs and full-text character 5-gram Jaccard remove duplicates before the pending → approve → graph injection workflow
-- 🔗 **External Result Fusion** — Inject results from Tavily, Exa, or any search tool into the same session pipeline via `results-add`; shared pending pool, unified quality assessment
+- 🗂️ **Session Management** — Separates search discovery from extracted bodies; stable result IDs and revisions prevent stale approvals in parallel work
+- 🔗 **External Result Fusion** — Import external search or extraction output from session-scoped JSON files, without PowerShell inline-JSON escaping risks
 - ⭐ **Quality Assessment** — 3 independent indicators: content depth, source diversity, and novelty
-- 🕸️ **Knowledge Graph** — Structural (query→result→domain) + semantic (entity relations with source-round provenance) graph layers
+- 🕸️ **Knowledge Graph** — Structural (query→result→domain) + semantic (entity relations with approved result-ID provenance) graph layers
 - 🔄 **Query Redundancy Check** — Word-level or character-bigram Jaccard detects repeated queries
 - 💡 **Agent-First Design** — Outputs structured analysis data (quality, suggestions, recovery) for LLM Agent decision-making
-- 📁 **Local Document Search** — Index and BM25-search local Markdown/text files with field-weighted ranking; results auto-injected into the session pipeline as `source: "local"`
+- 📁 **Local Document Search** — Index and BM25-search local Markdown/text files with field-weighted ranking; indexed chunks remain separate extracted session results
 - ✅ **Claim—Evidence—Review Pipeline** — L2/L3 only: submit atomic claims, auto-search evidence, verify with stance, then policy-aggregate by publisher-domain diversity for auto-approval or Agent review
 
 ---
@@ -622,7 +622,7 @@ No extra npm dependencies needed — Obscura is called via CLI. Auto-detected fr
 | `sxng extract --urls <url> --jina` | Agent-selected Jina Reader extraction for explicit URLs |
 | `sxng --session new` | Create deep search session |
 | `sxng --session <name> --quality` | Assess result quality, list pending results |
-| `sxng --session <name> --quality --approve "0,1"` | Approve verified pending results by index |
+| `sxng --session <name> --quality --approve-file <path>` | Approve verified pending results selected by `{id, revision}` JSON |
 | `sxng suggest-queries <session>` | Get query suggestion data for Agent |
 | `sxng strategy-info <session>` | Check current search stage |
 | `sxng recovery-analysis <session>` | Get recovery strategies for poor quality |
@@ -630,13 +630,13 @@ No extra npm dependencies needed — Obscura is called via CLI. Auto-detected fr
 | `sxng session-list` | List all sessions |
 | `sxng session-delete <session-name>` | Delete a session |
 | `sxng graph-preprocess <session>` | TF-IDF + co-occurrence + result provenance analysis |
-| `sxng graph-add <session> --data-file <path>` | Add entities/edges from UTF-8 JSON; new entities require source rounds |
+| `sxng graph-add <session> --data-file <path>` | Add semantic entities/edges backed by approved result IDs |
 | `sxng graph-search <session>` | Discover entities by keyword |
 | `sxng graph-explore <session>` | View entity relations |
 | `sxng graph-drill <session>` | Follow specific relations |
 | `sxng graph-traverse <session>` | Traverse reasoning paths |
 | `sxng graph-obfuscate <session>` | List obfuscation candidates |
-| `sxng results-add <session> --query <query> --data-file <path>` | Inject external search results from UTF-8 JSON as pending |
+| `sxng results-add <session> --kind <search|extracted> --data-file <path>` | Import external discovery or extracted bodies from session-scoped UTF-8 JSON |
 | `sxng doc-index <path>` | Index local documents for BM25 search |
 | `sxng doc-search <session> <query> --path <path>` | Search indexed docs and inject results into session |
 | `sxng claim-add <session> --claims-file <path>` | Submit atomic claims from UTF-8 JSON (single or batch, auto evidence-search) |
@@ -669,7 +669,8 @@ No extra npm dependencies needed — Obscura is called via CLI. Auto-detected fr
 | `--desc <text>` | Session description |
 | `--redundancy <action>` | Query redundancy check: `warn`, `adjust`, `skip` |
 | `--quality` | Assess result quality (requires --session) |
-| `--approve <indices>` | Approve pending results by comma-separated indices |
+| `--approve-file <path>` | Approve `{id, revision}` selections from this session's `agent-inputs` directory |
+| `--skip-file <path>` / `--unskip-file <path>` | Skip or restore `{id, revision}` selections from this session's `agent-inputs` directory |
 | `--threshold-override <json>` | Override quality thresholds (JSON) |
 | `--merge <file>` | Merge new results with previous search JSON |
 
@@ -776,14 +777,15 @@ sxng extract --session <session-name>
 # 4. Assess quality and see each result's verified state
 sxng --session <session-name> --quality
 
-# 5. Approve only indices reported as verified (injects into graph)
-sxng --session <session-name> --quality --approve "0,1,2,3"
+# 5. Copy selected {id, revision} objects from quality output into
+#    .sxng/sessions/<session-name>/agent-inputs/approve.json, then approve them.
+sxng --session <session-name> --quality --approve-file .\.sxng\sessions\<session-name>\agent-inputs\approve.json
 
 # 6. Preprocess session content for entity discovery and provenance
 sxng graph-preprocess <session-name>
 
 # 7. Put complex graph JSON in this session's Agent scratch directory, then add semantic edges
-sxng graph-add <session-name> --data-file .\.sxng\agent-inputs\<session-name>\graph-data.json
+sxng graph-add <session-name> --data-file .\.sxng\sessions\<session-name>\agent-inputs\graph-data.json
 
 # 8. Continue research with redundancy check
 sxng --session <session-name> --queries "tokio vs async-std,benchmark 2026" --redundancy warn
@@ -793,7 +795,7 @@ sxng --session <session-name> --queries "tokio vs async-std,benchmark 2026" --re
 
 - Extracted web content is deduplicated by normalized URL, then by full-text character 5-gram Jaccard similarity. Query redundancy uses a separate word-level or character-bigram Jaccard check.
 - `--quality` assesses the newest recorded round against earlier approved results. A URL already seen in an earlier round is non-novel, even when it reappears in the newest round.
-- Quality is a diagnostic, not a fact verifier. A web result can be approved only after `extract` has written non-empty source text and an extraction timestamp; summaries and caller-provided extraction timestamps are not trusted.
+- Quality is a diagnostic, not a fact verifier. A search discovery can be approved only after `extract` writes a non-empty body and extraction timestamp. An explicitly imported external body must provide non-empty `content` and an `extractor`; absent `extractedAt` is recorded as its import time.
 - Claim policy treats two normalized publisher domains as two sources. It does not infer corporate ownership, editorial relationships, or syndication across domains.
 
 ### Session Management
@@ -814,11 +816,12 @@ sxng --session <session-name> --queries "tokio vs async-std,benchmark 2026" --re
 
 ### Session Data Structure
 
-Each session stores three files in `.sxng/sessions/<session-name>/`:
+Each session stores state and Agent input files in `.sxng/sessions/<session-name>/`:
 
 - **`results.json`** — Accumulated search results (URL dedup, multi-round)
 - **`graph.json`** — Knowledge graph (structural + semantic layers)
 - **`meta.json`** — Session metadata (owner, description, timestamps)
+- **`agent-inputs/`** — UTF-8 JSON input files for write commands; retained for inspection and retry
 
 ### Knowledge Graph
 
@@ -839,33 +842,35 @@ Two layers:
 
 Graph navigation commands: `graph-search` (discover entities), `graph-explore` (view relations), `graph-drill` (follow specific relations), `graph-traverse` (traverse reasoning paths).
 
-`graph-preprocess` returns `resultProvenance` (`url`, `title`, `rounds`) for each result. For every new entity, select the supporting results, union their `rounds`, and send that array as `sourceRounds`. This lets `strategy-info` calculate entity growth from verified search rounds.
+`graph-preprocess` returns `resultProvenance` (`id`, `revision`, `url`, `title`, `approval`) for every extracted body. For each semantic entity or edge, copy one or more currently approved `id` values into `sourceResultIds`. This keeps semantic facts traceable to the exact approved bodies rather than a search round.
 
 ### External Search Results
 
 Results from other search tools (Tavily, Exa, etc.) can be injected into any active session via `results-add`. They go through the same pipeline as native sxng results:
 
 ```powershell
-# Write the external tool output as UTF-8 JSON in the session's Agent scratch directory.
-sxng results-add <session-name> --query "async runtime" --data-file .\.sxng\agent-inputs\<session-name>\exa-results.json
+# Import search discovery; its excerpts remain summaries and require extraction.
+sxng results-add <session-name> --kind search --tool exa --query "async runtime" `
+  --data-file .\.sxng\sessions\<session-name>\agent-inputs\exa-search.json
 ```
 
-After injection, results are `pending`. Run `extract --session`, inspect `stats.success`, `stats.failed`, and `session.updated`, then approve only entries whose quality output reports `verified: true`. A failed extraction remains pending and cannot enter the graph. The `source` field tracks which tool produced each result. Results from all sources share a single pending pool, and `--query` records the source query for `graph-preprocess` provenance.
+Search imports become `pending` and require `extract --session`; inspect `stats.success`, `stats.failed`, and `session.updated`, then approve only entries whose quality output reports `verified: true`. An external tool that already returned a body must instead use `--kind extracted` with non-empty `content` and `extractor`; it becomes pending approval without another extraction. A failed extraction remains pending and cannot enter the graph. `tool` and `query` record the discovery provenance.
 
 ### Structured JSON Input
 
-Use UTF-8 JSON files for external output, multiline content, Chinese text, or any payload containing nested quotes. This avoids PowerShell quoting and Windows command-line length limits. Agent-generated transport files belong in `.sxng/agent-inputs/<session-name>/`, not in the project root: `.sxng` already contains sxng state, and using the session name avoids a potential clash when separate runs would otherwise write the same fixed filename in one working directory. This is a file-naming convention, not CLI concurrency control. Each command accepts exactly one inline or file source:
+All structured writes use a UTF-8 JSON file under `.sxng/sessions/<session-name>/agent-inputs/`. This avoids PowerShell quoting and Windows command-line length limits, keeps concurrent sessions isolated, and gives each command one inspectable input artifact. The CLI rejects inline JSON and files outside the owning session.
 
-| Command | Inline option | Recommended file option |
-|---|---|---|
-| External results | `--data <json>` | `--data-file <path>` |
-| Graph entities/edges | `--data <json>` | `--data-file <path>` |
-| One/batch Claim | `--claim` / `--claims` | `--claim-file` / `--claims-file` |
-| Evidence verification | `--evidence <json>` | `--evidence-file <path>` |
+| Command | Required file option |
+|---|---|
+| External search or extracted bodies | `results-add --data-file <path>` |
+| Graph entities/edges | `graph-add --data-file <path>` |
+| Approval, skip, restore selections | `--approve-file` / `--skip-file` / `--unskip-file <path>` |
+| One/batch Claim | `claim-add --claim-file` / `--claims-file <path>` |
+| Evidence verification | `evidence-verify --evidence-file <path>` |
 
-The file must be UTF-8 (a UTF-8 BOM is accepted). Supplying more than one JSON source or malformed input fails before the command writes session, claim, evidence, or graph data. The CLI never deletes these Agent scratch files automatically, so it cannot remove a user-provided file.
+The file must be UTF-8 (a UTF-8 BOM is accepted). Missing, malformed, cross-session, or out-of-directory input fails before state changes. The CLI never deletes Agent input files automatically; `session-delete` removes the entire session only when explicitly requested.
 
-For Claim and Evidence examples, use `--claims-file` and `--evidence-file` in the same way; file input is the recommended path for all complex structured payloads.
+Quality output supplies `{id, revision}`. Save the selected objects in `approve.json` and pass `--approve-file`; never reuse a stale revision.
 
 ### Local Document Search
 
@@ -882,8 +887,8 @@ sxng doc-search <session-name> "search query" --path ./docs
 **How it works:**
 
 1. **Auto-indexing** — `doc-search` automatically indexes the directory on first use if no index exists. Uses Orama BM25 with field-weighted boosting: title ×3, headings ×2, content ×1.
-2. **Session injection** — Search results are formatted as `SessionResult[]` with `source: "local"` and injected into the session as pending.
-3. **Same pipeline** — Results follow the exact same flow as web results: `--quality` → `--approve` → `graph-add`. Use `graph-preprocess` before adding new entities so their `sourceRounds` come from result provenance.
+2. **Session injection** — Each matched chunk is an `extracted` `SessionResult` with `extractor: "local-index"`, injected into the session as pending.
+3. **Same pipeline** — Results follow the exact same flow as web results: `--quality` → `--approve-file` → `graph-add`. Use `graph-preprocess` before adding new entities so their approved IDs become `sourceResultIds`.
 4. **Round-neutral** — Local document searches do **not** increment the session round counter (merged with the current web round via `skipRoundIncrement`).
 
 **Index options:**
@@ -910,7 +915,7 @@ sxng doc-search <session-name> "search query" --path ./docs
 
 ### Known Limitations
 
-- Session and claim state is stored across JSON files without transactional concurrent-write protection.
+- Session result and graph mutations use a per-session lock plus atomic replacement; Claim, Evidence, and Review files still have no cross-file transaction.
 - URL extraction is not an SSRF security boundary; use only trusted public URLs.
 - Local document scanning has no defined symbolic-link boundary or cycle policy.
 - Index rebuilds overwrite the current persistence files; an interruption or disk failure can require re-indexing.

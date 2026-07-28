@@ -8,6 +8,7 @@ import { execFile } from 'child_process';
 import { promisify } from 'util';
 import { homedir, arch, platform } from 'os';
 import { join } from 'path';
+import { mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'fs';
 import { mkdir, chmod, writeFile, rm } from 'fs/promises';
 
 const execFileAsync = promisify(execFile);
@@ -52,6 +53,8 @@ export interface ExtractedContent {
     length: number;
     extractedAt: number;
     error?: string;
+    retryAfterMs?: number;
+    retryAt?: number;
     method?: 'defuddle' | 'obscura' | 'jina';
 }
 
@@ -228,24 +231,67 @@ async function obscuraExtract(
 
 // --- Jina Reader (r.jina.ai) with 20rpm rate limiting ---
 
-const _jinaTimestamps: number[] = [];
+const JINA_LOCK_STALE_MS = 30_000;
 
-async function jinaAcquireSlot(): Promise<boolean> {
-    const now = Date.now();
-    // Prune timestamps outside the window
-    while (_jinaTimestamps.length > 0 && _jinaTimestamps[0] <= now - JINA_WINDOW_MS) {
-        _jinaTimestamps.shift();
+interface JinaSlotResult {
+    ok: boolean;
+    retryAfterMs?: number;
+    retryAt?: number;
+}
+
+function jinaAcquireSlot(): JinaSlotResult {
+    const dir = join(process.cwd(), '.sxng');
+    const file = join(dir, 'jina-rate-limit.json');
+    const lock = join(dir, '.jina-rate-limit.lock');
+    mkdirSync(dir, { recursive: true });
+    let acquired = false;
+    try {
+        try {
+            mkdirSync(lock);
+            acquired = true;
+        }
+        catch {
+            try {
+                if (Date.now() - statSync(lock).mtimeMs > JINA_LOCK_STALE_MS) rmSync(lock, { recursive: true, force: true });
+                else throw new Error('busy');
+                mkdirSync(lock);
+                acquired = true;
+            } catch {
+                const retryAfterMs = 1_000;
+                return { ok: false, retryAfterMs, retryAt: Date.now() + retryAfterMs };
+            }
+        }
+        const now = Date.now();
+        let timestamps: number[] = [];
+        try { timestamps = JSON.parse(readFileSync(file, 'utf-8')).timestamps; } catch { /* corrupt state is reset by this reservation */ }
+        timestamps = Array.isArray(timestamps) ? timestamps.filter(value => typeof value === 'number' && now - value < JINA_WINDOW_MS) : [];
+        if (timestamps.length >= JINA_RPM) {
+            const retryAt = Math.min(...timestamps) + JINA_WINDOW_MS;
+            return { ok: false, retryAfterMs: Math.max(0, retryAt - now), retryAt };
+        }
+        timestamps.push(now); // Reserve before network; failures still consume a sent request.
+        const temp = `${file}.${process.pid}.${now}.tmp`;
+        writeFileSync(temp, JSON.stringify({ timestamps }), 'utf-8');
+        renameSync(temp, file);
+        return { ok: true };
+    } finally {
+        if (acquired) {
+            try { rmSync(lock, { recursive: true, force: true }); } catch { /* best effort */ }
+        }
     }
-    if (_jinaTimestamps.length >= JINA_RPM) return false;
-    _jinaTimestamps.push(now);
-    return true;
 }
 
 async function jinaExtract(
     url: string,
     options: { timeoutMs: number }
 ): Promise<ExtractedContent | null> {
-    if (!await jinaAcquireSlot()) return null;
+    const slot = jinaAcquireSlot();
+    if (!slot.ok) {
+        return {
+            title: '', content: '', excerpt: '', url, length: 0, extractedAt: Date.now(), method: 'jina',
+            error: 'Jina Reader rate limit reached', retryAfterMs: slot.retryAfterMs, retryAt: slot.retryAt,
+        };
+    }
 
     try {
         const response = await fetch(`${JINA_READER_BASE}/${url}`, {

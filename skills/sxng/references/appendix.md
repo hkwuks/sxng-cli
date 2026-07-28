@@ -16,24 +16,14 @@ SESSION="ds_1234567890_abcdef"
 sxng extract --session $SESSION
 sxng graph-preprocess $SESSION --format json
 
-# Phase 3: Quality assessment + approve results into the structural graph
+# Phase 3: Quality assessment + approve selected {id, revision} objects into the structural graph
 sxng --session $SESSION --quality
-# Review pending results, then approve and inject into graph:
-sxng --session $SESSION --quality --approve "0,1,2,3,4"
+# Save selected objects from quality output to approve.json, then approve and inject into graph:
+sxng --session $SESSION --quality --approve-file ./.sxng/sessions/$SESSION/agent-inputs/approve.json
 
-# Phase 4: Add semantic entities and edges after result nodes exist; include sourceRounds from graph-preprocess
-sxng graph-add $SESSION --data '{
-  "entities": [
-    {"id": "e:pinecone", "label": "Pinecone", "entityType": "managed_service", "score": 0.95, "sourceRounds": [1]},
-    {"id": "e:weaviate", "label": "Weaviate", "entityType": "opensource", "score": 0.9, "sourceRounds": [1]},
-    {"id": "e:qdrant", "label": "Qdrant", "entityType": "opensource", "score": 0.85, "sourceRounds": [1]},
-    {"id": "e:hnsw", "label": "HNSW", "entityType": "algorithm", "score": 0.9, "sourceRounds": [1]}
-  ],
-  "edges": [
-    {"source": "e:pinecone", "target": "e:hnsw", "relation": "uses", "weight": 0.9},
-    {"source": "e:weaviate", "target": "e:hnsw", "relation": "uses", "weight": 0.95}
-  ]
-}'
+# Phase 4: Save semantic entities and edges with approved sourceResultIds from
+# graph-preprocess in graph.json, then add them after result nodes exist.
+sxng graph-add $SESSION --data-file ./.sxng/sessions/$SESSION/agent-inputs/graph.json
 
 # Phase 5-6: If quality not met, supplementary search
 sxng suggest-queries $SESSION --format json
@@ -43,9 +33,9 @@ sxng --session $SESSION --queries \
 # Re-extract + assess + approve + preprocess + add entities
 sxng extract --session $SESSION
 sxng --session $SESSION --quality
-sxng --session $SESSION --quality --approve "0,1"
+sxng --session $SESSION --quality --approve-file ./.sxng/sessions/$SESSION/agent-inputs/approve-round-2.json
 sxng graph-preprocess $SESSION --format json
-sxng graph-add $SESSION --data '{"entities":[...],"edges":[...]}'
+sxng graph-add $SESSION --data-file ./.sxng/sessions/$SESSION/agent-inputs/graph-round-2.json
 
 # Phase 7: Recovery when consecutive poor rounds
 sxng recovery-analysis $SESSION --format json
@@ -56,19 +46,16 @@ sxng graph-search $SESSION --keyword "vector"
 sxng graph-explore $SESSION --seed "Pinecone" --format json
 sxng graph-drill $SESSION --seed "Pinecone" --relations "uses,competitor" --format json
 
-# Phase 9: Claim—Evidence—Review (after draft, before output; evidence URLs above were extracted)
-sxng claim-add $SESSION --claims '[
-  {"text":"Pinecone is a managed vector database service","riskLevel":"low"},
-  {"text":"HNSW is the most widely used ANN algorithm in vector DBs","riskLevel":"medium"},
-  {"text":"Weaviate outperforms Qdrant on hybrid search","riskLevel":"high"}
-]'
+# Phase 9: Claim—Evidence—Review (after draft, before output).
+# Save claims and each {resultId, quote, charStart, charEnd} evidence object under agent-inputs.
+sxng claim-add $SESSION --claims-file ./.sxng/sessions/$SESSION/agent-inputs/claims.json
 sxng evidence-verify $SESSION --claim-id "cl_001" \
-  --evidence '{"resultUrl":"https://www.pinecone.io/learn/vector-database/","quote":"Pinecone is a fully managed vector database","charStart":45,"charEnd":93}' \
+  --evidence-file ./.sxng/sessions/$SESSION/agent-inputs/evidence-cl_001.json \
   --stance support --reason "Official site confirms" --complete
 sxng evidence-verify $SESSION --claim-id "cl_002" \
-  --evidence '...' --stance support --reason "..." --complete
+  --evidence-file ./.sxng/sessions/$SESSION/agent-inputs/evidence-cl_002.json --stance support --reason "..." --complete
 sxng evidence-verify $SESSION --claim-id "cl_003" \
-  --evidence '...' --stance insufficient --reason "No benchmark data found" --complete
+  --evidence-file ./.sxng/sessions/$SESSION/agent-inputs/evidence-cl_003.json --stance insufficient --reason "No benchmark data found" --complete
 
 # Phase 10: Agent adjusts output based on review results
 # cl_001 → approved (cite), cl_002 → approved (cite), cl_003 → needsReview (do not cite or mark uncertain)
@@ -97,6 +84,8 @@ sxng session-delete $SESSION
 | Using `query-graph` | Deprecated, use `graph-explore` + `graph-drill` |
 | Search backend fails → abandon session | Switch backend (tavily/exa), inject via `results-add`, keep session |
 | SearXNG returns 0 results → create new session | The session is decoupled from any backend; use `results-add` instead |
+| Inline JSON or a project-root temp file | Put UTF-8 JSON in `.sxng/sessions/<session>/agent-inputs/` and use `--*-file` |
+| Treating a search excerpt as a body | Import it with `--kind search`, then extract; use `--kind extracted` only for actual external bodies |
 
 ---
 

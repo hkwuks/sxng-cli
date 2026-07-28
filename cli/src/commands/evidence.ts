@@ -1,287 +1,245 @@
-/**
- * evidence-search / evidence-verify / evidence-list — Evidence subcommands.
- */
+/** Evidence search, verification, and listing commands. */
 
+import { createHash } from 'crypto';
+import { EvidenceSpan, Verdict } from '../claims/types.js';
 import {
-  EvidenceSpan,
-  Verdict,
-} from '../claims/types.js';
-import {
-  loadEvidences,
-  saveEvidences,
-  nextEvidenceId,
-  loadVerdicts,
-  saveVerdicts,
-  nextVerdictId,
+  assertClaimsStoreReadable,
+  ClaimsStateError,
   loadClaims,
+  loadEvidences,
   loadReviews,
+  loadVerdicts,
+  saveClaims,
+  saveEvidences,
   saveReviews,
+  saveVerdicts,
 } from '../claims/store.js';
-import { aggregateClaim, PolicyInput } from '../claims/policy.js';
-import { computeSourceClusterId } from '../claims/deterministic-checks.js';
-import { resolveSessionPath, loadSessionResults, hasVerifiedContent } from '../deep/session.js';
-import { createSuccessEnvelope, createErrorEnvelope } from '../protocol.js';
-import { searchCandidates } from '../claims/deterministic-checks.js';
-import { isJsonObject, readSingleJsonInput } from './json-input.js';
+import { aggregateClaim } from '../claims/policy.js';
+import { computeSourceClusterId, searchCandidates } from '../claims/deterministic-checks.js';
+import { getApprovedResults, initSessionDir, mutateSessionState, resolveSessionPath } from '../deep/session.js';
+import { createErrorEnvelope, createSuccessEnvelope } from '../protocol.js';
+import { isJsonObject, readSessionJsonInput } from './json-input.js';
 
-// ── evidence-search ─────────────────────────────────────────────────
+interface EvidenceInput {
+  resultId: string;
+  quote: string;
+  charStart: number;
+  charEnd: number;
+  contentHash?: string;
+}
+
+class EvidenceCommandError extends Error {
+  constructor(readonly code: string, message: string) {
+    super(message);
+  }
+}
 
 export async function runEvidenceSearch(
   session: string,
-  options: {
-    claimId: string;
-    format?: string;
-  }
+  options: { claimId: string; format?: string },
 ): Promise<number> {
   const sessionDir = resolveSessionPath(session);
-
-  // Load the claim to get its text
-  const claims = loadClaims(sessionDir);
-  const claim = claims.find(c => c.id === options.claimId);
+  let claim;
+  try {
+    assertClaimsStoreReadable(sessionDir);
+    claim = loadClaims(sessionDir).find(item => item.id === options.claimId);
+  } catch (error) {
+    if (error instanceof ClaimsStateError) {
+      console.log(JSON.stringify(createErrorEnvelope('CLAIMS_STATE_CORRUPTED', error.message), null, 2));
+      return 1;
+    }
+    throw error;
+  }
   if (!claim) {
     console.log(JSON.stringify(createErrorEnvelope('CLAIM_NOT_FOUND', `Claim ${options.claimId} not found`), null, 2));
     return 1;
   }
 
   const candidates = searchCandidates(sessionDir, claim.text);
-
-  const outputFormat = options.format || 'json';
-  if (outputFormat === 'md') {
+  if ((options.format || 'json') === 'md') {
     console.log(`## Evidence Candidates for ${options.claimId}\n`);
-    if (candidates.length === 0) {
-      console.log('No candidates found.');
-    }
-    for (let i = 0; i < candidates.length; i++) {
-      const c = candidates[i];
-      console.log(`**${i + 1}.** [${c.domain}](${c.resultUrl})`);
-      console.log(`   ${c.quote.slice(0, 200)}`);
-      console.log(`   offset: ${c.charStart}-${c.charEnd}`);
-      console.log('');
+    if (!candidates.length) console.log('No candidates found.');
+    for (const [index, candidate] of candidates.entries()) {
+      console.log(`**${index + 1}.** [${candidate.domain}](${candidate.resultUrl})`);
+      console.log(`   ${candidate.quote.slice(0, 200)}`);
+      console.log(`   offset: ${candidate.charStart}-${candidate.charEnd}\n`);
     }
   } else {
     console.log(JSON.stringify(createSuccessEnvelope({ candidates }), null, 2));
   }
-
   return 0;
-}
-
-// ── evidence-verify ─────────────────────────────────────────────────
-
-interface EvidenceInput {
-  resultUrl: string;
-  quote: string;
-  charStart: number;
-  charEnd: number;
-  contentHash?: string;  // computed if omitted
 }
 
 export async function runEvidenceVerify(
   session: string,
   options: {
     claimId: string;
-    evidence?: string;    // JSON
     evidenceFile?: string;
     stance: 'support' | 'refute' | 'insufficient';
     reason: string;
     confidence?: number;
     complete?: boolean;
     format?: string;
-  }
+  },
 ): Promise<number> {
   const sessionDir = resolveSessionPath(session);
-
-  const input = readSingleJsonInput([
-    { option: '--evidence', value: options.evidence },
-    { option: '--evidence-file', value: options.evidenceFile, file: true },
-  ]);
+  initSessionDir(sessionDir);
+  const input = readSessionJsonInput(sessionDir, [{ option: '--evidence-file', value: options.evidenceFile, file: true }]);
   if (!input.ok) {
     console.log(JSON.stringify(createErrorEnvelope(input.code, input.message), null, 2));
     return 1;
   }
   if (!isJsonObject(input.value)) {
-    console.log(JSON.stringify(createErrorEnvelope('INVALID_EVIDENCE', '--evidence must be a JSON object'), null, 2));
+    console.log(JSON.stringify(createErrorEnvelope('INVALID_EVIDENCE', '--evidence-file must contain a JSON object'), null, 2));
     return 1;
   }
-  const evInput: EvidenceInput = {
-    resultUrl: input.value.resultUrl as string,
+  const evidenceInput: EvidenceInput = {
+    resultId: input.value.resultId as string,
     quote: input.value.quote as string,
     charStart: input.value.charStart as number,
     charEnd: input.value.charEnd as number,
     contentHash: typeof input.value.contentHash === 'string' ? input.value.contentHash : undefined,
   };
-
-  // Validate required fields
-  if (typeof evInput.resultUrl !== 'string' || typeof evInput.quote !== 'string'
-      || !Number.isSafeInteger(evInput.charStart) || !Number.isSafeInteger(evInput.charEnd)) {
-    console.log(JSON.stringify(createErrorEnvelope('MISSING_FIELDS', '--evidence must contain string resultUrl and quote plus integer charStart and charEnd'), null, 2));
+  if (typeof evidenceInput.resultId !== 'string' || typeof evidenceInput.quote !== 'string'
+    || !Number.isSafeInteger(evidenceInput.charStart) || !Number.isSafeInteger(evidenceInput.charEnd)) {
+    console.log(JSON.stringify(createErrorEnvelope('MISSING_FIELDS', '--evidence-file must contain resultId, quote, charStart, and charEnd'), null, 2));
     return 1;
   }
 
-  // Verify the claim exists
-  const claims = loadClaims(sessionDir);
-  const claim = claims.find(c => c.id === options.claimId);
-  if (!claim) {
-    console.log(JSON.stringify(createErrorEnvelope(
-      'CLAIM_NOT_FOUND', `Claim ${options.claimId} not found`), null, 2));
-    return 1;
-  }
+  let mutation: { evidence: EvidenceSpan; verdict: Verdict; review?: ReturnType<typeof aggregateClaim>; idempotent: boolean };
+  try {
+    mutation = mutateSessionState(sessionDir, () => {
+      assertClaimsStoreReadable(sessionDir);
+      const claims = loadClaims(sessionDir);
+      const claim = claims.find(item => item.id === options.claimId);
+      if (!claim) throw new EvidenceCommandError('CLAIM_NOT_FOUND', `Claim ${options.claimId} not found`);
 
-  // Deterministic checks: anchor the evidence
-  const sessionResults = loadSessionResults(sessionDir);
-  const approvedResults = sessionResults.filter(r => r.status === 'approved');
-  const result = approvedResults.find(r => r.url === evInput.resultUrl);
+      const result = getApprovedResults(sessionDir).find(item => item.id === evidenceInput.resultId);
+      if (!result) throw new EvidenceCommandError('RESULT_NOT_APPROVED', `Result ID ${evidenceInput.resultId} is not in approved results`);
+      const content = result.content!;
+      if (evidenceInput.charStart < 0 || evidenceInput.charEnd > content.length) {
+        throw new EvidenceCommandError('OFFSET_OUT_OF_RANGE', `charStart/charEnd out of range (content length: ${content.length})`);
+      }
+      const quote = content.slice(evidenceInput.charStart, evidenceInput.charEnd);
+      if (quote !== evidenceInput.quote) throw new EvidenceCommandError('QUOTE_MISMATCH', 'Quote does not match source content at the provided offsets');
+      const contentHash = createHash('sha256').update(quote).digest('hex');
+      if ((evidenceInput.contentHash || contentHash) !== contentHash) {
+        throw new EvidenceCommandError('HASH_MISMATCH', 'Content hash mismatch: quote does not match source');
+      }
 
-  if (!result) {
-    console.log(JSON.stringify(createErrorEnvelope('URL_NOT_APPROVED', `Result URL ${evInput.resultUrl} is not in approved results`), null, 2));
-    return 1;
-  }
+      const evidences = loadEvidences(sessionDir);
+      const duplicate = evidences.find(item => item.claimId === claim.id
+        && item.resultId === result.id
+        && item.quote === evidenceInput.quote
+        && item.charStart === evidenceInput.charStart
+        && item.charEnd === evidenceInput.charEnd);
+      const idempotent = Boolean(duplicate);
+      const evidence: EvidenceSpan = duplicate ?? {
+          id: `ev_${String(evidences.length + 1).padStart(3, '0')}`,
+          claimId: claim.id,
+          resultId: result.id,
+          resultUrl: result.url,
+          quote: evidenceInput.quote,
+          charStart: evidenceInput.charStart,
+          charEnd: evidenceInput.charEnd,
+          contentHash,
+          extractedAt: result.extractedAt!,
+        };
+      if (!duplicate) evidences.push(evidence);
 
-  if (!hasVerifiedContent(result)) {
-    console.log(JSON.stringify(createErrorEnvelope('RESULT_NOT_VERIFIED', 'Approved result has no verified extracted content; re-extract the source before verifying evidence'), null, 2));
-    return 1;
-  }
+      const verdicts = loadVerdicts(sessionDir);
+      let verdict = verdicts.find(item => item.claimId === claim.id && item.evidenceIds.length === 1 && item.evidenceIds[0] === evidence.id);
+      if (!verdict) {
+        verdict = {
+          id: `vd_${String(verdicts.length + 1).padStart(3, '0')}`,
+          claimId: claim.id,
+          evidenceIds: [evidence.id],
+          stance: options.stance,
+          confidence: options.confidence,
+          reason: options.reason,
+          createdAt: Date.now(),
+        };
+        verdicts.push(verdict);
+      }
 
-  const content = result.content;
-  if (evInput.charEnd > content.length || evInput.charStart < 0) {
-    console.log(JSON.stringify(createErrorEnvelope('OFFSET_OUT_OF_RANGE', `charStart/charEnd out of range (content length: ${content.length})`), null, 2));
-    return 1;
-  }
-  // Verify content hash
-  const { createHash } = await import('crypto');
-  const slice = content.slice(evInput.charStart, evInput.charEnd);
-  if (slice !== evInput.quote) {
-    console.log(JSON.stringify(createErrorEnvelope('QUOTE_MISMATCH', 'Quote does not match source content at the provided offsets'), null, 2));
-    return 1;
-  }
-  const computedHash = createHash('sha256').update(slice).digest('hex');
-  const providedHash = evInput.contentHash || computedHash;
-  if (providedHash !== computedHash) {
-    console.log(JSON.stringify(createErrorEnvelope('HASH_MISMATCH', 'Content hash mismatch — quote does not match source'), null, 2));
-    return 1;
-  }
+      claim.status = 'verifying';
+      const reviews = loadReviews(sessionDir);
+      let review: ReturnType<typeof aggregateClaim> | undefined;
+      if (options.complete) {
+        const validEvidences = evidences.filter(item => item.claimId === claim.id && !item.invalid);
+        for (const item of validEvidences) item.sourceClusterId = computeSourceClusterId(item);
+        const validIds = new Set(validEvidences.map(item => item.id));
+        const claimVerdicts = verdicts.filter(item => item.claimId === claim.id && item.evidenceIds.some(id => validIds.has(id)));
+        review = aggregateClaim({ claimId: claim.id, riskLevel: claim.riskLevel, verdicts: claimVerdicts, evidences: validEvidences });
+        claim.status = 'reviewed';
+        const reviewIndex = reviews.findIndex(item => item.claimId === claim.id);
+        if (reviewIndex === -1) reviews.push(review);
+        else reviews[reviewIndex] = review;
+      }
 
-  // All checks passed — write evidence
-  const now = Date.now();
-  const evId = nextEvidenceId(sessionDir);
-
-  const evidence: EvidenceSpan = {
-    id: evId,
-    claimId: options.claimId,
-    resultUrl: evInput.resultUrl,
-    quote: evInput.quote,
-    charStart: evInput.charStart,
-    charEnd: evInput.charEnd,
-    contentHash: computedHash,
-    extractedAt: result.extractedAt,
-    sourceClusterId: undefined, // computed during policy-aggregate
-  };
-
-  const existingEvs = loadEvidences(sessionDir);
-  saveEvidences(sessionDir, [...existingEvs, evidence]);
-
-  // Write verdict alongside evidence
-  const vdId = nextVerdictId(sessionDir);
-  const verdict: Verdict = {
-    id: vdId,
-    claimId: options.claimId,
-    evidenceIds: [evId],
-    stance: options.stance,
-    confidence: options.confidence,
-    reason: options.reason,
-    createdAt: now,
-  };
-
-  const existingVds = loadVerdicts(sessionDir);
-  saveVerdicts(sessionDir, [...existingVds, verdict]);
-
-  // Update claim status to verifying
-  claim.status = 'verifying';
-  const { saveClaims } = await import('../claims/store.js');
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  saveClaims(sessionDir, claims);
-
-  // If --complete, trigger policy aggregation
-  let review = undefined;
-  if (options.complete) {
-    // Gather all evidence and verdicts for this claim
-    const storedEvidences = loadEvidences(sessionDir);
-    const allEvs = storedEvidences.filter(e => e.claimId === options.claimId);
-    const allVds = loadVerdicts(sessionDir).filter(v => v.claimId === options.claimId);
-
-    // Refresh source cluster IDs using the current publisher-domain rule.
-    for (const ev of allEvs) {
-      ev.sourceClusterId = computeSourceClusterId(ev);
+      // Every retry derives the full desired state, repairing partial prior writes.
+      saveEvidences(sessionDir, evidences);
+      saveVerdicts(sessionDir, verdicts);
+      saveClaims(sessionDir, claims);
+      saveReviews(sessionDir, reviews);
+      return { evidence, verdict, review, idempotent };
+    });
+  } catch (error) {
+    if (error instanceof ClaimsStateError) {
+      console.log(JSON.stringify(createErrorEnvelope('CLAIMS_STATE_CORRUPTED', error.message), null, 2));
+      return 1;
     }
-    saveEvidences(sessionDir, storedEvidences);
-
-    const input: PolicyInput = {
-      claimId: options.claimId,
-      riskLevel: claim.riskLevel,
-      verdicts: allVds,
-      evidences: allEvs,
-    };
-
-    const result = aggregateClaim(input);
-
-    // Update claim status
-    claim.status = 'reviewed';
-    saveClaims(sessionDir, claims);
-
-    // Persist review
-    const existingReviews = loadReviews(sessionDir);
-    saveReviews(sessionDir, [...existingReviews, result]);
-
-    review = result;
+    if (error instanceof EvidenceCommandError) {
+      console.log(JSON.stringify(createErrorEnvelope(error.code, error.message), null, 2));
+      return 1;
+    }
+    throw error;
   }
 
   const output = {
-    evidence: { id: evId, claimId: options.claimId },
-    verdict: { id: vdId, stance: options.stance },
-    ...(review ? { review: { claimId: review.claimId, decision: review.decision, matchedRule: review.matchedRule, autoPass: review.autoPass } } : {}),
+    evidence: { id: mutation.evidence.id, claimId: options.claimId },
+    verdict: { id: mutation.verdict.id, stance: mutation.verdict.stance },
+    ...(mutation.idempotent ? { idempotent: true } : {}),
+    ...(mutation.review ? { review: { claimId: mutation.review.claimId, decision: mutation.review.decision, matchedRule: mutation.review.matchedRule, autoPass: mutation.review.autoPass } } : {}),
   };
-
-  const outputFormat = options.format || 'json';
-  if (outputFormat === 'md') {
+  if ((options.format || 'json') === 'md') {
     console.log('## Evidence-Verify Result\n');
-    console.log(`**Evidence**: ${evId} → ${options.claimId}`);
-    console.log(`**Verdict**: ${vdId} — ${options.stance}`);
-    if (review) {
-      console.log(`**Review**: ${review.decision} (rule: ${review.matchedRule}, autoPass: ${review.autoPass})`);
-    }
+    console.log(`**Evidence**: ${mutation.evidence.id} -> ${options.claimId}`);
+    console.log(`**Verdict**: ${mutation.verdict.id} - ${mutation.verdict.stance}`);
+    if (mutation.review) console.log(`**Review**: ${mutation.review.decision} (rule: ${mutation.review.matchedRule}, autoPass: ${mutation.review.autoPass})`);
   } else {
     console.log(JSON.stringify(createSuccessEnvelope(output), null, 2));
   }
-
   return 0;
 }
 
-// ── evidence-list ───────────────────────────────────────────────────
-
 export async function runEvidenceList(
   session: string,
-  options: {
-    claimId: string;
-    format?: string;
-  }
+  options: { claimId: string; format?: string; includeInvalid?: boolean },
 ): Promise<number> {
   const sessionDir = resolveSessionPath(session);
-  const evidences = loadEvidences(sessionDir).filter(e => e.claimId === options.claimId);
-
-  const outputFormat = options.format || 'json';
-  if (outputFormat === 'md') {
-    if (evidences.length === 0) {
+  let evidences: EvidenceSpan[];
+  try {
+    assertClaimsStoreReadable(sessionDir);
+    evidences = loadEvidences(sessionDir).filter(item => item.claimId === options.claimId && (options.includeInvalid || !item.invalid));
+  } catch (error) {
+    if (error instanceof ClaimsStateError) {
+      console.log(JSON.stringify(createErrorEnvelope('CLAIMS_STATE_CORRUPTED', error.message), null, 2));
+      return 1;
+    }
+    throw error;
+  }
+  if ((options.format || 'json') === 'md') {
+    if (!evidences.length) {
       console.log('No evidence found for this claim.');
       return 0;
     }
     console.log('## Evidence\n');
     console.log('| ID | Source | Quote |');
     console.log('|----|--------|-------|');
-    for (const e of evidences) {
-      console.log(`| ${e.id} | ${e.resultUrl} | ${e.quote.slice(0, 60)}... |`);
-    }
+    for (const evidence of evidences) console.log(`| ${evidence.id} | ${evidence.resultUrl} | ${evidence.quote.slice(0, 60)}... |`);
   } else {
     console.log(JSON.stringify(createSuccessEnvelope({ evidences }), null, 2));
   }
-
   return 0;
 }

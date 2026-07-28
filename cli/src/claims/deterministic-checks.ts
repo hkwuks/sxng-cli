@@ -64,7 +64,7 @@ export function computeSourceClusterId(
 ): string {
   let publisher = '';
   try {
-    publisher = new URL(evidence.resultUrl).hostname.toLowerCase().replace(/^www\./, '');
+    publisher = new URL(evidence.resultUrl ?? '').hostname.toLowerCase().replace(/^www\./, '');
   } catch { /* empty */ }
 
   // Unknown publishers share one cluster so they cannot inflate domain diversity.
@@ -75,6 +75,7 @@ export function computeSourceClusterId(
 
 /** A candidate evidence match, not persisted until verified by Agent. */
 export interface EvidenceCandidate {
+  resultId: string;
   resultUrl: string;
   quote: string;
   charStart: number;
@@ -156,7 +157,7 @@ export function searchCandidates(
     ? CJK_JACCARD_THRESHOLD
     : JACCARD_THRESHOLD;
   const allResults = loadSessionResults(sessionDir);
-  const approved = allResults.filter(r => r.status === 'approved' && r.content);
+  const approved = allResults.filter(r => r.status === 'approved' && r.contentType === 'extracted' && r.content);
 
   const candidates: Array<{ score: number; candidate: EvidenceCandidate }> = [];
 
@@ -189,6 +190,7 @@ export function searchCandidates(
       candidates.push({
         score,
         candidate: {
+          resultId: result.id,
           resultUrl: result.url,
           quote: trimmed,
           charStart,

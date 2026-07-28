@@ -36,12 +36,12 @@ function buildTestGraph(): DirectedGraph<GraphNodeAttrs, GraphEdgeAttrs> {
     graph.mergeNode('e:mio', { type: 'entity', label: 'mio', entityType: 'library', score: 0.7, frequency: 3, sourceRounds: [2] });
     graph.mergeNode('e:futures', { type: 'entity', label: 'futures', entityType: 'library', score: 0.6, frequency: 2, sourceRounds: [1] });
 
-    // Query → result edges
+    // Query  -> result edges
     graph.addEdge('q:rust_async', 'r:url1', { relation: 'yields', weight: 0.5 });
     graph.addEdge('q:rust_async', 'r:url2', { relation: 'yields', weight: 0.33 });
     graph.addEdge('q:tokio_runtime', 'r:url3', { relation: 'yields', weight: 0.5 });
 
-    // Result → entity edges (mentions)
+    // Result  -> entity edges (mentions)
     graph.addEdge('r:url1', 'e:tokio', { relation: 'mentions', weight: 0.9 });
     graph.addEdge('r:url1', 'e:rust', { relation: 'mentions', weight: 0.7 });
     graph.addEdge('r:url2', 'e:async_std', { relation: 'mentions', weight: 0.8 });
@@ -50,7 +50,7 @@ function buildTestGraph(): DirectedGraph<GraphNodeAttrs, GraphEdgeAttrs> {
     graph.addEdge('r:url3', 'e:mio', { relation: 'mentions', weight: 0.5 });
     graph.addEdge('r:url3', 'e:futures', { relation: 'mentions', weight: 0.4 });
 
-    // Entity → entity edges (semantic)
+    // Entity  -> entity edges (semantic)
     graph.addEdge('e:tokio', 'e:async_std', { relation: 'alternative_to', weight: 0.9 });
     graph.addEdge('e:tokio', 'e:rust', { relation: 'co_occurs_with', weight: 0.85 });
     graph.addEdge('e:tokio', 'e:mio', { relation: 'depends_on', weight: 0.8 });
@@ -66,7 +66,7 @@ function buildGraphWithPaths(): DirectedGraph<GraphNodeAttrs, GraphEdgeAttrs> {
     // Add a composition chain path node
     graph.mergeNode('p:chain_001', {
         type: 'path',
-        label: 'Chain: tokio → async runtime → Rust → systems programming',
+        label: 'Chain: tokio  -> async runtime  -> Rust  -> systems programming',
         pathType: 'composition_chain',
         hops: 3,
         entities: ['e:tokio', 'e:async_std', 'e:rust'],
@@ -78,7 +78,7 @@ function buildGraphWithPaths(): DirectedGraph<GraphNodeAttrs, GraphEdgeAttrs> {
     // Add a conjunction path node
     graph.mergeNode('p:conj_001', {
         type: 'path',
-        label: 'Conj: tokio + async-std → rust',
+        label: 'Conj: tokio + async-std  -> rust',
         pathType: 'conjunction',
         hops: 1,
         entities: ['e:tokio', 'e:async_std', 'e:rust'],
@@ -259,7 +259,7 @@ describe('graph-explore', () => {
         it('returns null for normal entity with diverse edges', () => {
             const graph = buildTestGraph();
 
-            // tokio has alternative_to, co_occurs_with, depends_on edges → not a dead end
+            // tokio has alternative_to, co_occurs_with, depends_on edges  -> not a dead end
             const deadEnd = detectDeadEnd(graph, 'e:tokio');
             expect(deadEnd).toBeNull();
         });
@@ -276,7 +276,7 @@ describe('graph-explore', () => {
             }
         });
 
-        it('ranks alternatives by weight × score × (1 - visited ratio)', () => {
+        it('ranks alternatives by weight 脳 score 脳 (1 - visited ratio)', () => {
             const graph = buildTestGraph();
             const visited = new Set(['e:tokio']);
 
@@ -332,7 +332,7 @@ describe('graph-explore', () => {
             const graph = buildGraphWithPaths();
             const result = traversePath(graph, 'p:chain_001') as any;
 
-            // tokio → async-std has alternative_to edge
+            // tokio  -> async-std has alternative_to edge
             expect(result.hops[1].relation).toBeDefined();
         });
 
@@ -356,7 +356,7 @@ describe('graph-explore', () => {
             const graph = buildGraphWithPaths();
             const result = traversePath(graph, 'p:chain_001') as any;
 
-            expect(result.sources.rounds.length).toBeGreaterThan(0);
+            expect(result.sources.resultIds.length).toBeGreaterThan(0);
         });
     });
 
@@ -392,7 +392,7 @@ describe('graph-explore', () => {
             expect(results.length).toBeLessThanOrEqual(2);
         });
 
-        it('ranks by score × degree', () => {
+        it('ranks by score 脳 degree', () => {
             const graph = buildTestGraph();
             const results = searchEntities(graph, 'rust');
 

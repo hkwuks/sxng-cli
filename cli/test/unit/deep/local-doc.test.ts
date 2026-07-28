@@ -368,12 +368,13 @@ describe('local-doc searcher', () => {
         expect(result.partial).toBe(false);
 
         const r = result.results[0];
-        expect(r.source).toBe('local');
+        expect(r.contentType).toBe('extracted');
+        expect(r.extractor).toBe('local-index');
         expect(r.url).toMatch(/^file:\/\//);
         expect(r.score).toBeGreaterThan(0);
         expect(r.title).toBeTruthy();
         expect(r.content).toBeTruthy();
-        expect(r.origins).toEqual([{ query: 'async tokio', round: 1 }]);
+        expect(r.origins).toEqual([{ tool: 'local-index', query: 'async tokio' }]);
     });
 
     it('returns formatted results with correct fields', async () => {
@@ -391,7 +392,8 @@ describe('local-doc searcher', () => {
         expect(r).toHaveProperty('url');
         expect(r).toHaveProperty('title');
         expect(r).toHaveProperty('content');
-        expect(r).toHaveProperty('source', 'local');
+        expect(r).toHaveProperty('contentType', 'extracted');
+        expect(r).toHaveProperty('extractor', 'local-index');
         expect(r).toHaveProperty('score');
         expect(r).toHaveProperty('filePath');
         expect(r).toHaveProperty('headings');
@@ -417,7 +419,7 @@ describe('local-doc searcher', () => {
 
         // First add some web-like results
         appendSessionResults(sessionDir, [
-            { url: 'https://example.com', title: 'Web Result', content: 'test', source: 'sxng' },
+            { url: 'https://example.com', title: 'Web Result', contentType: 'search', origins: [{ tool: 'sxng', query: 'web result' }] },
         ]);
 
         const roundsBefore = loadSessionRounds(sessionDir);

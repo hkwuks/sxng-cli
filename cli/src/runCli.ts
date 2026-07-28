@@ -24,7 +24,7 @@ import { ContentExtractor } from './deep/extractor.js';
 import { rrf } from './deep/rrf.js';
 import { normalizeUrl, resultUrlKey } from './deep/dedupe.js';
 import { deserializeGraph, graphStats, GraphNodeAttrs, GraphEdgeAttrs } from './deep/graph.js';
-import { initSessionDir, resolveSessionPath, appendSessionResults, loadSessionResults, loadSessionGraph, countPendingResults, getPendingResults, approveResults, injectApprovedResults, hasVerifiedContent } from './deep/session.js';
+import { initSessionDir, resolveSessionPath, appendSessionResults, loadSessionResults, loadSessionGraph, countPendingResults, getPendingResults, approveResults, injectApprovedResults, hasVerifiedContent, setSkipped } from './deep/session.js';
 import { runSessionList, runSessionDelete, getDefaultSessionRoot } from './commands/session.js';
 import { graphPreprocess } from './deep/graph-preprocess.js';
 import { checkQueryRedundancy, RedundancyConfig } from './deep/query-redundancy.js';
@@ -41,6 +41,7 @@ import { runClaimAdd, runClaimList } from './commands/claim.js';
 import { runEvidenceSearch, runEvidenceVerify, runEvidenceList } from './commands/evidence.js';
 import { runVerdictList } from './commands/verdict.js';
 import { runPolicyAggregate, runReviewList } from './commands/review.js';
+import { readSessionJsonInput } from './commands/json-input.js';
 import { DirectedGraph } from 'graphology';
 import { writeFileSync, existsSync } from 'fs';
 
@@ -543,7 +544,7 @@ async function runSearch(
             if (options.session) {
                 sessionInfo = appendSessionResults(options.session, results.results.map(result => ({
                     ...result,
-                    origins: [{ query: queries[0] }],
+                    origins: [{ tool: 'sxng', engine: result.engine, query: queries[0] }],
                 })));
                 injectApprovedResults(options.session, sessionInfo.approvedResults);
                 // Check pending count and warn if >= 30
@@ -559,8 +560,8 @@ async function runSearch(
             if (options.session) {
                 const allSessionResults = loadSessionResults(options.session);
                 const rankings = [
-                    results.results.map(r => ({ id: resultUrlKey(r), ...r })),
-                    allSessionResults.map(r => ({ id: resultUrlKey(r), ...r })),
+                    results.results.map(r => ({ ...r, id: resultUrlKey(r) })),
+                    allSessionResults.map(r => ({ ...r, id: resultUrlKey(r) })),
                 ];
                 const fused = rrf(rankings);
                 const urlMap = new Map<string, SearchResult>();
@@ -706,12 +707,12 @@ async function runSearch(
 
         let sessionInfo: ReturnType<typeof appendSessionResults> | null = null;
         if (options.session) {
-            const originsByUrl = new Map<string, Array<{ query: string }>>();
+            const originsByUrl = new Map<string, Array<{ tool: string; engine?: string; query: string }>>();
             for (const response of allResponses) {
                 for (const result of response.results) {
                     const key = normalizeUrl(result.url);
                     const origins = originsByUrl.get(key) || [];
-                    origins.push({ query: response.query });
+                    origins.push({ tool: 'sxng', engine: result.engine, query: response.query });
                     originsByUrl.set(key, origins);
                 }
             }
@@ -794,7 +795,9 @@ export function createProgram(): Command {
         .option('--redundancy <action>', 'Query redundancy check: warn | adjust | skip')
         .option('--quality', 'Assess result quality for current session')
         .option('--threshold-override <json>', 'Override quality thresholds (JSON, e.g. \'{"contentDepth":100}\')')
-        .option('--approve <indices>', 'Approve pending results by comma-separated indices (e.g. "0,1,2")')
+        .option('--approve-file <path>', 'UTF-8 approval JSON array under this session agent-inputs directory')
+        .option('--skip-file <path>', 'UTF-8 skip JSON array under this session agent-inputs directory')
+        .option('--unskip-file <path>', 'UTF-8 restore JSON array under this session agent-inputs directory')
         .option('--health', 'Check SearXNG server health')
         .option('--engines-list', 'List available search engines')
         .option('--categories-list', 'List available categories')
@@ -857,14 +860,12 @@ export function createProgram(): Command {
 
     program
         .command('graph-add')
-        .argument('<path>', 'Graph file or session name')
-        .description('Add entities/edges to knowledge graph. New entities require sourceRounds from graph-preprocess.')
-        .option('--data <json>', 'JSON with entities/edges')
-        .option('--data-file <path>', 'UTF-8 JSON file with entities/edges')
-        .action(async (path, opts) => {
+        .argument('<session>', 'Session directory or name')
+        .description('Add semantic entities/edges supported by approved extracted result IDs.')
+        .requiredOption('--data-file <path>', 'UTF-8 JSON under this session agent-inputs directory')
+        .action(async (session, opts) => {
             const code = await runGraphAdd({
-                graphFile: path,
-                data: opts.data,
+                session,
                 dataFile: opts.dataFile,
             });
             process.exit(code);
@@ -873,22 +874,23 @@ export function createProgram(): Command {
     program
         .command('results-add')
         .argument('<session>', 'Session directory or name')
-        .description('Append external search results to session as pending (awaiting quality assessment)')
-        .option('--data <json>', 'JSON array of results or object with "results" array')
-        .option('--data-file <path>', 'UTF-8 JSON file with results')
-        .requiredOption('--query <query>', 'Search query that produced these results')
+        .description('Import external search records or extracted bodies into a session')
+        .requiredOption('--kind <kind>', 'Import kind: search or extracted')
+        .requiredOption('--data-file <path>', 'UTF-8 JSON under this session agent-inputs directory')
+        .option('--query <query>', 'Discovery query (may instead be supplied per item)')
+        .option('--tool <tool>', 'Origin tool (may instead be supplied per item)')
         .addHelpText('after', `
 Examples:
-  sxng results-add my-session --query "async runtime" --data '[{"url":"https://...","title":"...","source":"tavily"}]'
+  sxng results-add my-session --kind search --tool exa --query "async runtime" --data-file .sxng/sessions/my-session/agent-inputs/results.json
 
-Results are marked as pending and go through the same approve pipeline as sxng-native results.
-Use --quality --approve to inject into graph.`)
+Search imports await extraction; extracted imports await approval.`)
         .action(async (session, opts) => {
             const code = await runResultsAdd({
                 session,
-                data: opts.data,
+                kind: opts.kind,
                 dataFile: opts.dataFile,
                 query: opts.query,
+                tool: opts.tool,
             });
             process.exit(code);
         });
@@ -1203,19 +1205,15 @@ See also: graph-explore (for viewing relations of a known entity)`)
         .command('claim-add')
         .argument('<session>', 'Session directory or name')
         .description('Add claims (single or batch) with auto evidence-search')
-        .option('--claim <json>', 'Single claim JSON')
-        .option('--claims <json>', 'Batch claims JSON array')
         .option('--claim-file <path>', 'UTF-8 JSON file with one claim')
         .option('--claims-file <path>', 'UTF-8 JSON file with a claim array')
         .option('-f, --format <fmt>', 'Output format: json (default), md')
         .addHelpText('after', `
 Examples:
-  sxng claim-add my-session --claim '{"text":"Tokio is the most widely used async runtime"}'
-  sxng claim-add my-session --claims '[{"text":"..."},{"text":"..."}]'`)
+  sxng claim-add my-session --claim-file .sxng/sessions/my-session/agent-inputs/claim.json
+  sxng claim-add my-session --claims-file .sxng/sessions/my-session/agent-inputs/claims.json`)
         .action(async (session, opts) => {
             const code = await runClaimAdd(session, {
-                claim: opts.claim,
-                claims: opts.claims,
                 claimFile: opts.claimFile,
                 claimsFile: opts.claimsFile,
                 format: opts.format,
@@ -1256,8 +1254,7 @@ Examples:
         .argument('<session>', 'Session directory or name')
         .description('Confirm evidence + submit stance + optional auto-policy')
         .requiredOption('--claim-id <id>', 'Claim ID')
-        .option('--evidence <json>', 'Evidence object: {resultUrl, quote, charStart, charEnd}')
-        .option('--evidence-file <path>', 'UTF-8 JSON file with evidence object')
+        .requiredOption('--evidence-file <path>', 'UTF-8 JSON file with evidence object under this session agent-inputs directory')
         .requiredOption('--stance <s>', 'Stance: support, refute, insufficient')
         .requiredOption('--reason <text>', 'Judgement rationale')
         .option('--confidence <n>', 'Confidence 0-1', parseFloat)
@@ -1266,7 +1263,6 @@ Examples:
         .action(async (session, opts) => {
             const code = await runEvidenceVerify(session, {
                 claimId: opts.claimId,
-                evidence: opts.evidence,
                 evidenceFile: opts.evidenceFile,
                 stance: opts.stance,
                 reason: opts.reason,
@@ -1379,6 +1375,40 @@ export async function runCli(args: string[], service: SearXNGService): Promise<n
             const sessionResults = loadSessionResults(sessionDir);
             const sessionGraph = loadSessionGraph(sessionDir);
 
+            const readSelections = (option: string, file: string | undefined): Array<{ id: string; revision: number }> | undefined => {
+                const input = readSessionJsonInput(sessionDir, [{ option, value: file, file: true }]);
+                if (!input.ok || !Array.isArray(input.value) || !input.value.every(item => typeof item === 'object' && item !== null && typeof item.id === 'string' && Number.isSafeInteger(item.revision))) {
+                    console.log(JSON.stringify(createErrorEnvelope(
+                        input.ok ? 'INVALID_APPROVAL_SELECTION' : input.code,
+                        input.ok ? `${option} must contain an array of {id, revision}` : input.message,
+                    ), null, 2));
+                    return undefined;
+                }
+                return input.value as Array<{ id: string; revision: number }>;
+            };
+
+            const applySkip = (option: string, file: string | undefined, skipped: boolean): boolean => {
+                const selections = readSelections(option, file);
+                if (!selections) return false;
+                const result = setSkipped(sessionDir, selections, skipped);
+                if (result.error) {
+                    console.log(JSON.stringify(createErrorEnvelope(result.error.code, result.error.message, { details: { error: result.error } }), null, 2));
+                    return false;
+                }
+                console.log(JSON.stringify(createSuccessEnvelope({ changed: result.changed, skipped, results: result.results.map(item => ({ id: item.id, revision: item.revision, skippedAt: item.skippedAt })) }), null, 2));
+                return true;
+            };
+
+            if (opts.skipFile || opts.unskipFile) {
+                if (opts.skipFile && opts.unskipFile) {
+                    console.log(JSON.stringify(createErrorEnvelope('MULTIPLE_SKIP_ACTIONS', 'Use only one of --skip-file or --unskip-file'), null, 2));
+                    process.exit(1);
+                    return;
+                }
+                process.exit(applySkip(opts.skipFile ? '--skip-file' : '--unskip-file', opts.skipFile ?? opts.unskipFile, Boolean(opts.skipFile)) ? 0 : 1);
+                return;
+            }
+
             let thresholdOverride: Partial<QualityThresholds> | undefined;
             if (opts.thresholdOverride) {
                 try {
@@ -1407,8 +1437,10 @@ export async function runCli(args: string[], service: SearXNGService): Promise<n
                 priorResults,
                 thresholdOverride
             );
-            const describeResult = (result: typeof pending[number], index: number) => ({
-                index,
+            const describeResult = (result: typeof pending[number], index?: number) => ({
+                ...(index === undefined ? {} : { index }),
+                id: result.id,
+                revision: result.revision,
                 url: result.url,
                 source: result.source || 'sxng',
                 contentLength: result.content?.length ?? 0,
@@ -1417,15 +1449,17 @@ export async function runCli(args: string[], service: SearXNGService): Promise<n
             });
 
             // Approval is allowed only after reporting current quality and verification state.
-            if (opts.approve) {
-                const indices = (opts.approve as string).split(',').map((value: string) => {
-                    const trimmed = value.trim();
-                    return /^-?\d+$/.test(trimmed) ? Number(trimmed) : Number.NaN;
-                });
-                const selectedResults = indices
-                    .filter(index => Number.isSafeInteger(index) && index >= 0 && index < pending.length)
-                    .map(index => describeResult(pending[index], index));
-                const approval = approveResults(sessionDir, indices);
+            if (opts.approveFile) {
+                const selections = readSelections('--approve-file', opts.approveFile);
+                if (!selections) {
+                    process.exit(1);
+                    return;
+                }
+                const selectedResults = selections
+                    .map(selection => sessionResults.find(result => result.id === selection.id))
+                    .filter((result): result is typeof pending[number] => Boolean(result))
+                    .map(result => describeResult(result));
+                const approval = approveResults(sessionDir, selections);
 
                 if (approval.error) {
                     console.log(JSON.stringify(createErrorEnvelope(
@@ -1481,6 +1515,8 @@ export async function runCli(args: string[], service: SearXNGService): Promise<n
                     quality,
                     pendingResults: pending.map((r, i) => ({
                         index: i,
+                        id: r.id,
+                        revision: r.revision,
                         title: r.title,
                         url: r.url,
                         source: r.source || 'sxng',
@@ -1491,7 +1527,7 @@ export async function runCli(args: string[], service: SearXNGService): Promise<n
                         extractedAt: r.extractedAt,
                         verified: hasVerifiedContent(r),
                     })),
-                    hint: 'Agent reviews content and approves by index: sxng --session <name> --quality --approve "0,1,2"',
+                    hint: 'Agent reviews content and approves with the id/revision objects returned here.',
                 }), null, 2));
             } else {
                 console.log(formatQualityAsMarkdown(quality));
@@ -1504,7 +1540,7 @@ export async function runCli(args: string[], service: SearXNGService): Promise<n
                         console.log(`   Preview: ${preview}${r.content.length > 300 ? '...' : ''}`);
                     }
                 }
-                console.log('\n**Agent reviews content and approves by index:** sxng --session <name> --quality --approve "0,1,2"');
+                console.log('\n**Agent writes ID/revision selections to session agent-inputs, then uses --approve-file.**');
             }
             process.exit(0);
             return;

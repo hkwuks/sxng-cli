@@ -1,5 +1,5 @@
 /**
- * claim-add / claim-list — Claim subcommands for the review pipeline.
+ * Claim add and list commands for the review pipeline.
  */
 
 import {
@@ -10,11 +10,13 @@ import {
   loadClaims,
   saveClaims,
   getClaimsByStatus,
+  ClaimsStateError,
+  assertClaimsStoreReadable,
 } from '../claims/store.js';
 import { searchCandidates } from '../claims/deterministic-checks.js';
 import { createSuccessEnvelope, createErrorEnvelope } from '../protocol.js';
-import { resolveSessionPath } from '../deep/session.js';
-import { isJsonObject, readSingleJsonInput } from './json-input.js';
+import { initSessionDir, mutateSessionState, resolveSessionPath } from '../deep/session.js';
+import { isJsonObject, readSessionJsonInput } from './json-input.js';
 
 interface ClaimInput {
   text: string;
@@ -28,21 +30,18 @@ interface ClaimInput {
 export async function runClaimAdd(
   session: string,
   options: {
-    claim?: string;   // single claim JSON
-    claims?: string;  // batch claims JSON array
     claimFile?: string;
     claimsFile?: string;
     format?: string;
   }
 ): Promise<number> {
   const sessionDir = resolveSessionPath(session);
+  initSessionDir(sessionDir);
 
   // Parse input
   let inputs: ClaimInput[] = [];
 
-  const input = readSingleJsonInput([
-    { option: '--claim', value: options.claim },
-    { option: '--claims', value: options.claims },
+  const input = readSessionJsonInput(sessionDir, [
     { option: '--claim-file', value: options.claimFile, file: true },
     { option: '--claims-file', value: options.claimsFile, file: true },
   ]);
@@ -51,9 +50,9 @@ export async function runClaimAdd(
     return 1;
   }
 
-  const batchInput = input.source === '--claims' || input.source === '--claims-file';
+  const batchInput = input.source === '--claims-file';
   if (batchInput && !Array.isArray(input.value)) {
-    console.log(JSON.stringify(createErrorEnvelope('INVALID_CLAIMS', '--claims must be a JSON array', { hint: 'Example: --claims \'[{"text":"..."}]\'' }), null, 2));
+    console.log(JSON.stringify(createErrorEnvelope('INVALID_CLAIMS', '--claims-file must contain a JSON array'), null, 2));
     return 1;
   }
   inputs = batchInput ? input.value as ClaimInput[] : [input.value as ClaimInput];
@@ -66,46 +65,54 @@ export async function runClaimAdd(
     }
   }
 
-  const now = Date.now();
-  const existing = loadClaims(sessionDir);
-  const newClaims: Claim[] = [];
-  const candidates: Record<string, EvidenceCandidate[]> = {};
+  let result: Record<string, any>;
+  try {
+    result = mutateSessionState(sessionDir, () => {
+      assertClaimsStoreReadable(sessionDir);
+      const existing = loadClaims(sessionDir);
+      const now = Date.now();
+      const newClaims: Claim[] = [];
+      const candidates: Record<string, EvidenceCandidate[]> = {};
 
-  for (const [index, input] of inputs.entries()) {
-    const id = `cl_${String(existing.length + index + 1).padStart(3, '0')}`;
-    const claim: Claim = {
-      id,
-      text: input.text,
-      subject: input.subject,
-      predicate: input.predicate,
-      object: input.object,
-      time: input.time,
-      riskLevel: input.riskLevel || 'medium',
-      status: 'pending',
-      sessionDir,
-      createdAt: now,
-    };
-    newClaims.push(claim);
+      for (const [index, input] of inputs.entries()) {
+        const id = `cl_${String(existing.length + index + 1).padStart(3, '0')}`;
+        const claim: Claim = {
+          id,
+          text: input.text,
+          subject: input.subject,
+          predicate: input.predicate,
+          object: input.object,
+          time: input.time,
+          riskLevel: input.riskLevel || 'medium',
+          status: 'pending',
+          sessionDir,
+          createdAt: now,
+        };
+        newClaims.push(claim);
+        candidates[id] = searchCandidates(sessionDir, claim.text);
+      }
 
-    // Auto-trigger evidence search
-    candidates[id] = searchCandidates(sessionDir, claim.text);
+      saveClaims(sessionDir, [...existing, ...newClaims]);
+      return {
+        claims: newClaims.map(c => ({ id: c.id, text: c.text, status: c.status })),
+        candidates,
+      };
+    });
+  } catch (error) {
+    if (error instanceof ClaimsStateError) {
+      console.log(JSON.stringify(createErrorEnvelope('CLAIMS_STATE_CORRUPTED', error.message), null, 2));
+      return 1;
+    }
+    throw error;
   }
-
-  // Append to existing claims
-  saveClaims(sessionDir, [...existing, ...newClaims]);
-
-  const result: Record<string, any> = {
-    claims: newClaims.map(c => ({ id: c.id, text: c.text, status: c.status })),
-    candidates,
-  };
 
   const outputFormat = options.format || 'json';
   if (outputFormat === 'md') {
     console.log('## Claim-Add Results\n');
-    for (const c of newClaims) {
+    for (const c of result.claims) {
       console.log(`**${c.id}**: ${c.text}`);
-      console.log(`- Status: ${c.status}, Risk: ${c.riskLevel}`);
-      const cs = candidates[c.id] || [];
+      console.log(`- Status: ${c.status}`);
+      const cs = result.candidates[c.id] || [];
       if (cs.length > 0) {
         console.log(`- Candidates: ${cs.length} found`);
         for (const cand of cs) {
@@ -133,7 +140,17 @@ export async function runClaimList(
   const sessionDir = resolveSessionPath(session);
 
   const statusFilter = options.status as Claim['status'] | undefined;
-  const claims = getClaimsByStatus(sessionDir, statusFilter);
+  let claims: Claim[];
+  try {
+    assertClaimsStoreReadable(sessionDir);
+    claims = getClaimsByStatus(sessionDir, statusFilter);
+  } catch (error) {
+    if (error instanceof ClaimsStateError) {
+      console.log(JSON.stringify(createErrorEnvelope('CLAIMS_STATE_CORRUPTED', error.message), null, 2));
+      return 1;
+    }
+    throw error;
+  }
   const outputFormat = options.format || 'json';
 
   if (outputFormat === 'md') {

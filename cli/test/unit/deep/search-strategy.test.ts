@@ -8,7 +8,7 @@ import {
 import { DirectedGraph } from 'graphology';
 import { GraphNodeAttrs, GraphEdgeAttrs } from '../../src/deep/graph.js';
 
-function buildGraphWithRounds(
+function buildGraphWithResultProvenance(
     roundData: Array<{ round: number; entityCount: number }>
 ): DirectedGraph<GraphNodeAttrs, GraphEdgeAttrs> {
     const graph = new DirectedGraph<GraphNodeAttrs, GraphEdgeAttrs>();
@@ -25,10 +25,15 @@ function buildGraphWithRounds(
 
         // Add entities attributed to this round
         for (let i = 0; i < entityCount; i++) {
+            const resultId = `r:result_r${round}_${i}`;
+            graph.mergeNode(resultId, {
+                type: 'result', label: resultId, url: `https://example.test/${round}/${i}`,
+                origins: [{ tool: 'test', query: `query round ${round}`, round }],
+            });
             graph.mergeNode(`e:entity_r${round}_${i}`, {
                 type: 'entity',
                 label: `Entity R${round}-${i}`,
-                sourceRounds: [round],
+                sourceResultIds: [resultId],
             });
         }
     }
@@ -39,7 +44,7 @@ function buildGraphWithRounds(
 describe('search-strategy', () => {
     describe('computeGrowthRate', () => {
         it('returns 1.0 when only one round of data', () => {
-            const graph = buildGraphWithRounds([{ round: 1, entityCount: 5 }]);
+            const graph = buildGraphWithResultProvenance([{ round: 1, entityCount: 5 }]);
             const rate = computeGrowthRate(graph);
             expect(rate).toBe(1.0);
         });
@@ -52,7 +57,7 @@ describe('search-strategy', () => {
 
         it('computes positive growth when more entities in latest round', () => {
             // Round 1: 3 entities, Round 2: 6 entities
-            const graph = buildGraphWithRounds([
+            const graph = buildGraphWithResultProvenance([
                 { round: 1, entityCount: 3 },
                 { round: 2, entityCount: 6 },
             ]);
@@ -62,7 +67,7 @@ describe('search-strategy', () => {
         });
 
         it('computes negative growth when fewer entities in latest round', () => {
-            const graph = buildGraphWithRounds([
+            const graph = buildGraphWithResultProvenance([
                 { round: 1, entityCount: 10 },
                 { round: 2, entityCount: 3 },
             ]);
@@ -72,7 +77,7 @@ describe('search-strategy', () => {
         });
 
         it('computes slow growth when entities plateau', () => {
-            const graph = buildGraphWithRounds([
+            const graph = buildGraphWithResultProvenance([
                 { round: 1, entityCount: 10 },
                 { round: 2, entityCount: 11 },
             ]);
@@ -84,14 +89,14 @@ describe('search-strategy', () => {
 
     describe('determineSearchStage', () => {
         it('stays in broad_exploration for early rounds', () => {
-            const graph = buildGraphWithRounds([{ round: 1, entityCount: 5 }]);
+            const graph = buildGraphWithResultProvenance([{ round: 1, entityCount: 5 }]);
             const stage = determineSearchStage(graph);
             expect(stage).toBe('broad_exploration');
         });
 
         it('transitions to targeted_deep_dive when growth slows', () => {
-            // Round 1: 10 entities, Round 2: 11 entities → growth rate = 0.1 < 0.2
-            const graph = buildGraphWithRounds([
+            // Round 1: 10 entities, Round 2: 11 entities  -> growth rate = 0.1 < 0.2
+            const graph = buildGraphWithResultProvenance([
                 { round: 1, entityCount: 10 },
                 { round: 2, entityCount: 11 },
             ]);
@@ -100,8 +105,8 @@ describe('search-strategy', () => {
         });
 
         it('stays broad when growth is strong', () => {
-            // Round 1: 3 entities, Round 2: 8 entities → growth rate = 5/3 ≈ 1.67
-            const graph = buildGraphWithRounds([
+            // Round 1: 3 entities, Round 2: 8 entities  -> growth rate = 5/3 >= 1.67
+            const graph = buildGraphWithResultProvenance([
                 { round: 1, entityCount: 3 },
                 { round: 2, entityCount: 8 },
             ]);
@@ -110,8 +115,8 @@ describe('search-strategy', () => {
         });
 
         it('respects broadRounds config', () => {
-            // Only 1 round, but broadRounds=1 → can transition if growth slow
-            const graph = buildGraphWithRounds([
+            // Only 1 round, but broadRounds=1  -> can transition if growth slow
+            const graph = buildGraphWithResultProvenance([
                 { round: 1, entityCount: 10 },
                 { round: 2, entityCount: 10 },
             ]);
@@ -120,18 +125,18 @@ describe('search-strategy', () => {
         });
 
         it('respects transitionThreshold config', () => {
-            // Growth rate = 0.1, default threshold = 0.2 → deep dive
-            const graph = buildGraphWithRounds([
+            // Growth rate = 0.1, default threshold = 0.2  -> deep dive
+            const graph = buildGraphWithResultProvenance([
                 { round: 1, entityCount: 10 },
                 { round: 2, entityCount: 11 },
             ]);
-            // With threshold 0.05, 0.1 > 0.05 → still broad
+            // With threshold 0.05, 0.1 > 0.05  -> still broad
             const stage = determineSearchStage(graph, { transitionThreshold: 0.05 });
             expect(stage).toBe('broad_exploration');
         });
 
         it('stays broad when autoTransition is false', () => {
-            const graph = buildGraphWithRounds([
+            const graph = buildGraphWithResultProvenance([
                 { round: 1, entityCount: 10 },
                 { round: 2, entityCount: 10 },
             ]);
@@ -142,7 +147,7 @@ describe('search-strategy', () => {
 
     describe('getStrategyInfo', () => {
         it('returns full strategy info with broad engines', () => {
-            const graph = buildGraphWithRounds([{ round: 1, entityCount: 5 }]);
+            const graph = buildGraphWithResultProvenance([{ round: 1, entityCount: 5 }]);
             const info = getStrategyInfo(graph);
 
             expect(info.currentStage).toBe('broad_exploration');
@@ -154,7 +159,7 @@ describe('search-strategy', () => {
         });
 
         it('returns deep-dive engines when transitioned', () => {
-            const graph = buildGraphWithRounds([
+            const graph = buildGraphWithResultProvenance([
                 { round: 1, entityCount: 10 },
                 { round: 2, entityCount: 10 },
             ]);
@@ -168,7 +173,7 @@ describe('search-strategy', () => {
         });
 
         it('includes growth rate in info', () => {
-            const graph = buildGraphWithRounds([
+            const graph = buildGraphWithResultProvenance([
                 { round: 1, entityCount: 10 },
                 { round: 2, entityCount: 12 },
             ]);

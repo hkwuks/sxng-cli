@@ -14,9 +14,9 @@ All results — whether from sxng search, external tools (tavily/exa), or any ot
                     ─── Pending ───┤
                                    │
                     ┌──────────────▼──────────────┐
-                    │  Agent: --quality           │
-                    │  → see pending with indices  │
-                    │  → approve: --approve "0,1"  │
+                         │  Agent: --quality            │
+                         │  → see pending id + revision │
+                         │  → approve: --approve-file   │
                     └──────────────┬──────────────┘
                                    │
                     ─── Approved ──┤
@@ -55,9 +55,10 @@ All results — whether from sxng search, external tools (tavily/exa), or any ot
 | Source | Command | Status |
 |--------|---------|--------|
 | sxng search | `sxng --session <session> "query"` | pending |
-| External search | `sxng results-add <session> --query "source query" --data '[...]'` | pending |
+| External search | `sxng results-add <session> --kind search --tool <tool> --query "source query" --data-file <session-input>` | pending, requires extraction |
+| External extracted body | `sxng results-add <session> --kind extracted --tool <tool> --query "source query" --data-file <session-input>` | pending approval |
 | Content extraction | `sxng extract --session <session>` | updates content, same status |
-| Entity/edge injection | `sxng graph-add <session> --data '{...}'` | entities/edges only |
+| Entity/edge injection | `sxng graph-add <session> --data-file <session-input>` | entities/edges only |
 
 > **Key rule**: `graph-add` does NOT accept results. Results must be in the pool first, approved, and injected into graph. Only then can `graph-add` reference result nodes in edges.
 
@@ -76,18 +77,18 @@ There is no hard upper limit — the Agent decides when to assess. The 30-count 
 `sxng --session <session> --quality` outputs:
 
 1. **Quality score** — 3 programmatic indicators (contentDepth, sourceDiversity, novelty) with verdict (good/acceptable/poor)
-2. **Pending results list** — each with an index number, title, URL, source, content preview, and domain
+2. **Pending results list** — each with stable `id`, `revision`, title, URL, source, content preview, and domain
 
 The Agent examines the pending list (including content previews) and returns which indices to keep.
 
 ## Approval & Graph Injection
 
 ```bash
-sxng --session <session> --quality --approve "0,1,2"
+sxng --session <session> --quality --approve-file ./.sxng/sessions/<session>/agent-inputs/approve.json
 ```
 
 This single command:
-1. Marks those results as `approved`
+1. Marks selected `{id, revision}` results as `approved`
 2. Injects them into the graph (structural layer: query→result→domain edges)
 3. Reports how many nodes/edges were added
 
@@ -95,17 +96,10 @@ After approval, the result nodes exist in the graph and can be referenced by `gr
 
 ## Adding Entities & Edges (After Approval)
 
-Once results are in the graph, run `graph-preprocess` and use `graph-add` for the semantic layer. New entities require `sourceRounds` from the supporting `resultProvenance` rows; result edges must use `resultProvenance[].id`, not a URL-derived guess. Give a new entity an explicit `id` when an edge in the same request references it.
+Once results are in the graph, run `graph-preprocess` and use `graph-add` for the semantic layer. Every entity and edge requires currently approved `sourceResultIds` from the supporting `resultProvenance` rows; result edges must use `resultProvenance[].id`, not a URL-derived guess. Give a new entity an explicit `id` when an edge in the same request references it.
 
 ```bash
-sxng graph-add <session> --data '{
-  "entities": [
-    {"id": "e:tokio", "label": "tokio", "entityType": "runtime", "sourceRounds": [1]}
-  ],
-  "edges": [
-    {"source": "e:tokio", "target": "<resultProvenance id>", "relation": "documented_by"}
-  ]
-}'
+sxng graph-add <session> --data-file ./.sxng/sessions/<session>/agent-inputs/graph.json
 ```
 
 Edges can reference any existing node type: `e:` (entity), `r:` (result), `q:` (query), `d:` (domain), `p:` (path).
@@ -123,8 +117,12 @@ See [Claim-Evidence-Review Audit](claim-evidence-review.md) for the full procedu
 
 ## Content Extraction
 
-`sxng extract --session <session>` reads URLs from the pool, fetches page content, and writes it back via `mergeExtractedContent`. It does NOT add new results — it only fills in the `content` field of existing entries. This means:
+`sxng extract --session <session>` reads only unextracted, unskipped URLs with fewer than two failures, fetches page content, and writes it back. It does NOT add new results. Explicit session URLs can be re-extracted. This means:
 
 - Extract at any time, even before approval
 - After extraction, quality assessment has richer content data
-- Re-extract a URL to refresh content
+- Do not re-extract an already captured body unless the Agent explicitly selects that URL
+
+## Session-Scoped JSON Input
+
+All structured write inputs must be UTF-8 JSON files below `.sxng/sessions/<session>/agent-inputs/`. Inline JSON and files outside the owning session are rejected. This avoids PowerShell argument escaping, keeps concurrent sessions from sharing a fixed temporary filename, and leaves inputs available for inspection and retry.

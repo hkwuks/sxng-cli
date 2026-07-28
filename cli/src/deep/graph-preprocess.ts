@@ -6,14 +6,14 @@
 import { DirectedGraph } from 'graphology';
 import { computeTfIdf } from './tfidf.js';
 import { buildCoOccurrence, computeCrossResultFrequency, getExistingEntityContext } from './co-occurrence.js';
-import { loadSessionResults, loadSessionGraph, loadSessionRounds } from './session.js';
-import { GraphNodeAttrs, GraphEdgeAttrs, resultId } from './graph.js';
+import { hasVerifiedContent, loadSessionResults, loadSessionGraph } from './session.js';
+import { GraphNodeAttrs, GraphEdgeAttrs } from './graph.js';
 
 export interface PreprocessResult {
     tfidfTerms: Array<{ term: string; tf: number; idf: number; tfidf: number; docFreq: number }>;
     coOccurrences: Array<{ term1: string; term2: string; count: number }>;
     existingEntities: Array<{ id: string; label: string; degree: number; entityType?: string }>;
-    resultProvenance: Array<{ id: string; url: string; title: string; rounds: number[] }>;
+    resultProvenance: Array<{ id: string; revision: number; url: string; title: string; approval: 'pending' | 'approved' }>;
     termFrequencies: Array<{ term: string; count: number }>;
     roundsCovered: number;
     totalResults: number;
@@ -35,22 +35,21 @@ export function graphPreprocess(
 ): PreprocessResult {
     const results = loadSessionResults(sessionDir);
     const graph: DirectedGraph<GraphNodeAttrs, GraphEdgeAttrs> = loadSessionGraph(sessionDir);
-    const rounds = loadSessionRounds(sessionDir);
+    const bodyResults = results.filter(hasVerifiedContent);
 
-    const tfidf = computeTfIdf(results, { top: opts?.top });
-    const coOcc = buildCoOccurrence(results, {
+    const tfidf = computeTfIdf(bodyResults, { top: opts?.top });
+    const coOcc = buildCoOccurrence(bodyResults, {
         threshold: opts?.coOccurrenceThreshold,
         maxTerms: opts?.maxTermsForCoOccurrence,
     });
-    const termFreqs = computeCrossResultFrequency(results, { top: opts?.top ?? 50 });
+    const termFreqs = computeCrossResultFrequency(bodyResults, { top: opts?.top ?? 50 });
     const entities = getExistingEntityContext(graph);
-    const resultProvenance = results.map(result => ({
-        id: resultId(result.url),
+    const resultProvenance = bodyResults.map(result => ({
+        id: result.id,
+        revision: result.revision,
         url: result.url,
         title: result.title,
-        rounds: Array.from(new Set(
-            (result.origins || []).flatMap(origin => origin.round == null ? [] : [origin.round])
-        )).sort((a, b) => a - b),
+        approval: result.status,
     }));
 
     return {
@@ -59,7 +58,7 @@ export function graphPreprocess(
         existingEntities: entities,
         resultProvenance,
         termFrequencies: termFreqs,
-        roundsCovered: rounds,
+        roundsCovered: 0,
         totalResults: results.length,
         resultsWithContent: tfidf.resultsWithContent,
         tokenizationStrategy: tfidf.tokenizationStrategy,

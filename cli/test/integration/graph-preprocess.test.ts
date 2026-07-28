@@ -20,9 +20,9 @@ describe('graph-preprocess (integration)', () => {
     it('runs full pipeline on session with content', () => {
         initSessionDir(sessionDir, 'test', 'test session', 'rust async');
         appendSessionResults(sessionDir, [
-            { url: 'https://tokio.rs', title: 'Tokio Runtime', content: 'Tokio is an asynchronous runtime for the Rust programming language' },
-            { url: 'https://async.rs', title: 'Async Std', content: 'async-std provides async standard library for Rust' },
-            { url: 'https://blog.rust-lang.org/async', title: 'Rust Async Ecosystem', content: 'The Rust async ecosystem includes tokio and async runtimes' },
+            { url: 'https://tokio.rs', title: 'Tokio Runtime', contentType: 'extracted', content: 'Tokio is an asynchronous runtime for the Rust programming language', extractor: 'test', origins: [{ tool: 'test', query: 'rust async' }] },
+            { url: 'https://async.rs', title: 'Async Std', contentType: 'extracted', content: 'async-std provides async standard library for Rust', extractor: 'test', origins: [{ tool: 'test', query: 'rust async' }] },
+            { url: 'https://blog.rust-lang.org/async', title: 'Rust Async Ecosystem', contentType: 'extracted', content: 'The Rust async ecosystem includes tokio and async runtimes', extractor: 'test', origins: [{ tool: 'test', query: 'rust async' }] },
         ]);
         updateSessionGraph(sessionDir, 'rust async', [
             { url: 'https://tokio.rs', title: 'Tokio Runtime', content: 'Verified Tokio.', extractedAt: 1 },
@@ -57,8 +57,8 @@ describe('graph-preprocess (integration)', () => {
     it('respects top option', () => {
         initSessionDir(sessionDir);
         appendSessionResults(sessionDir, [
-            { url: 'https://a.com', title: 'A', content: 'tokio async runtime rust programming language ecosystem' },
-            { url: 'https://b.com', title: 'B', content: 'hyper tonic tower grpc networking library' },
+            { url: 'https://a.com', title: 'A', contentType: 'extracted', content: 'tokio async runtime rust programming language ecosystem', extractor: 'test' },
+            { url: 'https://b.com', title: 'B', contentType: 'extracted', content: 'hyper tonic tower grpc networking library', extractor: 'test' },
         ]);
 
         const result = graphPreprocess(sessionDir, { top: 3 });
@@ -68,7 +68,7 @@ describe('graph-preprocess (integration)', () => {
     it('includes existing entities from graph', () => {
         initSessionDir(sessionDir);
         appendSessionResults(sessionDir, [
-            { url: 'https://a.com', title: 'A', content: 'tokio runtime' },
+            { url: 'https://a.com', title: 'A', contentType: 'extracted', content: 'tokio runtime', extractor: 'test' },
         ]);
 
         const graph = loadSessionGraph(sessionDir);
@@ -80,25 +80,25 @@ describe('graph-preprocess (integration)', () => {
         expect(result.existingEntities[0].label).toBe('tokio');
     });
 
-    it('lists result provenance with the rounds that support graph entities', () => {
+    it('lists stable IDs, revisions, and approval state for extracted bodies', () => {
         initSessionDir(sessionDir);
         appendSessionResults(sessionDir, [{
             url: 'https://tokio.rs',
             title: 'Tokio Runtime',
-            content: 'Tokio is an asynchronous Rust runtime.',
-            origins: [{ query: 'rust async round one' }],
+            contentType: 'extracted', content: 'Tokio is an asynchronous Rust runtime.', extractor: 'test',
+            origins: [{ tool: 'sxng', query: 'rust async round one' }],
         }]);
         appendSessionResults(sessionDir, [{
             url: 'https://tokio.rs/blog',
             title: 'Tokio Blog',
-            content: 'Tokio supports asynchronous applications.',
-            origins: [{ query: 'rust async round two' }],
+            contentType: 'extracted', content: 'Tokio supports asynchronous applications.', extractor: 'test',
+            origins: [{ tool: 'sxng', query: 'rust async round two' }],
         }]);
         const result = graphPreprocess(sessionDir);
 
         expect(result.resultProvenance).toEqual(expect.arrayContaining([
-            expect.objectContaining({ id: resultId('https://tokio.rs'), url: 'https://tokio.rs', rounds: [1] }),
-            expect.objectContaining({ id: resultId('https://tokio.rs/blog'), url: 'https://tokio.rs/blog', rounds: [2] }),
+            expect.objectContaining({ id: resultId('https://tokio.rs'), revision: 1, url: 'https://tokio.rs', approval: 'pending' }),
+            expect.objectContaining({ id: resultId('https://tokio.rs/blog'), revision: 1, url: 'https://tokio.rs/blog', approval: 'pending' }),
         ]));
     });
 });

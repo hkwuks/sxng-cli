@@ -1,135 +1,88 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtempSync, rmSync, existsSync, readFileSync, writeFileSync } from 'fs';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
 import { runGraphAdd } from '../../src/commands/graph-add.js';
-import { deserializeGraph, entityId } from '../../src/deep/graph.js';
+import { appendSessionResults, approveResults, getApprovedResults, initSessionDir, injectApprovedResults, loadSessionGraph, loadSessionResults, setSkipped } from '../../src/deep/session.js';
 
 describe('graph-add command', () => {
-    let tmpDir: string;
-    let graphFile: string;
+  let sessionDir: string;
+  let resultId: string;
 
-    beforeEach(() => {
-        tmpDir = mkdtempSync(join(tmpdir(), 'sxng-ga-test-'));
-        graphFile = join(tmpDir, 'graph.json');
-    });
+  beforeEach(() => {
+    sessionDir = mkdtempSync(join(tmpdir(), 'sxng-graph-add-'));
+    initSessionDir(sessionDir);
+    appendSessionResults(sessionDir, [{
+      url: 'https://example.com/article', title: 'Article', contentType: 'extracted', content: 'Verified body.',
+      extractor: 'defuddle', origins: [{ tool: 'sxng', query: 'graph query' }],
+    }]);
+    const [result] = loadSessionResults(sessionDir);
+    resultId = result.id;
+    injectApprovedResults(sessionDir, approveResults(sessionDir, [{ id: result.id, revision: result.revision }]).approvedResults);
+    vi.spyOn(console, 'log').mockImplementation(() => undefined);
+  });
 
-    afterEach(() => {
-        rmSync(tmpDir, { recursive: true, force: true });
-    });
+  afterEach(() => {
+    vi.restoreAllMocks();
+    rmSync(sessionDir, { recursive: true, force: true });
+  });
 
-    it('adds entities with optional semantic fields', async () => {
-        const data = JSON.stringify({
-            entities: [
-                {
-                    label: 'Tokio',
-                    entityType: 'runtime',
-                    score: 0.9,
-                    obfuscatedLabel: 'an async runtime',
-                    sourceRounds: [1],
-                    frequency: 5,
-                    reasoningPaths: ['p:chain_001'],
-                },
-            ],
-        });
+  it('requires approved extracted result IDs and persists source provenance on semantic data', async () => {
+    const dataFile = join(sessionDir, 'agent-inputs', 'graph.json');
+    writeFileSync(dataFile, JSON.stringify({
+      entities: [{ id: 'e:tokio', label: 'Tokio', entityType: 'runtime', sourceResultIds: [resultId] }],
+      edges: [{ source: resultId, target: 'e:tokio', relation: 'mentions', sourceResultIds: [resultId] }],
+    }), 'utf8');
 
-        const code = await runGraphAdd({ graphFile, data });
-        expect(code).toBe(0);
+    expect(await runGraphAdd({ session: sessionDir, dataFile })).toBe(0);
+    const graph = loadSessionGraph(sessionDir);
+    expect(graph.getNodeAttributes('e:tokio').sourceResultIds).toEqual([resultId]);
+    expect(graph.someEdge((_edge, attrs) => attrs.relation === 'mentions' && attrs.sourceResultIds?.includes(resultId))).toBe(true);
+  });
 
-        // Read back and verify the graph contains the new fields
-        const raw = readFileSync(graphFile, 'utf-8');
-        const parsed = JSON.parse(raw);
-        expect(parsed.status).toBe('ok');
-        expect(parsed.data.stats.entities).toBe(1);
-    });
+  it('rejects semantic data backed by an unapproved or unknown result ID', async () => {
+    const dataFile = join(sessionDir, 'agent-inputs', 'invalid.json');
+    writeFileSync(dataFile, JSON.stringify({ entities: [{ label: 'Tokio', sourceResultIds: ['r:unknown'] }] }), 'utf8');
+    expect(await runGraphAdd({ session: sessionDir, dataFile })).toBe(1);
+    expect(loadSessionGraph(sessionDir).hasNode('e:tokio')).toBe(false);
+  });
 
-    it('adds graph data from a JSON file', async () => {
-        const dataFile = join(tmpDir, 'graph-data.json');
-        writeFileSync(dataFile, JSON.stringify({
-            entities: [{ label: '中文实体', sourceRounds: [1] }],
-        }), 'utf8');
+  it('removes semantic data and revokes eligibility when an approved source is skipped', async () => {
+    const dataFile = join(sessionDir, 'agent-inputs', 'semantic.json');
+    writeFileSync(dataFile, JSON.stringify({
+      entities: [{ id: 'e:tokio', label: 'Tokio', sourceResultIds: [resultId] }],
+      edges: [{ source: resultId, target: 'e:tokio', relation: 'mentions', sourceResultIds: [resultId] }],
+    }), 'utf8');
+    expect(await runGraphAdd({ session: sessionDir, dataFile })).toBe(0);
 
-        const code = await runGraphAdd({ graphFile, dataFile } as any);
+    const current = loadSessionResults(sessionDir).find(result => result.id === resultId)!;
+    expect(setSkipped(sessionDir, [{ id: resultId, revision: current.revision }], true).changed).toBe(1);
 
-        expect(code).toBe(0);
-        const saved = JSON.parse(readFileSync(graphFile, 'utf8'));
-        expect(saved.data.stats.entities).toBe(1);
-    });
+    expect(getApprovedResults(sessionDir)).toEqual([]);
+    expect(loadSessionGraph(sessionDir).hasNode('e:tokio')).toBe(false);
+  });
 
-    it('rejects a new entity without source rounds', async () => {
-        const data = JSON.stringify({
-            entities: [
-                { label: 'Tokio', entityType: 'runtime', score: 0.9 },
-            ],
-        });
+  it('keeps distinct relations between the same nodes in the multi-directed graph', async () => {
+    const dataFile = join(sessionDir, 'agent-inputs', 'relations.json');
+    writeFileSync(dataFile, JSON.stringify({
+      entities: [{ id: 'e:a', label: 'A', sourceResultIds: [resultId] }, { id: 'e:b', label: 'B', sourceResultIds: [resultId] }],
+      edges: [
+        { source: 'e:a', target: 'e:b', relation: 'depends_on', sourceResultIds: [resultId] },
+        { source: 'e:a', target: 'e:b', relation: 'alternative_to', sourceResultIds: [resultId] },
+      ],
+    }), 'utf8');
+    expect(await runGraphAdd({ session: sessionDir, dataFile })).toBe(0);
+    const graph = loadSessionGraph(sessionDir);
+    expect(graph.edges('e:a', 'e:b')).toHaveLength(2);
+  });
 
-        const code = await runGraphAdd({ graphFile, data });
-        expect(code).toBe(1);
-    });
+  it('rebuilds the structural layer from approved bodies when graph.json is missing', () => {
+    const graphFile = join(sessionDir, 'graph.json');
+    rmSync(graphFile, { force: true });
+    expect(existsSync(graphFile)).toBe(false);
 
-    it('updates existing entity with new fields', async () => {
-        // First add without new fields
-        await runGraphAdd({
-            graphFile,
-            data: JSON.stringify({ entities: [{ label: 'Tokio', entityType: 'runtime', sourceRounds: [1] }] }),
-        });
-
-        // Then add same entity with new fields
-        const code = await runGraphAdd({
-            graphFile,
-            data: JSON.stringify({
-                entities: [{
-                    label: 'Tokio',
-                    obfuscatedLabel: 'an async runtime',
-                    frequency: 3,
-                }],
-            }),
-        });
-        expect(code).toBe(0);
-    });
-
-    it('merges source rounds when an entity appears in later rounds', async () => {
-        const code = await runGraphAdd({
-            graphFile,
-            data: JSON.stringify({
-                entities: [{ label: 'Tokio', sourceRounds: [1, 2] }],
-            }),
-        });
-
-        expect(code).toBe(0);
-        const saved = JSON.parse(readFileSync(graphFile, 'utf-8'));
-        const savedGraph = deserializeGraph(saved.data.graph);
-        expect(savedGraph.getNodeAttribute(entityId('Tokio'), 'sourceRounds')).toEqual([1, 2]);
-    });
-
-    it('adds edges with new relation types', async () => {
-        const data = JSON.stringify({
-            entities: [
-                { label: 'Tokio', id: 'e:tokio', sourceRounds: [1] },
-                { label: 'Hyper', id: 'e:hyper', sourceRounds: [1] },
-            ],
-            edges: [
-                { source: 'e:tokio', target: 'e:hyper', relation: 'co_occurs_with', weight: 0.8 },
-            ],
-        });
-
-        const code = await runGraphAdd({ graphFile, data });
-        expect(code).toBe(0);
-
-        const raw = readFileSync(graphFile, 'utf-8');
-        const parsed = JSON.parse(raw);
-        expect(parsed.data.stats.entities).toBe(2);
-    });
-
-    it('skips edges when source/target nodes are missing', async () => {
-        const data = JSON.stringify({
-            entities: [{ label: 'Tokio', id: 'e:tokio', sourceRounds: [1] }],
-            edges: [
-                { source: 'e:tokio', target: 'e:nonexistent', relation: 'depends_on' },
-            ],
-        });
-
-        const code = await runGraphAdd({ graphFile, data });
-        expect(code).toBe(0);
-    });
+    const rebuilt = injectApprovedResults(sessionDir, getApprovedResults(sessionDir));
+    expect(rebuilt.nodesAdded).toBeGreaterThan(0);
+    expect(loadSessionGraph(sessionDir).someNode((_id, attrs) => attrs.type === 'result')).toBe(true);
+  });
 });

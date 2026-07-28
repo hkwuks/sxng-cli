@@ -6,7 +6,7 @@
  * on subsequent searches.
  */
 
-import { existsSync, mkdirSync, writeFileSync, readFileSync } from 'fs';
+import { existsSync, mkdirSync, writeFileSync, readFileSync, rmSync, statSync } from 'fs';
 import { execFileSync } from 'child_process';
 import { resolve, join, relative, extname, isAbsolute, sep } from 'path';
 import { createHash } from 'crypto';
@@ -28,6 +28,7 @@ const BATCH_SIZE = 500;
 const MAX_INDEX_MEMORY_BYTES = 256 * 1024 * 1024;
 const TOKENIZER_VERSION = 'mandarin-lowercase-v1';
 export const INDEX_REFRESH_INTERVAL_MS = 30 * 24 * 60 * 60 * 1000;
+const INDEX_LOCK_STALE_MS = 10 * 60 * 1000;
 
 function createDocumentTokenizer() {
   const tokenizer = createTokenizer();
@@ -63,6 +64,27 @@ export function getIndexPath(rootPath: string): string {
   const abs = resolve(rootPath);
   const hash = createHash('sha256').update(abs).digest('hex').slice(0, 16);
   return join(getDocsDir(), hash);
+}
+
+async function withIndexLock<T>(rootPath: string, action: () => Promise<T>): Promise<T> {
+  const indexPath = getIndexPath(rootPath);
+  mkdirSync(indexPath, { recursive: true });
+  const lock = join(indexPath, '.lock');
+  try {
+    try { mkdirSync(lock); }
+    catch {
+      try {
+        if (Date.now() - statSync(lock).mtimeMs > INDEX_LOCK_STALE_MS) rmSync(lock, { recursive: true, force: true });
+        else throw new Error('busy');
+        mkdirSync(lock);
+      } catch {
+        throw Object.assign(new Error('Local document index is busy'), { code: 'INDEX_BUSY' });
+      }
+    }
+    return await action();
+  } finally {
+    try { rmSync(lock, { recursive: true, force: true }); } catch { /* best effort */ }
+  }
 }
 
 function normalizeExtensions(extensions?: string[]): string[] {
@@ -388,6 +410,10 @@ async function refreshWithGit(
 
 /** Refresh a complete index by Git diff when possible, otherwise by file hashes. */
 export async function refreshIndex(rootPath: string): Promise<IndexLocation> {
+  return withIndexLock(rootPath, async () => refreshIndexUnlocked(rootPath));
+}
+
+async function refreshIndexUnlocked(rootPath: string): Promise<IndexLocation> {
   const absRoot = resolve(rootPath);
   const previous = getIndexMeta(absRoot);
   const source = previous?.source;

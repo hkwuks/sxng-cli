@@ -1,40 +1,85 @@
 /**
- * Session management for multi-round search accumulation
- *
- * A session directory contains:
- * - results.json: Accumulated search result pool (deduped by URL)
- * - graph.json: graphology knowledge graph (structural + semantic layers)
+ * Session state is the authority for discovery, extracted bodies, and approval.
+ * Every mutation uses an atomic same-directory write so an interrupted command
+ * cannot turn a valid session into an empty one.
  */
 
-import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs';
-import { join } from 'path';
-import { DirectedGraph } from 'graphology';
-import { deserializeGraph, serializeGraph, graphStats, buildStructuralEdges, GraphNodeAttrs, GraphEdgeAttrs } from './graph.js';
+import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'fs';
+import { dirname, join, relative, resolve } from 'path';
+import { DirectedGraph, MultiDirectedGraph } from 'graphology';
+import { buildStructuralEdges, deserializeGraph, graphStats, GraphEdgeAttrs, GraphNodeAttrs, resultId, serializeGraph } from './graph.js';
 import { resultUrlKey } from './dedupe.js';
 import { getDefaultSessionRoot, loadSessionMeta, SessionMeta } from '../commands/session.js';
+import { assertClaimsStoreReadable, loadClaims, loadEvidences, loadReviews, saveClaims, saveEvidences, saveReviews } from '../claims/store.js';
+
+export type ResultContentType = 'search' | 'extracted';
+export type ResultStatus = 'pending' | 'approved';
+
+export interface ResultOrigin {
+    tool: string;
+    engine?: string;
+    query: string;
+    round?: number;
+}
+
+export interface ResultFailure {
+    code: 'network' | 'parse' | 'empty' | 'tool';
+    message: string;
+}
 
 export interface SessionResult {
+    id: string;
+    revision: number;
     url: string;
     title: string;
+    contentType: ResultContentType;
+    excerpt?: string;
     content?: string;
+    extractor?: string;
+    extractedAt?: number;
+    origins: ResultOrigin[];
+    status: ResultStatus;
+    skippedAt?: number;
+    failureCount?: number;
+    lastFailedAt?: number;
+    lastFailure?: ResultFailure;
     engine?: string;
     category?: string;
     score?: number;
     publishedDate?: string;
-    extractedAt?: number;
     byline?: string;
     siteName?: string;
-    source?: string; // "sxng" | "tavily" | "exa" | "open-web-search" | ... — which tool produced this result
-    origins?: Array<{ query: string; round?: number }>;
-    status?: 'pending' | 'approved' | 'rejected'; // Quality assessment status
     [key: string]: unknown;
 }
 
+export interface SessionResultInput {
+    url: string;
+    title: string;
+    contentType?: ResultContentType;
+    excerpt?: string;
+    content?: string;
+    extractor?: string;
+    extractedAt?: number;
+    origins?: ResultOrigin[];
+    engine?: string;
+    category?: string;
+    score?: number;
+    publishedDate?: string;
+    byline?: string;
+    siteName?: string;
+    [key: string]: unknown;
+}
+
+export interface ApprovalSelection {
+    id: string;
+    revision: number;
+}
+
 export interface ApprovalError {
-    code: 'INVALID_APPROVAL_INDEX' | 'DUPLICATE_APPROVAL_INDEX' | 'RESULT_NOT_VERIFIED';
+    code: 'RESULT_NOT_FOUND' | 'RESULT_REVISION_CONFLICT' | 'RESULT_NOT_VERIFIED' | 'RESULT_SKIPPED';
     message: string;
-    index?: number;
-    url?: string;
+    id?: string;
+    revision?: number;
 }
 
 export interface ApprovalResult {
@@ -44,56 +89,244 @@ export interface ApprovalResult {
     error?: ApprovalError;
 }
 
-/** A result may enter the graph only after the session captured its body. */
-export function hasVerifiedContent(result: SessionResult): result is SessionResult & { content: string; extractedAt: number } {
-    return typeof result.content === 'string'
+export interface SessionResultsFile {
+    status: 'ok';
+    data: { results: SessionResult[]; rounds: number };
+}
+
+export class SessionStateError extends Error {
+    constructor(readonly code: 'SESSION_BUSY' | 'SESSION_CORRUPTED', message: string) {
+        super(message);
+    }
+}
+
+const SESSION_LOCK_STALE_MS = 30_000;
+
+function atomicWriteJson(file: string, value: unknown): void {
+    const temp = join(dirname(file), `.${file.split(/[\\/]/).pop()}.${process.pid}.${Date.now()}.tmp`);
+    writeFileSync(temp, JSON.stringify(value, null, 2), 'utf-8');
+    try {
+        renameSync(temp, file);
+    } catch (error) {
+        try { rmSync(temp, { force: true }); } catch { /* preserve the original write error */ }
+        throw error;
+    }
+}
+
+function withSessionLock<T>(sessionDir: string, action: () => T): T {
+    mkdirSync(sessionDir, { recursive: true });
+    const lockDir = join(sessionDir, '.lock');
+    let acquired = false;
+    try {
+        try {
+            mkdirSync(lockDir);
+            acquired = true;
+        } catch (error) {
+            try {
+                const age = Date.now() - statSync(lockDir).mtimeMs;
+                if (age > SESSION_LOCK_STALE_MS) rmSync(lockDir, { recursive: true, force: true });
+                else throw error;
+                mkdirSync(lockDir);
+                acquired = true;
+            } catch {
+                throw new SessionStateError('SESSION_BUSY', `Session is busy: ${sessionDir}`);
+            }
+        }
+        return action();
+    } finally {
+        if (acquired) {
+            try { rmSync(lockDir, { recursive: true, force: true }); } catch { /* lock cleanup is best effort */ }
+        }
+    }
+}
+
+/** Keep related session artifacts consistent while one command updates them. */
+export function mutateSessionState<T>(sessionDir: string, action: () => T): T {
+    return withSessionLock(sessionDir, action);
+}
+
+function originKey(origin: ResultOrigin): string {
+    return `${origin.tool}\0${origin.engine ?? ''}\0${origin.query}\0${origin.round ?? ''}`;
+}
+
+function mergeOrigins(target: SessionResult, additions: ResultOrigin[], round?: number): boolean {
+    const normalized = additions.map(origin => ({
+        ...origin,
+        ...(round !== undefined && origin.round === undefined ? { round } : {}),
+    }));
+    const merged = new Map(target.origins.map(origin => [originKey(origin), origin]));
+    for (const origin of normalized) merged.set(originKey(origin), origin);
+    const next = [...merged.values()];
+    const changed = JSON.stringify(next) !== JSON.stringify(target.origins);
+    target.origins = next;
+    return changed;
+}
+
+function isDirectOrigin(origin: ResultOrigin): boolean {
+    return origin.tool === 'user' || origin.tool === 'agent';
+}
+
+function needsRound(result: SessionResultInput): boolean {
+    return (result.origins ?? []).some(origin => !isDirectOrigin(origin) && origin.round === undefined);
+}
+
+function inferredContentType(result: SessionResultInput): ResultContentType {
+    if (result.contentType) return result.contentType;
+    return typeof result.content === 'string' && typeof result.extractedAt === 'number' ? 'extracted' : 'search';
+}
+
+function makeResult(input: SessionResultInput, round?: number): SessionResult {
+    const contentType = inferredContentType(input);
+    const now = Date.now();
+    const result: SessionResult = {
+        ...input,
+        id: resultId(input.url),
+        revision: 1,
+        url: input.url,
+        title: input.title,
+        contentType,
+        origins: [],
+        status: 'pending',
+    };
+    if (contentType === 'search') {
+        delete result.content;
+        delete result.extractor;
+        delete result.extractedAt;
+    } else {
+        result.content = input.content ?? '';
+        result.extractor = input.extractor || 'default';
+        result.extractedAt = input.extractedAt ?? now;
+    }
+    mergeOrigins(result, input.origins ?? [], round);
+    return result;
+}
+
+function touch(result: SessionResult): void {
+    result.revision += 1;
+}
+
+function pruneGraphProvenance(graph: DirectedGraph<GraphNodeAttrs, GraphEdgeAttrs>, resultIdValue: string): void {
+    const nodesToDrop: string[] = [];
+    graph.forEachNode((node, attrs) => {
+        if (!attrs.sourceResultIds?.includes(resultIdValue)) return;
+        const sourceResultIds = attrs.sourceResultIds.filter(id => id !== resultIdValue);
+        if (sourceResultIds.length) graph.mergeNodeAttributes(node, { sourceResultIds });
+        else nodesToDrop.push(node);
+    });
+    for (const node of nodesToDrop) graph.dropNode(node);
+
+    const edgesToDrop: string[] = [];
+    graph.forEachEdge((edge, attrs) => {
+        if (!attrs.sourceResultIds?.includes(resultIdValue)) return;
+        const sourceResultIds = attrs.sourceResultIds.filter(id => id !== resultIdValue);
+        if (sourceResultIds.length) graph.replaceEdgeAttributes(edge, { ...attrs, sourceResultIds });
+        else edgesToDrop.push(edge);
+    });
+    for (const edge of edgesToDrop) graph.dropEdge(edge);
+
+    if (graph.hasNode(resultIdValue)) graph.dropNode(resultIdValue);
+
+    // Path nodes derive from semantic entities and are invalid once an input entity disappears.
+    const pathsToDrop: string[] = [];
+    graph.forEachNode((node, attrs) => {
+        if (attrs.type === 'path' && attrs.entities?.some(entity => !graph.hasNode(entity))) pathsToDrop.push(node);
+    });
+    for (const node of pathsToDrop) graph.dropNode(node);
+
+    const structuralNodesToDrop: string[] = [];
+    graph.forEachNode((node, attrs) => {
+        if ((attrs.type === 'query' || attrs.type === 'domain') && graph.degree(node) === 0) structuralNodesToDrop.push(node);
+    });
+    for (const node of structuralNodesToDrop) graph.dropNode(node);
+}
+
+function invalidateBodyDependents(sessionDir: string, resultIdValue: string, reason: 'contentChanged' | 'sourceSkipped' = 'contentChanged'): void {
+    // A bad claim artifact must survive extraction untouched; repair happens in claim/evidence/review commands.
+    try {
+        assertClaimsStoreReadable(sessionDir);
+        const now = Date.now();
+        const evidences = loadEvidences(sessionDir);
+        const invalidated = new Set<string>();
+        for (const evidence of evidences) {
+            if (evidence.resultId === resultIdValue && !evidence.invalid) {
+                evidence.invalid = true;
+                evidence.invalidatedAt = now;
+                evidence.invalidationReason = reason;
+                invalidated.add(evidence.claimId);
+            }
+        }
+        if (invalidated.size) {
+            saveEvidences(sessionDir, evidences);
+            const claims = loadClaims(sessionDir);
+            for (const claim of claims) if (invalidated.has(claim.id)) claim.status = 'verifying';
+            saveClaims(sessionDir, claims);
+            const reviews = loadReviews(sessionDir).filter(review => !invalidated.has(review.claimId));
+            saveReviews(sessionDir, reviews);
+        }
+    } catch { /* Preserve corrupt claim artifacts for their dedicated repair commands. */ }
+    try {
+        const { graph, missing } = readSessionGraph(sessionDir);
+        if (!missing) {
+            pruneGraphProvenance(graph, resultIdValue);
+            writeSessionGraph(sessionDir, graph);
+        }
+    } catch (error) {
+        if (!(error instanceof SessionStateError)) throw error;
+    }
+}
+
+function writeResults(sessionDir: string, results: SessionResult[], rounds: number): void {
+    atomicWriteJson(join(sessionDir, 'results.json'), { status: 'ok', data: { results, rounds } } satisfies SessionResultsFile);
+}
+
+function readResultsFile(sessionDir: string): SessionResultsFile | undefined {
+    const file = join(sessionDir, 'results.json');
+    if (!existsSync(file)) return undefined;
+    try {
+        const parsed = JSON.parse(readFileSync(file, 'utf-8')) as SessionResultsFile;
+        if (parsed.status !== 'ok' || !Array.isArray(parsed.data?.results) || !Number.isSafeInteger(parsed.data.rounds)) {
+            throw new Error('invalid results envelope');
+        }
+        return parsed;
+    } catch (error) {
+        throw new SessionStateError('SESSION_CORRUPTED', `Cannot read session results: ${file}`);
+    }
+}
+
+function touchMeta(sessionDir: string): void {
+    const existing = loadSessionMeta(sessionDir);
+    if (!existing) return;
+    atomicWriteJson(join(sessionDir, 'meta.json'), { ...existing, updatedAt: Date.now() });
+}
+
+/** A result may enter evidence and semantic workflows only with a captured body. */
+export function hasVerifiedContent(result: SessionResult): result is SessionResult & { content: string; extractedAt: number; extractor: string } {
+    return result.contentType === 'extracted'
+        && typeof result.content === 'string'
         && result.content.trim().length > 0
         && typeof result.extractedAt === 'number'
         && Number.isFinite(result.extractedAt)
-        && result.extractedAt > 0;
+        && result.extractedAt > 0
+        && typeof result.extractor === 'string'
+        && result.extractor.length > 0;
 }
 
-export interface SessionResultsFile {
-    status: 'ok';
-    data: {
-        results: SessionResult[];
-        rounds: number;
-    };
-}
-
-/** Resolve session path. Supports:
- *  - "new": auto-create under default root with unique name
- *  - pure name (no separators): resolve to default session root
- *  - full path: return as-is
- */
 export function resolveSessionPath(sessionValue: string): string {
     if (sessionValue === 'new') {
         const root = getDefaultSessionRoot();
-        if (!existsSync(root)) {
-            mkdirSync(root, { recursive: true });
-        }
-        const name = `ds_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-        return join(root, name);
+        mkdirSync(root, { recursive: true });
+        return join(root, `ds_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`);
     }
-    // Pure name without path separators: resolve to default sessions dir
-    if (!sessionValue.includes('/') && !sessionValue.includes('\\')) {
-        const root = getDefaultSessionRoot();
-        return join(root, sessionValue);
-    }
-    return sessionValue;
+    return !sessionValue.includes('/') && !sessionValue.includes('\\')
+        ? join(getDefaultSessionRoot(), sessionValue)
+        : sessionValue;
 }
 
-/** Ensure session directory exists and write initial meta */
 export function initSessionDir(sessionDir: string, owner?: string, description?: string, query?: string): void {
-    if (!existsSync(sessionDir)) {
-        mkdirSync(sessionDir, { recursive: true });
-    }
-
-    // Write or update meta.json
-    const metaFile = join(sessionDir, 'meta.json');
+    mkdirSync(sessionDir, { recursive: true });
+    mkdirSync(join(sessionDir, 'agent-inputs'), { recursive: true });
     const existing = loadSessionMeta(sessionDir);
     const now = Date.now();
-
     const meta: SessionMeta = {
         owner: owner || existing?.owner || '',
         description: description || existing?.description || '',
@@ -101,322 +334,321 @@ export function initSessionDir(sessionDir: string, owner?: string, description?:
         updatedAt: now,
         query: query || existing?.query || '',
     };
-
-    try {
-        writeFileSync(metaFile, JSON.stringify(meta, null, 2), 'utf-8');
-    } catch { /* meta write failure is non-critical */ }
+    atomicWriteJson(join(sessionDir, 'meta.json'), meta);
 }
 
-/** Load accumulated results from session, or return empty */
+/** Agent write inputs must belong to exactly the session being mutated. */
+export function validateSessionInputFile(sessionDir: string, inputFile: string): string | undefined {
+    const inputsDir = resolve(sessionDir, 'agent-inputs');
+    const candidate = resolve(inputFile);
+    const rel = relative(inputsDir, candidate);
+    if (rel === '' || rel.startsWith('..') || rel.includes(':') || !existsSync(candidate)) return undefined;
+    return candidate;
+}
+
 export function loadSessionResults(sessionDir: string): SessionResult[] {
-    const file = join(sessionDir, 'results.json');
-    if (!existsSync(file)) return [];
-
-    try {
-        const raw = readFileSync(file, 'utf-8');
-        const parsed = JSON.parse(raw);
-        if (parsed.status === 'ok' && parsed.data?.results) {
-            return parsed.data.results;
-        }
-        return [];
-    } catch {
-        return [];
-    }
+    const data = readResultsFile(sessionDir);
+    return data?.data.results ?? [];
 }
 
-/** Append new results to session results (dedup by normalized URL).
- *  New results are marked as 'pending' and will not be injected into graph
- *  until approved by Agent quality assessment.
- */
+export function loadSessionRounds(sessionDir: string): number {
+    return readResultsFile(sessionDir)?.data.rounds ?? 0;
+}
+
 export function appendSessionResults(
     sessionDir: string,
-    newResults: SessionResult[],
+    newResults: SessionResultInput[],
     options?: { skipRoundIncrement?: boolean }
-): { added: number; total: number; approvedResults: SessionResult[] } {
-    // Ensure session directory exists
-    if (!existsSync(sessionDir)) {
-        mkdirSync(sessionDir, { recursive: true });
-    }
-    const existing = loadSessionResults(sessionDir);
-    const currentRounds = loadSessionRounds(sessionDir) || 0;
-    const round = options?.skipRoundIncrement
-        ? Math.max(1, currentRounds)
-        : Math.max(1, currentRounds + 1);
-    const urlMap = new Map<string, SessionResult>();
+): { added: number; updated: number; total: number; round: number; approvedResults: SessionResult[] } {
+    return withSessionLock(sessionDir, () => {
+        const state = readResultsFile(sessionDir);
+        const results = state?.data.results ?? [];
+        const currentRounds = state?.data.rounds ?? 0;
+        const incrementRound = !options?.skipRoundIncrement && newResults.some(needsRound);
+        const round = incrementRound ? currentRounds + 1 : currentRounds;
+        const byKey = new Map(results.map(result => [resultUrlKey(result), result]));
+        let added = 0;
+        let updated = 0;
+        const approvedResults: SessionResult[] = [];
 
-    for (const r of existing) {
-        urlMap.set(resultUrlKey(r), r);
-    }
-
-    const mergeOrigins = (target: SessionResult, origins?: SessionResult['origins']): void => {
-        if (!origins?.length) return;
-        const combined = [...(target.origins || []), ...origins];
-        target.origins = Array.from(new Map(
-            combined.map(origin => [`${origin.round ?? round}\0${origin.query}`, { ...origin, round: origin.round ?? round }])
-        ).values());
-    };
-
-    // Add new results (dedup: keep first occurrence)
-    let added = 0;
-    const approvedResults: SessionResult[] = [];
-    for (const r of newResults) {
-        const norm = resultUrlKey(r);
-        const existingResult = urlMap.get(norm);
-        if (existingResult) {
-            const originCount = existingResult.origins?.length ?? 0;
-            mergeOrigins(existingResult, r.origins);
-            if (existingResult.status === 'approved' && (existingResult.origins?.length ?? 0) > originCount) {
-                approvedResults.push(existingResult);
+        for (const input of newResults) {
+            const key = resultUrlKey(input);
+            const existing = byKey.get(key);
+            const importRound = needsRound(input) ? Math.max(1, round) : undefined;
+            if (!existing) {
+                const created = makeResult(input, importRound);
+                byKey.set(key, created);
+                added++;
+                continue;
             }
-            continue;
+
+            let changed = mergeOrigins(existing, input.origins ?? [], importRound);
+            if (inferredContentType(input) === 'extracted') {
+                const nextContent = input.content ?? '';
+                const bodyChanged = existing.contentType !== 'extracted' || existing.content !== nextContent;
+                const nextExtractedAt = input.extractedAt ?? Date.now();
+                if (bodyChanged) {
+                    existing.contentType = 'extracted';
+                    existing.content = nextContent;
+                    invalidateBodyDependents(sessionDir, existing.id);
+                    changed = true;
+                }
+                if (existing.extractor !== (input.extractor || 'default')) {
+                    existing.extractor = input.extractor || 'default';
+                    changed = true;
+                }
+                if (existing.extractedAt !== nextExtractedAt) {
+                    existing.extractedAt = nextExtractedAt;
+                    changed = true;
+                }
+                // An imported body is a fresh Agent input, even when its text is unchanged.
+                if (existing.skippedAt !== undefined) {
+                    existing.skippedAt = undefined;
+                    changed = true;
+                }
+                if (existing.failureCount !== undefined || existing.lastFailedAt !== undefined || existing.lastFailure !== undefined) {
+                    existing.failureCount = undefined;
+                    existing.lastFailedAt = undefined;
+                    existing.lastFailure = undefined;
+                    changed = true;
+                }
+                if (existing.status !== 'pending') {
+                    existing.status = 'pending';
+                    changed = true;
+                }
+            }
+            if (input.title && input.title !== existing.title) {
+                existing.title = input.title;
+                changed = true;
+            }
+            if (input.excerpt !== undefined && input.excerpt !== existing.excerpt) {
+                existing.excerpt = input.excerpt;
+                changed = true;
+            }
+            if (changed) {
+                touch(existing);
+                updated++;
+                if (existing.status === 'approved') approvedResults.push(existing);
+            }
         }
-        // Mark new results as pending
-        r.status = 'pending';
-        mergeOrigins(r, r.origins);
-        urlMap.set(norm, r);
-        added++;
-    }
 
-    const all = Array.from(urlMap.values());
-    const rounds = round;
-
-    const file = join(sessionDir, 'results.json');
-    try {
-        writeFileSync(file, JSON.stringify({
-            status: 'ok',
-            data: { results: all, rounds },
-        }, null, 2), 'utf-8');
-    } catch (e) {
-        throw new Error(`Failed to write session results to ${file}: ${e instanceof Error ? e.message : String(e)}`);
-    }
-
-    return { added, total: all.length, approvedResults };
+        const all = [...byKey.values()];
+        writeResults(sessionDir, all, round);
+        touchMeta(sessionDir);
+        return { added, updated, total: all.length, round, approvedResults };
+    });
 }
 
-/** Load graph from session, or create empty */
-export function loadSessionGraph(sessionDir: string): DirectedGraph<GraphNodeAttrs, GraphEdgeAttrs> {
-    const file = join(sessionDir, 'graph.json');
-    if (!existsSync(file)) return new DirectedGraph<GraphNodeAttrs, GraphEdgeAttrs>();
-
-    try {
-        const raw = readFileSync(file, 'utf-8');
-        const parsed = JSON.parse(raw);
-        const graphData = parsed.status === 'ok' && parsed.data?.graph
-            ? parsed.data.graph
-            : (parsed.nodes && parsed.edges ? parsed : null);
-        if (graphData) {
-            return deserializeGraph(graphData);
-        }
-        return new DirectedGraph<GraphNodeAttrs, GraphEdgeAttrs>();
-    } catch {
-        return new DirectedGraph<GraphNodeAttrs, GraphEdgeAttrs>();
-    }
+export function getPendingExtractionResults(sessionDir: string): SessionResult[] {
+    return loadSessionResults(sessionDir).filter(result => result.contentType === 'search'
+        && !result.skippedAt
+        && (result.failureCount ?? 0) < 2);
 }
 
-/** Save graph to session */
-export function saveSessionGraph(sessionDir: string, graph: DirectedGraph<GraphNodeAttrs, GraphEdgeAttrs>): void {
-    const serialized = serializeGraph(graph);
-    const stats = graphStats(graph);
-    const file = join(sessionDir, 'graph.json');
-    try {
-        writeFileSync(file, JSON.stringify({
-            status: 'ok',
-            data: { graph: serialized, stats },
-        }, null, 2), 'utf-8');
-    } catch (e) {
-        throw new Error(`Failed to write session graph to ${file}: ${e instanceof Error ? e.message : String(e)}`);
-    }
-}
-
-/** Get pending results (not yet approved by Agent) */
+/** Extracted records awaiting an approval decision. */
 export function getPendingResults(sessionDir: string): SessionResult[] {
-    const results = loadSessionResults(sessionDir);
-    return results.filter(r => !r.status || r.status === 'pending');
+    return loadSessionResults(sessionDir).filter(result => result.status === 'pending'
+        && !result.skippedAt
+        && hasVerifiedContent(result));
 }
 
-/** Get approved results (ready for graph injection) */
 export function getApprovedResults(sessionDir: string): SessionResult[] {
-    const results = loadSessionResults(sessionDir);
-    return results.filter(r => r.status === 'approved');
+    return loadSessionResults(sessionDir).filter(result => result.status === 'approved' && !result.skippedAt && hasVerifiedContent(result));
 }
 
-/** Approve results by their indices (0-based) in the pending list.
- *  Returns the number of approved results.
- */
-export function approveResults(sessionDir: string, indices: number[]): ApprovalResult {
-    const results = loadSessionResults(sessionDir);
-    const pending = results.filter(r => !r.status || r.status === 'pending');
+export function approveResults(sessionDir: string, selections: ApprovalSelection[]): ApprovalResult {
+    return withSessionLock(sessionDir, () => {
+        const state = readResultsFile(sessionDir);
+        const results = state?.data.results ?? [];
+        const selected = new Set<string>();
+        for (const selection of selections) {
+            const result = results.find(item => item.id === selection.id);
+            if (!result) return { approved: 0, total: results.length, approvedResults: [], error: { code: 'RESULT_NOT_FOUND', message: `Result not found: ${selection.id}`, id: selection.id } };
+            if (result.revision !== selection.revision) return { approved: 0, total: results.length, approvedResults: [], error: { code: 'RESULT_REVISION_CONFLICT', message: `Result revision changed: ${selection.id}`, id: selection.id, revision: result.revision } };
+            if (result.skippedAt) return { approved: 0, total: results.length, approvedResults: [], error: { code: 'RESULT_SKIPPED', message: `Result is skipped: ${selection.id}`, id: selection.id } };
+            if (!hasVerifiedContent(result)) return { approved: 0, total: results.length, approvedResults: [], error: { code: 'RESULT_NOT_VERIFIED', message: `Result has no extracted body: ${selection.id}`, id: selection.id } };
+            selected.add(result.id);
+        }
 
-    // Validate every selection before changing result status or writing session state.
-    const approvedResultKeys = new Set<string>();
-    for (const idx of indices) {
-        if (!Number.isSafeInteger(idx) || idx < 0 || idx >= pending.length) {
-            return {
-                approved: 0,
-                total: results.length,
-                approvedResults: [],
-                error: { code: 'INVALID_APPROVAL_INDEX', message: `Pending result index ${idx} is out of range`, index: idx },
-            };
+        const approvedResults: SessionResult[] = [];
+        for (const result of results) {
+            if (selected.has(result.id) && result.status !== 'approved') {
+                result.status = 'approved';
+                touch(result);
+                approvedResults.push(result);
+            }
         }
-        if (approvedResultKeys.has(resultUrlKey(pending[idx]))) {
-            return {
-                approved: 0,
-                total: results.length,
-                approvedResults: [],
-                error: { code: 'DUPLICATE_APPROVAL_INDEX', message: `Pending result index ${idx} was selected more than once`, index: idx },
-            };
-        }
-        if (!hasVerifiedContent(pending[idx])) {
-            return {
-                approved: 0,
-                total: results.length,
-                approvedResults: [],
-                error: {
-                    code: 'RESULT_NOT_VERIFIED',
-                    message: 'Result has no verified extracted content; run sxng extract --session before approval',
-                    index: idx,
-                    url: pending[idx].url,
-                },
-            };
-        }
-        // Keep local chunk fragments so selecting one chunk does not approve its siblings.
-        approvedResultKeys.add(resultUrlKey(pending[idx]));
-    }
+        writeResults(sessionDir, results, state?.data.rounds ?? 0);
+        touchMeta(sessionDir);
+        return { approved: approvedResults.length, total: results.length, approvedResults };
+    });
+}
 
-    // Update status
-    let approved = 0;
-    const approvedResults: SessionResult[] = [];
-    for (const r of results) {
-        if (approvedResultKeys.has(resultUrlKey(r))) {
-            r.status = 'approved';
-            approved++;
-            approvedResults.push(r);
+export function setSkipped(sessionDir: string, selections: ApprovalSelection[], skipped: boolean): { changed: number; results: SessionResult[]; error?: ApprovalError } {
+    return withSessionLock(sessionDir, () => {
+        const state = readResultsFile(sessionDir);
+        const results = state?.data.results ?? [];
+        const selected: SessionResult[] = [];
+        const selectedIds = new Set<string>();
+        for (const selection of selections) {
+            const result = results.find(item => item.id === selection.id);
+            if (!result) return { changed: 0, results: [], error: { code: 'RESULT_NOT_FOUND', message: `Result not found: ${selection.id}`, id: selection.id } };
+            if (result.revision !== selection.revision) return { changed: 0, results: [], error: { code: 'RESULT_REVISION_CONFLICT', message: `Result revision changed: ${selection.id}`, id: selection.id, revision: result.revision } };
+            if (!selectedIds.has(result.id)) {
+                selectedIds.add(result.id);
+                selected.push(result);
+            }
         }
-    }
+        let changed = 0;
+        for (const result of selected) {
+            const shouldChange = skipped ? result.skippedAt === undefined : result.skippedAt !== undefined;
+            if (shouldChange) {
+                result.skippedAt = skipped ? Date.now() : undefined;
+                if (skipped) invalidateBodyDependents(sessionDir, result.id, 'sourceSkipped');
+                touch(result);
+                changed++;
+            }
+        }
+        writeResults(sessionDir, results, state?.data.rounds ?? 0);
+        touchMeta(sessionDir);
+        return { changed, results: selected };
+    });
+}
 
-    // Save back
-    const file = join(sessionDir, 'results.json');
-    const rounds = loadSessionRounds(sessionDir);
+export function recordExtractionOutcome(
+    sessionDir: string,
+    outcomes: Array<{ url: string; content?: string; title?: string; excerpt?: string; byline?: string; siteName?: string; length?: number; extractedAt?: number; extractor?: string; failure?: ResultFailure }>
+): { updated: number; failed: number; total: number } {
+    return withSessionLock(sessionDir, () => {
+        const state = readResultsFile(sessionDir);
+        const results = state?.data.results ?? [];
+        const byKey = new Map(results.map(result => [resultUrlKey(result), result]));
+        let updated = 0;
+        let failed = 0;
+        for (const outcome of outcomes) {
+            const result = byKey.get(resultUrlKey({ url: outcome.url }));
+            if (!result) continue;
+            if (outcome.failure) {
+                result.failureCount = (result.failureCount ?? 0) + 1;
+                result.lastFailedAt = Date.now();
+                result.lastFailure = outcome.failure;
+                touch(result);
+                failed++;
+                continue;
+            }
+            if (typeof outcome.content !== 'string' || !outcome.content.trim()) continue;
+            const changedBody = result.contentType !== 'extracted' || result.content !== outcome.content;
+            result.contentType = 'extracted';
+            result.content = outcome.content;
+            result.extractor = outcome.extractor || 'default';
+            result.extractedAt = outcome.extractedAt ?? Date.now();
+            result.title = outcome.title || result.title;
+            if (outcome.excerpt !== undefined) result.excerpt = outcome.excerpt;
+            if (outcome.byline !== undefined) result.byline = outcome.byline;
+            if (outcome.siteName !== undefined) result.siteName = outcome.siteName;
+            if (outcome.length !== undefined) result.contentLength = outcome.length;
+            result.skippedAt = undefined;
+            result.failureCount = undefined;
+            result.lastFailedAt = undefined;
+            result.lastFailure = undefined;
+            if (changedBody && result.status === 'approved') result.status = 'pending';
+            if (changedBody) invalidateBodyDependents(sessionDir, result.id);
+            touch(result);
+            updated++;
+        }
+        writeResults(sessionDir, results, state?.data.rounds ?? 0);
+        touchMeta(sessionDir);
+        return { updated, failed, total: results.length };
+    });
+}
+
+/** Compatibility name for callers that already provide extraction output. */
+export function mergeExtractedContent(sessionDir: string, extracted: Array<{ url: string; content: string; title?: string; excerpt?: string; byline?: string; siteName?: string; length?: number; extractedAt?: number; extractor?: string; error?: string }>): { updated: number; total: number } {
+    const result = recordExtractionOutcome(sessionDir, extracted.map(item => item.error
+        ? { url: item.url, failure: { code: 'tool' as const, message: item.error } }
+        : item));
+    return { updated: result.updated, total: result.total };
+}
+
+function readSessionGraph(sessionDir: string): { graph: DirectedGraph<GraphNodeAttrs, GraphEdgeAttrs>; missing: boolean } {
+    const file = join(sessionDir, 'graph.json');
+    if (!existsSync(file)) return { graph: new MultiDirectedGraph<GraphNodeAttrs, GraphEdgeAttrs>(), missing: true };
     try {
-        writeFileSync(file, JSON.stringify({
-            status: 'ok',
-            data: { results, rounds },
-        }, null, 2), 'utf-8');
-    } catch (e) {
-        throw new Error(`Failed to write session results to ${file}: ${e instanceof Error ? e.message : String(e)}`);
+        const parsed = JSON.parse(readFileSync(file, 'utf-8'));
+        const graphData = parsed.status === 'ok' && parsed.data?.graph ? parsed.data.graph : null;
+        if (!graphData) throw new Error('invalid graph envelope');
+        return { graph: deserializeGraph(graphData), missing: false };
+    } catch {
+        throw new SessionStateError('SESSION_CORRUPTED', `Cannot read session graph: ${file}`);
     }
-
-    return { approved, total: results.length, approvedResults };
 }
 
-/** Inject approved results into graph (structural layer).
- *  Uses query from session meta.json if not provided.
- */
-export function injectApprovedResults(sessionDir: string, approved: SessionResult[]): { nodesAdded: number; edgesAdded: number } {
-    const verified = approved.filter(hasVerifiedContent);
-    if (verified.length === 0) {
-        return { nodesAdded: 0, edgesAdded: 0 };
-    }
+export function loadSessionGraph(sessionDir: string): DirectedGraph<GraphNodeAttrs, GraphEdgeAttrs> {
+    return readSessionGraph(sessionDir).graph;
+}
 
-    const graph = loadSessionGraph(sessionDir);
-    const beforeNodes = graph.order;
-    const beforeEdges = graph.size;
-    const groups = new Map<string, { query: string; round?: number; results: Array<{ url: string; title: string; source?: string }> }>();
+function writeSessionGraph(sessionDir: string, graph: DirectedGraph<GraphNodeAttrs, GraphEdgeAttrs>): void {
+    atomicWriteJson(join(sessionDir, 'graph.json'), { status: 'ok', data: { graph: serializeGraph(graph), stats: graphStats(graph) } });
+    touchMeta(sessionDir);
+}
 
-    for (const result of verified) {
-        for (const origin of result.origins || []) {
-            const key = `${origin.round ?? 0}\0${origin.query}`;
+function buildApprovedStructuralEdges(graph: DirectedGraph<GraphNodeAttrs, GraphEdgeAttrs>, approved: SessionResult[]): void {
+    const groups = new Map<string, { query: string; round?: number; results: Array<{ url: string; title: string; origins: ResultOrigin[] }> }>();
+    for (const result of approved) {
+        for (const origin of result.origins) {
+            const key = `${origin.round ?? ''}\0${origin.query}`;
             const group = groups.get(key) ?? { query: origin.query, round: origin.round, results: [] };
-            group.results.push({ url: result.url, title: result.title, source: result.source });
+            group.results.push({ url: result.url, title: result.title, origins: result.origins });
             groups.set(key, group);
         }
     }
-
-    for (const group of groups.values()) {
-        buildStructuralEdges(graph, group.query, group.results, group.round);
-    }
-    saveSessionGraph(sessionDir, graph);
-
-    return { nodesAdded: graph.order - beforeNodes, edgesAdded: graph.size - beforeEdges };
+    for (const group of groups.values()) buildStructuralEdges(graph, group.query, group.results, group.round);
 }
 
-/** Count pending results */
+/** Serialize graph read-modify-write operations under one session lock. */
+export function mutateSessionGraph<T>(
+    sessionDir: string,
+    action: (graph: DirectedGraph<GraphNodeAttrs, GraphEdgeAttrs>, approved: SessionResult[]) => T,
+    options?: { reconcileStructural?: boolean },
+): T {
+    return withSessionLock(sessionDir, () => {
+        const { graph, missing } = readSessionGraph(sessionDir);
+        // Results are authoritative; a missing derived graph can safely regain its structural layer.
+        const approved = getApprovedResults(sessionDir);
+        if (missing && options?.reconcileStructural) buildApprovedStructuralEdges(graph, approved);
+        const value = action(graph, approved);
+        writeSessionGraph(sessionDir, graph);
+        return value;
+    });
+}
+
+export function saveSessionGraph(sessionDir: string, graph: DirectedGraph<GraphNodeAttrs, GraphEdgeAttrs>): void {
+    withSessionLock(sessionDir, () => writeSessionGraph(sessionDir, graph));
+}
+
+export function injectApprovedResults(sessionDir: string, approved: SessionResult[]): { nodesAdded: number; edgesAdded: number } {
+    const verified = approved.filter(hasVerifiedContent);
+    if (!verified.length) return { nodesAdded: 0, edgesAdded: 0 };
+    return mutateSessionGraph(sessionDir, graph => {
+        const beforeNodes = graph.order;
+        const beforeEdges = graph.size;
+        // Rebuild all approved structure when graph.json is absent, then add this approval.
+        buildApprovedStructuralEdges(graph, getApprovedResults(sessionDir));
+        return { nodesAdded: graph.order - beforeNodes, edgesAdded: graph.size - beforeEdges };
+    });
+}
+
 export function countPendingResults(sessionDir: string): number {
     return getPendingResults(sessionDir).length;
 }
-export function updateSessionGraph(
-    sessionDir: string,
-    query: string,
-    results: SessionResult[],
-    round?: number
-): { nodesAdded: number; edgesAdded: number } {
+
+export function updateSessionGraph(sessionDir: string, query: string, results: SessionResult[], round?: number): { nodesAdded: number; edgesAdded: number } {
     const verified = results.filter(hasVerifiedContent);
-    if (verified.length === 0) {
-        return { nodesAdded: 0, edgesAdded: 0 };
-    }
-
-    const graph = loadSessionGraph(sessionDir);
-    const beforeNodes = graph.order;
-    const beforeEdges = graph.size;
-
-    buildStructuralEdges(graph, query, verified, round);
-    saveSessionGraph(sessionDir, graph);
-
-    return {
-        nodesAdded: graph.order - beforeNodes,
-        edgesAdded: graph.size - beforeEdges,
-    };
-}
-
-/** Merge extracted content into session results (update content field by URL match) */
-export function mergeExtractedContent(sessionDir: string, extracted: Array<{ url: string; content: string; title?: string; excerpt?: string; byline?: string; siteName?: string; length?: number; extractedAt?: number; error?: string }>): { updated: number; total: number } {
-    const results = loadSessionResults(sessionDir);
-    const urlMap = new Map<string, SessionResult>();
-    for (const r of results) {
-        urlMap.set(resultUrlKey(r), r);
-    }
-
-    let updated = 0;
-    for (const ex of extracted) {
-        if (ex.error) continue;
-        const norm = resultUrlKey({ url: ex.url, source: ex.url.startsWith('file:') ? 'local' : undefined });
-        const existing = urlMap.get(norm);
-        if (existing) {
-            existing.content = ex.content;
-            if (ex.excerpt) existing.excerpt = ex.excerpt;
-            if (ex.byline) existing.byline = ex.byline;
-            if (ex.siteName) existing.siteName = ex.siteName;
-            if (ex.length) existing.contentLength = ex.length;
-            if (ex.extractedAt !== undefined) existing.extractedAt = ex.extractedAt;
-            updated++;
-        }
-    }
-
-    const all = Array.from(urlMap.values());
-    const file = join(sessionDir, 'results.json');
-    const rounds = loadSessionRounds(sessionDir) || results.length;
-    try {
-        writeFileSync(file, JSON.stringify({
-            status: 'ok',
-            data: { results: all, rounds },
-        }, null, 2), 'utf-8');
-    } catch (e) {
-        throw new Error(`Failed to write session results to ${file}: ${e instanceof Error ? e.message : String(e)}`);
-    }
-
-    return { updated, total: all.length };
-}
-
-/** Get current round number from results file */
-export function loadSessionRounds(sessionDir: string): number {
-    const file = join(sessionDir, 'results.json');
-    if (!existsSync(file)) return 0;
-
-    try {
-        const raw = readFileSync(file, 'utf-8');
-        const parsed = JSON.parse(raw);
-        return parsed.data?.rounds || 0;
-    } catch {
-        return 0;
-    }
+    if (!verified.length) return { nodesAdded: 0, edgesAdded: 0 };
+    return mutateSessionGraph(sessionDir, graph => {
+        const beforeNodes = graph.order;
+        const beforeEdges = graph.size;
+        buildStructuralEdges(graph, query, verified.map(result => ({ url: result.url, title: result.title, origins: result.origins })), round);
+        return { nodesAdded: graph.order - beforeNodes, edgesAdded: graph.size - beforeEdges };
+    });
 }

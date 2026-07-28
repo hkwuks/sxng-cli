@@ -1,15 +1,13 @@
 /**
- * Backward compatibility regression tests for Phase 12.
+ * Current session contract regression tests.
  *
  * Verifies:
- * - Old session loading (without new fields)
  * - query-graph BFS behavior without --strategy
- * - graph-add without new fields
  * - Commander migration consistency
  */
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtempSync, writeFileSync, rmSync, existsSync } from 'fs';
+import { mkdtempSync, writeFileSync, rmSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
 import { loadSessionGraph, initSessionDir, loadSessionResults } from '../../src/deep/session.js';
@@ -27,9 +25,8 @@ describe('backward compatibility', () => {
         rmSync(sessionDir, { recursive: true, force: true });
     });
 
-    describe('old session loading', () => {
-        it('loads graph.json without new fields (score, frequency, sourceRounds)', () => {
-            // Simulate an old-format graph.json (Phase 0 format)
+    describe('current session contract', () => {
+        it('round-trips a graph with optional entity fields omitted', () => {
             const oldGraph = new DirectedGraph<GraphNodeAttrs, GraphEdgeAttrs>();
             oldGraph.mergeNode('e:tokio', { type: 'entity', label: 'tokio' });
             oldGraph.mergeNode('e:rust', { type: 'entity', label: 'rust' });
@@ -46,14 +43,13 @@ describe('backward compatibility', () => {
             expect(graph.hasNode('e:rust')).toBe(true);
             expect(graph.hasEdge('e:tokio', 'e:rust')).toBe(true);
 
-            // New fields should be undefined (graceful degradation)
+            // Optional semantic fields remain absent when no Agent wrote them.
             const tokioAttrs = graph.getNodeAttributes('e:tokio');
             expect(tokioAttrs.score).toBeUndefined();
             expect(tokioAttrs.frequency).toBeUndefined();
         });
 
-        it('loads results.json without content field', () => {
-            // Old results may not have content
+        it('rejects a result file that lacks the current envelope fields', () => {
             writeFileSync(
                 join(sessionDir, 'results.json'),
                 JSON.stringify({
@@ -66,10 +62,7 @@ describe('backward compatibility', () => {
                 }, null, 2)
             );
 
-            const results = loadSessionResults(sessionDir);
-            expect(results).toHaveLength(1);
-            expect(results[0].url).toBe('https://a.com');
-            expect(results[0].content).toBeUndefined();
+            expect(() => loadSessionResults(sessionDir)).toThrow('Cannot read session results');
         });
     });
 

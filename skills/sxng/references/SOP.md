@@ -92,21 +92,12 @@ sxng graph-preprocess <session> --format json
 # For JS-heavy pages (SPAs), add --obscura fallback:
 # sxng extract --session <session> --obscura
 
-# Step 3: Quality assessment + approve results into the structural graph
+# Step 3: Quality assessment + approve selected {id, revision} objects into the structural graph
 sxng --session <session> --quality
-sxng --session <session> --quality --approve "0,1,2"
+sxng --session <session> --quality --approve-file .\.sxng\sessions\<session>\agent-inputs\approve.json
 
-# Step 4: Build semantic knowledge graph (after approval; include sourceRounds from Step 2 provenance)
-sxng graph-add <session> --data '{
-  "entities": [
-    {"id": "e:pinecone", "label": "Pinecone", "entityType": "product", "score": 0.9, "sourceRounds": [1]},
-    {"id": "e:weaviate", "label": "Weaviate", "entityType": "product", "score": 0.85, "sourceRounds": [1]},
-    {"id": "e:qdrant", "label": "Qdrant", "entityType": "product", "score": 0.8, "sourceRounds": [1]}
-  ],
-  "edges": [
-    {"source": "e:pinecone", "target": "e:weaviate", "relation": "competitor", "weight": 0.9}
-  ]
-}'
+# Step 4: Agent writes graph.json with approved sourceResultIds, then builds the semantic graph.
+sxng graph-add <session> --data-file .\.sxng\sessions\<session>\agent-inputs\graph.json
 
 # Step 5: If a Query Plan gap remains, get suggestions + supplementary search
 sxng suggest-queries <session> --format json
@@ -178,25 +169,22 @@ Approve the extracted results before adding semantic entities or edges. This cre
 
 ```bash
 sxng --session <session> --quality
-sxng --session <session> --quality --approve "0,1,2"
+sxng --session <session> --quality --approve-file .\.sxng\sessions\<session>\agent-inputs\approve.json
 ```
 
 #### Phase 4: Build Knowledge Graph
 
-> **Before Phase 4**: Approved results must already exist in the graph via `--quality --approve`. `graph-add` only accepts entities and edges — results go through the pending pipeline first.
+> **Before Phase 4**: Approved results must already exist in the graph via `--quality --approve-file`. `graph-add` only accepts entities and edges — results go through the pending pipeline first.
 
 ```bash
-sxng graph-add <session> --data '{
-  "entities": [{"id": "e:<entity>", "label": "<entity>", "sourceRounds": [1]}],
-  "edges": [{"source": "<resultProvenance id>", "target": "e:<entity>", "relation": "mentions"}]
-}'
+sxng graph-add <session> --data-file .\.sxng\sessions\<session>\agent-inputs\graph.json
 ```
 
 The knowledge graph has two layers:
-- **Structural** (auto-built via --approve): query→result→domain nodes and edges
+- **Structural** (auto-built via --approve-file): query→result→domain nodes and edges
 - **Semantic** (added by you via `graph-add`): entity nodes with custom relation edges
 
-When adding edges, `source`/`target` must reference existing node IDs. Run `graph-preprocess` after extraction and use `resultProvenance[].id` for result nodes; never construct a result ID from its URL. Every new entity needs `sourceRounds` from the supporting provenance rows. When an edge references a newly created entity in the same request, set an explicit `id` such as `e:entity-name`. Node ID prefix rules:
+When adding edges, `source`/`target` must reference existing node IDs. Run `graph-preprocess` after extraction and use `resultProvenance[].id` for result nodes; never construct a result ID from its URL. Every entity and edge needs currently approved `sourceResultIds` from those provenance rows. When an edge references a newly created entity in the same request, set an explicit `id` such as `e:entity-name`. Node ID prefix rules:
 
 | Prefix | Type | Format | Example |
 |--------|------|--------|---------|
@@ -211,37 +199,28 @@ References to non-existent nodes are skipped and reported in `skippedEdges`.
 **External Search Results Integration**: When you use other search tools (tavily, exa, open-web-search, etc.) during a deep search session, use `results-add` to inject results. They go through the same pipeline as sxng-native results: **pending → quality assessment → approval → graph injection**. Use `graph-add` only for entities/edges after approval.
 
 ```bash
-# Step 1: Inject external results (become pending)
-sxng results-add <session> --query "external source query" --data '[
-  {"url": "https://...", "title": "...", "source": "tavily"},
-  {"url": "https://...", "title": "...", "source": "exa"}
-]'
+# Step 1: Save external discovery JSON under the session, then import it (becomes pending).
+sxng results-add <session> --kind search --tool exa --query "external source query" \
+  --data-file .\.sxng\sessions\<session>\agent-inputs\external-search.json
 
 # Step 2: Extract, then run quality assessment → approve (injects into graph)
 sxng extract --session <session>
 sxng --session <session> --quality
-sxng --session <session> --quality --approve "0,1,2"
+sxng --session <session> --quality --approve-file .\.sxng\sessions\<session>\agent-inputs\approve.json
 
-# Step 3: Add entities and edges (after result nodes exist in graph)
-sxng graph-add <session> --data '{
-  "entities": [
-    {"id": "e:entity-name", "label": "EntityName", "entityType": "concept", "score": 0.8, "sourceRounds": [1]}
-  ],
-  "edges": [
-    {"source": "<resultProvenance id>", "target": "e:entity-name", "relation": "mentions", "weight": 1}
-  ]
-}'
+# Step 3: Save entities and edges with approved sourceResultIds, then add them.
+sxng graph-add <session> --data-file .\.sxng\sessions\<session>\agent-inputs\graph.json
 ```
 
-The `source` field (`"sxng"` | `"tavily"` | `"exa"` | `"open-web-search"` | ...) marks which tool produced each result. sxng-native results default to `"sxng"`. External results participate equally in quality assessment, path discovery, and domain diversity — the graph treats them identically regardless of source.
+The origin `tool` (`"sxng"` | `"tavily"` | `"exa"` | `"open-web-search"` | ...) records which tool produced each result. sxng-native results default to `"sxng"`. External results participate equally in quality assessment, path discovery, and domain diversity — the graph treats them identically regardless of source.
 
-> **Note**: `results-add` marks results as `pending`. They are not in the graph until Agent approval via `--quality --approve`. After approval, use `graph-add` for entities and edges.
+> **Note**: `results-add --kind search` marks discoveries as `pending` and they require extraction. `--kind extracted` accepts an external body with `content` and `extractor`, then it awaits approval. Neither kind enters the graph until Agent approval via `--quality --approve-file`.
 
 > **Two-layer quality assessment:**
 > 1. **Programmatic pre-filter**: CLI computes 3 indicators (contentDepth, sourceDiversity, novelty) to flag obviously poor batches
 > 2. **Agent final review**: Agent sees each pending result's title, content preview, source, and domain — then decides which to keep
 >
-> Results are accumulated as `pending` — they are not in the knowledge graph until approved by the Agent via `--approve`. External results injected via `results-add` also go through pending first.
+> Results are accumulated as `pending` — they are not in the knowledge graph until approved by the Agent via `--approve-file`. External results injected via `results-add` also go through pending first.
 
 3 independent indicators for programmatic pre-filter (each with its own threshold):
 
@@ -249,7 +228,7 @@ The `source` field (`"sxng"` | `"tavily"` | `"exa"` | `"open-web-search"` | ...)
 |-----------|---------|-----------|
 | contentDepth | Filter empty/very short extractions | ≥ 150 chars average |
 | sourceDiversity | Ensure not all from same domain | ≥ 3 distinct domains |
-| novelty | Prevent circular/redundant results | ≥ 30% novel (SimHash) |
+| novelty | Prevent circular/redundant results | ≥ 30% novel (Jaccard) |
 
 | Verdict | Meaning | Agent Action |
 |---------|---------|-------------|
@@ -318,9 +297,9 @@ sxng strategy-info <session> --format json
 1. **Switch backends, not sessions.** Use alternative search tools (tavily, exa, open-web-search, web search MCP tools) to get results.
 2. **Inject all results into the current session** via `results-add`, retaining the query that produced them:
    ```bash
-   sxng results-add <session> --query "failed-backend query" --data '[{...}]'
+    sxng results-add <session> --kind search --tool <tool> --query "failed-backend query" --data-file .sxng/sessions/<session>/agent-inputs/fallback-search.json
    ```
-3. **Continue the normal pipeline**: extract → `--quality` → `--approve` → graph-preprocess → `graph-add`.
+3. **Continue the normal pipeline**: extract → `--quality` → `--approve-file` → graph-preprocess → `graph-add`.
 
 **What NOT to do**:
 

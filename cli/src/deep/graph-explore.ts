@@ -390,7 +390,7 @@ export interface TraverseResult {
     sources: {
         resultCount: number;
         domains: string[];
-        rounds: number[];
+        resultIds: string[];
     };
 }
 
@@ -427,10 +427,12 @@ export function traversePath(
         let relation: string | undefined;
         if (i > 0) {
             const prevId = entityIds[i - 1];
-            if (graph.hasEdge(prevId, eId)) {
-                relation = graph.getEdgeAttributes(prevId, eId).relation;
-            } else if (graph.hasEdge(eId, prevId)) {
-                relation = graph.getEdgeAttributes(eId, prevId).relation;
+            const forward = graph.edges(prevId, eId)[0];
+            const reverse = graph.edges(eId, prevId)[0];
+            if (forward) {
+                relation = graph.getEdgeAttributes(forward).relation;
+            } else if (reverse) {
+                relation = graph.getEdgeAttributes(reverse).relation;
             }
         }
 
@@ -445,7 +447,7 @@ export function traversePath(
 
     // Collect source info: results that mention entities in this path
     const domainSet = new Set<string>();
-    const roundSet = new Set<number>();
+    const resultIds = new Set<string>();
     let resultCount = 0;
 
     for (const eId of entityIds) {
@@ -458,6 +460,7 @@ export function traversePath(
             const sourceAttrs = graph.getNodeAttributes(source);
             if (sourceAttrs.type === 'result') {
                 resultCount++;
+                resultIds.add(source);
                 if (sourceAttrs.url) {
                     try {
                         const domain = new URL(sourceAttrs.url).hostname;
@@ -467,10 +470,9 @@ export function traversePath(
             }
         }
 
-        // Collect rounds from entity sourceRounds
-        if (graph.getNodeAttributes(eId).sourceRounds) {
-            for (const r of graph.getNodeAttributes(eId).sourceRounds!) {
-                roundSet.add(r);
+        if (graph.getNodeAttributes(eId).sourceResultIds) {
+            for (const source of graph.getNodeAttributes(eId).sourceResultIds!) {
+                resultIds.add(source);
             }
         }
     }
@@ -483,7 +485,7 @@ export function traversePath(
         sources: {
             resultCount,
             domains: [...domainSet],
-            rounds: [...roundSet].sort((a, b) => a - b),
+            resultIds: [...resultIds].sort(),
         },
     };
 }
@@ -762,8 +764,8 @@ export function formatTraverseAsMarkdown(result: TraverseResult): string {
         lines.push('### Sources');
         lines.push('');
         lines.push(`- Mentioned in ${result.sources.resultCount} results`);
-        if (result.sources.rounds.length > 0) {
-            lines.push(`- Rounds: ${result.sources.rounds.join(', ')}`);
+        if (result.sources.resultIds.length > 0) {
+            lines.push(`- Source results: ${result.sources.resultIds.join(', ')}`);
         }
         if (result.sources.domains.length > 0) {
             lines.push(`- Domains: ${result.sources.domains.slice(0, 5).join(', ')}`);

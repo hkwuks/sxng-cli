@@ -13,13 +13,12 @@
  * Verdict logic:
  * - good:    all pass
  * - acceptable: 1 fails
- * - poor:    鈮? fail
+ * - poor:    two or more fail
  */
 
 import { jaccardSimilarity, resultUrlKey } from './dedupe.js';
 import { SessionResult } from './session.js';
 
-// 鈹€鈹€ Types 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
 
 export interface IndicatorResult {
     value: number;
@@ -53,11 +52,11 @@ const DEFAULT_THRESHOLDS: QualityThresholds = {
 
 const NOVELTY_SIMILARITY_THRESHOLD = 0.75;
 
-// 鈹€鈹€ Indicator computations 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
+// Indicator computations
 
 /** Extract domain from URL */
 function extractDomain(url: string): string {
-    if (url.startsWith('file://')) return ''; // local docs 鈫?no domain
+    if (url.startsWith('file://')) return ''; // Local documents have no domain.
     try {
         return new URL(url).hostname;
     } catch {
@@ -65,7 +64,7 @@ function extractDomain(url: string): string {
     }
 }
 
-/** Compute content depth indicator 鈥?average content length of extracted results only */
+/** Compute content depth from extracted results only. */
 function computeContentDepth(results: SessionResult[], threshold: number): IndicatorResult {
     const extracted = results.filter(r => r.content && r.content.length > 0);
     if (extracted.length === 0) {
@@ -76,7 +75,7 @@ function computeContentDepth(results: SessionResult[], threshold: number): Indic
     return { value, threshold, pass: value >= threshold };
 }
 
-/** Compute source diversity indicator 鈥?number of distinct domains */
+/** Compute source diversity as the number of distinct domains. */
 function computeSourceDiversity(newResults: SessionResult[], threshold: number): IndicatorResult {
     const domains = new Set<string>();
     for (const r of newResults) {
@@ -143,11 +142,11 @@ export function assessLatestResultQuality(
     return assessQuality(latestResults, priorApproved, thresholds, seenEarlierUrls);
 }
 
-// 鈹€鈹€ Main assessment 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
+// Main assessment
 
-/** Assess the quality of results against session context.
- *  Programmatic pre-filter only 鈥?Agent makes final quality decision.
- *  All indicators use independent thresholds 鈥?no weighted sum.
+/** Assess result quality against session context.
+ * Programmatic pre-filter only; the Agent makes the final quality decision.
+ * All indicators use independent thresholds with no weighted sum.
  */
 export function assessResultQuality(
     results: SessionResult[],

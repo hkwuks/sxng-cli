@@ -24,7 +24,7 @@ import {
   injectApprovedResults,
   initSessionDir,
   resolveSessionPath,
-  SessionResult,
+  SessionResultInput,
 } from '../session.js';
 
 export interface DocSearchOptions {
@@ -42,7 +42,9 @@ export interface DocSearchResult {
   added: number;
   totalPending: number;
   partial: boolean;
-  results: SessionResult[];
+  freshness: 'fresh' | 'stale' | 'partial';
+  refreshed: boolean;
+  results: SessionResultInput[];
 }
 
 /**
@@ -104,7 +106,14 @@ export async function docSearch(opts: DocSearchOptions): Promise<DocSearchResult
     }
   }
 
-  await refreshIndexIfStale(absPath);
+  let refreshed = false;
+  let stale = false;
+  try {
+    refreshed = await refreshIndexIfStale(absPath);
+  } catch {
+    // A prior usable index is safer than turning a refresh issue into no search.
+    stale = true;
+  }
 
   // Load index
   let db: any;
@@ -144,12 +153,14 @@ export async function docSearch(opts: DocSearchOptions): Promise<DocSearchResult
       added: 0,
       totalPending: 0,
       partial: getIndexMeta(absPath)?.partial ?? false,
+      freshness: stale ? 'stale' : getIndexMeta(absPath)?.partial ? 'partial' : 'fresh',
+      refreshed,
       results: [],
     };
   }
 
   // Format as SessionResult[]
-  const results: SessionResult[] = [];
+  const results: SessionResultInput[] = [];
   const indexedAt = Date.now();
   for (const hit of searchResult.hits) {
     const doc = hit.document;
@@ -173,15 +184,15 @@ export async function docSearch(opts: DocSearchOptions): Promise<DocSearchResult
     results.push({
       url,
       title,
+      contentType: 'extracted',
       content: doc.content || '',
+      extractor: 'local-index',
       extractedAt: indexedAt,
-      source: 'local',
       score: hit.score,
       filePath: doc.filePath,
       headings: doc.headings || [],
       chunkIndex: doc.chunkIndex,
-      origins: [{ query }],
-      status: undefined, // set to 'pending' by appendSessionResults
+      origins: [{ tool: 'local-index', query }],
     });
   }
 
@@ -202,6 +213,8 @@ export async function docSearch(opts: DocSearchOptions): Promise<DocSearchResult
     added,
     totalPending: pendingCount,
     partial: getIndexMeta(absPath)?.partial ?? false,
+    freshness: stale ? 'stale' : getIndexMeta(absPath)?.partial ? 'partial' : 'fresh',
+    refreshed,
     results,
   };
 }

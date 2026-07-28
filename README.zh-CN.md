@@ -35,13 +35,13 @@
 - 📄 **多格式输出** — Markdown（LLM 优化）或 JSON 格式
 - 🧠 **深度搜索** — 多轮迭代研究，支持会话累积、质量评估和恢复策略
 - 🔍 **内容提取** — 从 URL 或会话结果中提取文章全文，支持 Obscura 回退和 Agent 选择的 Jina Reader 提取
-- 🗂️ **会话管理** — 跨轮累积搜索结果；通过规范化 URL 和全文字符 5-gram Jaccard 去重，再进入待审 → 审批 → 注入图谱工作流
-- 🔗 **外部结果融合** — 通过 `results-add` 将 Tavily、Exa 等外部搜索结果注入同一会话管道；共享待审池，统一质量评估
+- 🗂️ **会话管理** — 明确区分搜索发现与已提取正文；稳定结果 ID 和版本号避免并行时审批错位
+- 🔗 **外部结果融合** — 从会话专属 JSON 文件导入外部搜索或提取结果，避免 PowerShell 内联 JSON 转义问题
 - ⭐ **质量评估** — 3 个独立指标：内容深度、来源多样性、新颖度
-- 🕸️ **知识图谱** — 结构层（查询→结果→域名）+ 语义层（带来源轮次的实体关系）双层图谱
+- 🕸️ **知识图谱** — 结构层（查询→结果→域名）+ 语义层（带已审批结果 ID 来源的实体关系）双层图谱
 - 🔄 **查询冗余检查** — 基于词级或字符 bigram Jaccard 检测重复查询
 - 💡 **Agent 优先设计** — 输出结构化分析数据（质量、建议、恢复策略）供 LLM Agent 决策
-- 📁 **本地文档搜索** — 对本地 Markdown/文本文件进行 BM25 全文索引和搜索，支持字段加权排序；结果自动注入会话管道，来源标记为 `source: "local"`
+- 📁 **本地文档搜索** — 对本地 Markdown/文本文件进行 BM25 全文索引和搜索，支持字段加权排序；每个索引分块保持独立的已提取会话结果
 - ✅ **陈述—证据—审核管线** — L2/L3 专用：提交原子化陈述、自动检索证据、验证立场，再按发布域名多样性进行策略聚合自动审批或标记待人工审核
 
 ---
@@ -615,7 +615,7 @@ obscura --version
 | `sxng extract --urls <url> --jina` | Agent 为显式指定 URL 选择 Jina Reader 提取 |
 | `sxng --session new` | 创建深度搜索会话 |
 | `sxng --session <name> --quality` | 评估结果质量，列出待审结果 |
-| `sxng --session <name> --quality --approve "0,1"` | 按索引审批已验证的待审结果 |
+| `sxng --session <name> --quality --approve-file <path>` | 从 `{id, revision}` JSON 文件审批已验证的待审结果 |
 | `sxng suggest-queries <session>` | 获取查询建议数据（供 Agent 使用） |
 | `sxng strategy-info <session>` | 查看当前搜索阶段 |
 | `sxng recovery-analysis <session>` | 获取低质量恢复策略 |
@@ -623,13 +623,13 @@ obscura --version
 | `sxng session-list` | 列出所有会话 |
 | `sxng session-delete <session-name>` | 删除指定会话 |
 | `sxng graph-preprocess <session>` | TF-IDF + 共现分析 + 结果来源轮次 |
-| `sxng graph-add <session> --data-file <path>` | 从 UTF-8 JSON 文件向知识图谱添加实体/边；新实体必须带来源轮次 |
+| `sxng graph-add <session> --data-file <path>` | 从 UTF-8 JSON 添加由已审批结果 ID 支撑的语义实体/边 |
 | `sxng graph-search <session>` | 按关键词发现实体 |
 | `sxng graph-explore <session>` | 查看实体关系 |
 | `sxng graph-drill <session>` | 追踪特定关系 |
 | `sxng graph-traverse <session>` | 遍历推理路径 |
 | `sxng graph-obfuscate <session>` | 列出混淆候选 |
-| `sxng results-add <session> --query <query> --data-file <path>` | 从 UTF-8 JSON 文件将外部搜索结果注入会话（标记为待审） |
+| `sxng results-add <session> --kind <search|extracted> --data-file <path>` | 从会话专属 UTF-8 JSON 导入外部搜索或已提取正文 |
 | `sxng doc-index <path>` | 索引本地文档（用于 BM25 搜索） |
 | `sxng doc-search <session> <query> --path <path>` | 搜索已索引文档并将结果注入会话 |
 | `sxng claim-add <session> --claims-file <path>` | 从 UTF-8 JSON 文件提交原子化陈述（支持单条或批量，自动证据搜索） |
@@ -662,7 +662,8 @@ obscura --version
 | `--desc <text>` | 会话描述 |
 | `--redundancy <action>` | 查询冗余检查：`warn`、`adjust`、`skip` |
 | `--quality` | 评估结果质量（需配合 --session） |
-| `--approve <indices>` | 按逗号分隔索引审批已验证的待审结果 |
+| `--approve-file <path>` | 从本会话 `agent-inputs` 目录的 `{id, revision}` 文件审批 |
+| `--skip-file <path>` / `--unskip-file <path>` | 从本会话 `agent-inputs` 目录跳过或恢复 `{id, revision}` 选择 |
 | `--threshold-override <json>` | 覆盖质量阈值（JSON） |
 | `--merge <file>` | 合并新的 JSON 搜索结果文件 |
 
@@ -768,14 +769,15 @@ sxng extract --session <session-name>
 # 4. 评估质量并查看每条结果的 verified 状态
 sxng --session <session-name> --quality
 
-# 5. 仅审批输出中 verified: true 的索引（自动注入结构图）
-sxng --session <session-name> --quality --approve "0,1,2,3"
+# 5. 将质量输出中选中的 {id, revision} 写入
+#    .sxng/sessions/<session-name>/agent-inputs/approve.json，再审批。
+sxng --session <session-name> --quality --approve-file .\.sxng\sessions\<session-name>\agent-inputs\approve.json
 
 # 6. 预处理会话内容，发现实体并取得来源轮次
 sxng graph-preprocess <session-name>
 
 # 7. 将图谱 JSON 写入该会话的 Agent 临时目录，再添加语义边
-sxng graph-add <session-name> --data-file .\.sxng\agent-inputs\<session-name>\graph-data.json
+sxng graph-add <session-name> --data-file .\.sxng\sessions\<session-name>\agent-inputs\graph-data.json
 
 # 8. 继续研究（带冗余检查）
 sxng --session <session-name> --queries "tokio vs async-std,benchmark 2026" --redundancy warn
@@ -785,7 +787,7 @@ sxng --session <session-name> --queries "tokio vs async-std,benchmark 2026" --re
 
 - 提取后的网页内容先按规范化 URL 去重，再按全文字符 5-gram Jaccard 相似度去重；查询冗余则单独使用词级或字符 bigram Jaccard。
 - `--quality` 用最新已记录轮次与此前已批准的结果比较。此前轮次已经出现过的 URL 即使在最新轮次再次命中，也计为非新颖。
-- 质量评估是诊断，不是事实核验。网页结果只有在 `extract` 写入非空正文和提取时间后才能审批；摘要和调用方提供的提取时间都不被信任。
+- 质量评估是诊断，不是事实核验。搜索发现只有在 `extract` 写入非空正文和提取时间后才能审批。显式导入的外部正文必须提供非空 `content` 与 `extractor`；未提供 `extractedAt` 时，记录其导入时间。
 - 陈述审核把两个不同的规范化发布域名视为两个来源；不会推断跨域名的公司归属、编辑关系或转载关系。
 
 ### 会话管理
@@ -806,11 +808,12 @@ sxng --session <session-name> --queries "tokio vs async-std,benchmark 2026" --re
 
 ### 会话数据结构
 
-每个会话在 `.sxng/sessions/<session-name>/` 下存储三个文件：
+每个会话在 `.sxng/sessions/<session-name>/` 下存储状态和 Agent 输入文件：
 
 - **`results.json`** — 累积的搜索结果（URL 去重，多轮搜索）
 - **`graph.json`** — 知识图谱（结构层 + 语义层）
 - **`meta.json`** — 会话元数据（所有者、描述、时间戳）
+- **`agent-inputs/`** — 写命令使用的 UTF-8 JSON；保留以便检查和重试
 
 ### 知识图谱
 
@@ -831,38 +834,42 @@ sxng --session <session-name> --queries "tokio vs async-std,benchmark 2026" --re
 
 图谱导航命令：`graph-search`（发现实体）、`graph-explore`（查看关系）、`graph-drill`（追踪特定关系）、`graph-traverse`（遍历推理路径）。
 
-`graph-preprocess` 会为每条结果输出 `resultProvenance`（`url`、`title`、`rounds`）。每个新实体应选择支持它的结果，合并这些结果的 `rounds`，并作为 `sourceRounds` 提交；这样 `strategy-info` 才能按真实搜索轮次计算实体增长率。
+`graph-preprocess` 会为每条已提取正文输出 `resultProvenance`（`id`、`revision`、`url`、`title`、`approval`）。每个语义实体或边必须把一个或多个当前已审批的 `id` 填入 `sourceResultIds`，从而追溯到确切的已审批正文，而不是搜索轮次。
 
 ### 外部搜索结果注入
 
 来自其他搜索工具（Tavily、Exa 等）的结果可通过 `results-add` 注入到任何活跃会话中。它们和原生 sxng 结果走相同的管道：
 
 ```powershell
-# 将外部工具输出作为 UTF-8 JSON 写入该会话的 Agent 临时目录。
-sxng results-add <session-name> --query "async runtime" --data-file .\.sxng\agent-inputs\<session-name>\exa-results.json
+# 导入搜索发现；摘要仍然只是摘要，后续需要提取。
+sxng results-add <session-name> --kind search --tool exa --query "async runtime" `
+  --data-file .\.sxng\sessions\<session-name>\agent-inputs\exa-search.json
 ```
 
-注入后，结果标记为 `pending`（待审）。执行 `extract --session` 后检查 `stats.success`、`stats.failed` 和 `session.updated`，只审批质量输出中 `verified: true` 的结果。提取失败的结果保持待审，不能进入图谱。`source` 字段记录每个结果来自哪个工具；所有来源共享同一个待审池，`--query` 则记录来源查询，供 `graph-preprocess` 追踪来源。
+搜索导入后结果标记为 `pending`，必须执行 `extract --session`；检查 `stats.success`、`stats.failed` 和 `session.updated`，只审批质量输出中 `verified: true` 的结果。如果外部工具已返回正文，必须使用 `--kind extracted` 并提供非空 `content` 和 `extractor`，它会直接等待审批而不再重复提取。提取失败的结果保持待审，不能进入图谱。`tool` 与 `query` 记录发现来源。
 
 ### 结构化 JSON 输入
 
-外部工具输出、多行文本、中文、嵌套引号或大载荷应使用 UTF-8 JSON 文件，避免 PowerShell 转义和 Windows 命令行长度限制。Agent 生成的传输文件统一放在 `.sxng/agent-inputs/<session-name>/`，不要放在项目根目录：`.sxng` 已用于存储 sxng 状态；使用 session 名可规避多个运行在同一工作目录中使用同一个固定文件名时的潜在冲突。这只是文件命名约定，不是 CLI 并发控制。每条命令只能提供一个内联或文件输入：
+所有结构化写入都必须使用 `.sxng/sessions/<session-name>/agent-inputs/` 下的 UTF-8 JSON 文件。这样可避免 PowerShell 转义和 Windows 命令行长度限制，隔离并发会话，并为每次写入留下可检查的输入。CLI 会拒绝内联 JSON 及会话外文件。
 
-| 用途 | 内联选项 | 推荐文件选项 |
-|---|---|---|
-| 外部结果 | `--data <json>` | `--data-file <path>` |
-| 图谱实体/边 | `--data <json>` | `--data-file <path>` |
-| 单条/批量陈述 | `--claim` / `--claims` | `--claim-file` / `--claims-file` |
-| 证据核验 | `--evidence <json>` | `--evidence-file <path>` |
+| 用途 | 必需的文件选项 |
+|---|---|
+| 外部搜索或已提取正文 | `results-add --data-file <path>` |
+| 图谱实体/边 | `graph-add --data-file <path>` |
+| 审批、跳过、恢复选择 | `--approve-file` / `--skip-file` / `--unskip-file <path>` |
+| 单条/批量陈述 | `claim-add --claim-file` / `--claims-file <path>` |
+| 证据核验 | `evidence-verify --evidence-file <path>` |
 
-文件必须是 UTF-8（允许 UTF-8 BOM）。同时提供多个来源、文件不可读或 JSON 非法时，命令会在写入 session、陈述、证据或图谱前失败。CLI 不会自动删除这些 Agent 临时文件，因此不会误删用户显式提供的文件。
+文件必须是 UTF-8（允许 UTF-8 BOM）。缺失、非法、跨会话或会话目录外的输入会在状态变更前失败。CLI 不会自动删除 Agent 输入文件；只有显式执行 `session-delete` 才会删除整个会话。
+
+质量输出会返回 `{id, revision}`。将选中的对象保存到 `approve.json`，再传给 `--approve-file`；不可复用过期版本号。
 
 陈述和证据也应使用同一目录，例如：
 
 ```powershell
-sxng claim-add my-session --claims-file .\.sxng\agent-inputs\my-session\claims.json
+sxng claim-add my-session --claims-file .\.sxng\sessions\my-session\agent-inputs\claims.json
 sxng evidence-verify my-session --claim-id "cl_001" `
-  --evidence-file .\.sxng\agent-inputs\my-session\evidence.json `
+  --evidence-file .\.sxng\sessions\my-session\agent-inputs\evidence.json `
   --stance support --reason "官方文档确认" --complete
 ```
 
@@ -881,8 +888,8 @@ sxng doc-search <session-name> "关键词" --path ./docs
 **工作原理：**
 
 1. **自动索引** — `doc-search` 在首次使用时自动索引目标目录（如索引不存在）。使用 Orama BM25 引擎，字段加权：标题 ×3、标题头 ×2、正文 ×1。
-2. **会话注入** — 搜索结果格式化为 `SessionResult[]`，标记为 `source: "local"`，以待审状态注入会话。
-3. **同一管道** — 结果与网页结果走完全相同的流程：`--quality` → `--approve` → `graph-add`。新增实体前先运行 `graph-preprocess`，从结果来源中取得其 `sourceRounds`。
+2. **会话注入** — 每个命中文档块都作为 `contentType: "extracted"`、`extractor: "local-index"` 的 `SessionResult`，以待审状态注入会话。
+3. **同一管道** — 结果与网页结果走完全相同的流程：`--quality` → `--approve-file` → `graph-add`。新增实体前先运行 `graph-preprocess`，将其中已审批的 ID 写入 `sourceResultIds`。
 4. **不消耗轮次** — 本地文档搜索**不增加**会话轮次计数器（通过 `skipRoundIncrement` 与当前网络搜索轮次合并）。
 
 **索引选项：**
@@ -909,7 +916,7 @@ sxng doc-search <session-name> "关键词" --path ./docs
 
 ### 已知限制
 
-- 会话和陈述状态分散保存在多个 JSON 文件中，未提供事务化的并发写入保护。
+- 会话结果和图谱写入使用会话级短锁与原子替换；Claim、Evidence、Review 多文件之间仍没有跨文件事务。
 - URL 提取不构成 SSRF 安全边界，只应处理受信任的公开 URL。
 - 本地文档扫描尚未定义符号链接的遍历边界或循环保护策略。
 - 索引重建会直接覆盖当前持久化文件；进程中断或磁盘故障后可能需要重新建立索引。

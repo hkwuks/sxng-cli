@@ -1,5 +1,5 @@
 /**
- * policy-aggregate / review-list — Review policy subcommands.
+ * Policy aggregation and review-list commands.
  */
 
 import {
@@ -10,18 +10,18 @@ import {
   saveReviews,
   saveClaims,
   saveEvidences,
+  ClaimsStateError,
+  assertClaimsStoreReadable,
 } from '../claims/store.js';
 import { computeSourceClusterId } from '../claims/deterministic-checks.js';
-import { EvidenceSpan } from '../claims/types.js';
 import {
-  aggregateClaim,
   aggregateAll,
   PolicyInput,
 } from '../claims/policy.js';
-import { resolveSessionPath } from '../deep/session.js';
+import { mutateSessionState, resolveSessionPath } from '../deep/session.js';
 import { createSuccessEnvelope } from '../protocol.js';
 
-// ── policy-aggregate ────────────────────────────────────────────────
+// policy-aggregate
 
 export async function runPolicyAggregate(
   session: string,
@@ -31,72 +31,52 @@ export async function runPolicyAggregate(
   }
 ): Promise<number> {
   const sessionDir = resolveSessionPath(session);
-  const allClaims = loadClaims(sessionDir);
-  const allEvidences = loadEvidences(sessionDir);
-  const allVerdicts = loadVerdicts(sessionDir);
-  const existingReviews = loadReviews(sessionDir);
+  let newReviews;
+  try {
+    newReviews = mutateSessionState(sessionDir, () => {
+      assertClaimsStoreReadable(sessionDir);
+      const allClaims = loadClaims(sessionDir);
+      const allEvidences = loadEvidences(sessionDir);
+      const allVerdicts = loadVerdicts(sessionDir);
+      const existingReviews = loadReviews(sessionDir);
 
-  // Determine which claims to aggregate
-  let targets = allClaims;
-  if (options.claimId) {
-    targets = allClaims.filter(c => c.id === options.claimId);
-    if (targets.length === 0) {
-      console.log(JSON.stringify({ status: 'ok', data: { message: `Claim ${options.claimId} not found` } }));
-      return 0;
-    }
-  }
+      let targets = options.claimId ? allClaims.filter(claim => claim.id === options.claimId) : allClaims.filter(claim => claim.status === 'verifying');
+      if (options.claimId && targets.length === 0) return [];
 
-  // Only aggregate claims that have verdicts
-  const reviewable: Array<{ claim: typeof allClaims[0]; input: PolicyInput }> = [];
+      const reviewable: Array<{ claim: typeof allClaims[0]; input: PolicyInput }> = [];
+      for (const claim of targets) {
+        const evidences = allEvidences.filter(evidence => evidence.claimId === claim.id && !evidence.invalid);
+        const validEvidenceIds = new Set(evidences.map(evidence => evidence.id));
+        const verdicts = allVerdicts.filter(verdict => verdict.claimId === claim.id && verdict.evidenceIds.some(id => validEvidenceIds.has(id)));
+        if (!verdicts.length) continue;
+        for (const evidence of evidences) evidence.sourceClusterId = computeSourceClusterId(evidence);
+        reviewable.push({
+          claim,
+          input: { claimId: claim.id, riskLevel: claim.riskLevel, verdicts, evidences },
+        });
+      }
+      if (!reviewable.length) return [];
 
-  for (const claim of targets) {
-    const verdicts = allVerdicts.filter(v => v.claimId === claim.id);
-    if (verdicts.length === 0) {
-      continue; // skip claims without any verdict
-    }
-    const evidences = allEvidences.filter(e => e.claimId === claim.id);
-
-    // Refresh source cluster IDs using the current publisher-domain rule.
-    for (const ev of evidences) {
-      ev.sourceClusterId = computeSourceClusterId(ev);
-    }
-    // Persist computed cluster IDs
-    saveEvidences(sessionDir, allEvidences);
-
-    reviewable.push({
-      claim,
-      input: {
-        claimId: claim.id,
-        riskLevel: claim.riskLevel,
-        verdicts,
-        evidences,
-      },
+      const reviews = aggregateAll(reviewable.map(item => item.input));
+      const reviewMap = new Map(existingReviews.map(review => [review.claimId, review]));
+      for (const review of reviews) reviewMap.set(review.claimId, review);
+      for (const { claim } of reviewable) claim.status = 'reviewed';
+      saveEvidences(sessionDir, allEvidences);
+      saveClaims(sessionDir, allClaims);
+      saveReviews(sessionDir, [...reviewMap.values()]);
+      return reviews;
     });
+  } catch (error) {
+    if (error instanceof ClaimsStateError) {
+      console.log(JSON.stringify({ status: 'error', error: { code: 'CLAIMS_STATE_CORRUPTED', message: error.message } }, null, 2));
+      return 1;
+    }
+    throw error;
   }
-
-  if (reviewable.length === 0) {
+  if (newReviews.length === 0) {
     console.log(JSON.stringify(createSuccessEnvelope({ message: 'No claims with verdicts to aggregate' }), null, 2));
     return 0;
   }
-
-  // Aggregate
-  const newReviews = aggregateAll(reviewable.map(r => r.input));
-
-  // Merge with existing reviews (replace any that already exist for same claim)
-  const reviewMap = new Map(existingReviews.map(r => [r.claimId, r]));
-  for (const review of newReviews) {
-    reviewMap.set(review.claimId, review);
-  }
-
-  // Update claim statuses to reviewed
-  for (const { claim } of reviewable) {
-    claim.status = 'reviewed';
-  }
-  saveClaims(sessionDir, allClaims);
-
-  // Save reviews
-  const mergedReviews = Array.from(reviewMap.values());
-  saveReviews(sessionDir, mergedReviews);
 
   // Output
   const outputFormat = options.format || 'json';
@@ -126,7 +106,17 @@ export async function runReviewList(
   }
 ): Promise<number> {
   const sessionDir = resolveSessionPath(session);
-  const all = loadReviews(sessionDir);
+  let all;
+  try {
+    assertClaimsStoreReadable(sessionDir);
+    all = loadReviews(sessionDir);
+  } catch (error) {
+    if (error instanceof ClaimsStateError) {
+      console.log(JSON.stringify({ status: 'error', error: { code: 'CLAIMS_STATE_CORRUPTED', message: error.message } }, null, 2));
+      return 1;
+    }
+    throw error;
+  }
 
   const filtered = options.status
     ? all.filter(r => r.decision === options.status)

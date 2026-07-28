@@ -1,70 +1,54 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { mkdtempSync, rmSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
 import { runResultsAdd } from '../../src/commands/results-add.js';
-import { loadSessionResults } from '../../src/deep/session.js';
+import { initSessionDir, loadSessionResults } from '../../src/deep/session.js';
 
 describe('results-add command', () => {
-    let sessionDir: string;
+  let sessionDir: string;
 
-    beforeEach(() => {
-        sessionDir = mkdtempSync(join(tmpdir(), 'sxng-results-add-'));
-        vi.spyOn(console, 'log').mockImplementation(() => {});
+  beforeEach(() => {
+    sessionDir = mkdtempSync(join(tmpdir(), 'sxng-results-add-'));
+    initSessionDir(sessionDir);
+    vi.spyOn(console, 'log').mockImplementation(() => undefined);
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    rmSync(sessionDir, { recursive: true, force: true });
+  });
+
+  it('imports external search discovery without treating its excerpt as a body', async () => {
+    const dataFile = join(sessionDir, 'agent-inputs', 'search.json');
+    writeFileSync(dataFile, JSON.stringify([{
+      url: 'https://example.com/article', title: 'Article', excerpt: 'Search result summary', engine: 'google',
+    }]), 'utf8');
+
+    expect(await runResultsAdd({ session: sessionDir, kind: 'search', dataFile, tool: 'exa', query: 'external query' })).toBe(0);
+    expect(loadSessionResults(sessionDir)[0]).toMatchObject({
+      contentType: 'search', excerpt: 'Search result summary',
+      origins: [{ tool: 'exa', engine: 'google', query: 'external query', round: 1 }],
     });
+    expect(loadSessionResults(sessionDir)[0].content).toBeUndefined();
+  });
 
-    afterEach(() => {
-        vi.restoreAllMocks();
-        rmSync(sessionDir, { recursive: true, force: true });
-    });
+  it('imports a verified external body with immediate extraction time when absent', async () => {
+    const dataFile = join(sessionDir, 'agent-inputs', 'body.json');
+    writeFileSync(dataFile, JSON.stringify([{
+      url: 'https://example.com/article', title: 'Article', content: 'Externally extracted body.', extractor: 'tavily-extract',
+    }]), 'utf8');
 
-    it('stores the supplied query as each external result origin', async () => {
-        const code = await runResultsAdd({
-            session: sessionDir,
-            query: 'external runtime query',
-            data: JSON.stringify([{ url: 'https://example.com/result', title: 'Result', source: 'tavily' }]),
-        });
+    expect(await runResultsAdd({ session: sessionDir, kind: 'extracted', dataFile, tool: 'tavily', query: 'external query' })).toBe(0);
+    const [result] = loadSessionResults(sessionDir);
+    expect(result).toMatchObject({ contentType: 'extracted', content: 'Externally extracted body.', extractor: 'tavily-extract' });
+    expect(result.extractedAt).toEqual(expect.any(Number));
+  });
 
-        expect(code).toBe(0);
-        expect(loadSessionResults(sessionDir)[0].origins).toEqual([
-            { query: 'external runtime query', round: 1 },
-        ]);
-    });
-
-    it('adds external results from a UTF-8 JSON file without trusting extraction metadata', async () => {
-        const dataFile = join(sessionDir, 'exa-results.json');
-        writeFileSync(dataFile, `\uFEFF${JSON.stringify([
-            {
-                url: 'https://example.com/chinese',
-                title: '中文结果',
-                content: 'This caller-provided summary is not verified source content.',
-                extractedAt: 1,
-                source: 'exa',
-            },
-        ], null, 2)}`, 'utf8');
-
-        const code = await runResultsAdd({
-            session: sessionDir,
-            query: '中文外部查询',
-            dataFile,
-        } as any);
-
-        expect(code).toBe(0);
-        expect(loadSessionResults(sessionDir)[0]).toMatchObject({
-            title: '中文结果',
-            source: 'exa',
-        });
-        expect(loadSessionResults(sessionDir)[0].extractedAt).toBeUndefined();
-    });
-
-    it('rejects malformed results without creating session state', async () => {
-        const code = await runResultsAdd({
-            session: sessionDir,
-            query: 'bad external input',
-            data: JSON.stringify([null]),
-        });
-
-        expect(code).toBe(1);
-        expect(loadSessionResults(sessionDir)).toEqual([]);
-    });
+  it('rejects JSON outside the owning agent-inputs directory', async () => {
+    const dataFile = join(sessionDir, 'outside.json');
+    writeFileSync(dataFile, '[]', 'utf8');
+    expect(await runResultsAdd({ session: sessionDir, kind: 'search', dataFile, tool: 'exa', query: 'query' })).toBe(1);
+    expect(loadSessionResults(sessionDir)).toEqual([]);
+  });
 });

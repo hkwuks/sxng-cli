@@ -1,71 +1,89 @@
-/**
- * results-add subcommand - Append external search results to session as pending.
- *
- * Use this to inject results from other search tools (tavily, exa, etc.)
- * into the session pipeline. Results go through the same pending → approve
- * → graph injection flow as sxng-native results.
- */
+/** Import Agent-provided discovery records or extracted bodies into one session. */
 
-import { createSuccessEnvelope, createErrorEnvelope } from '../protocol.js';
-import { appendSessionResults, resolveSessionPath, getPendingResults, injectApprovedResults } from '../deep/session.js';
-import { isJsonObject, readSingleJsonInput } from './json-input.js';
+import { createErrorEnvelope, createSuccessEnvelope } from '../protocol.js';
+import { appendSessionResults, getPendingExtractionResults, getPendingResults, initSessionDir, resolveSessionPath, ResultOrigin, SessionResultInput } from '../deep/session.js';
+import { isJsonObject, readSessionJsonInput } from './json-input.js';
 
 export interface ResultsAddOptions {
     session: string;
-    data?: string; // JSON array of results
+    kind: 'search' | 'extracted';
     dataFile?: string;
-    query: string;
+    query?: string;
+    tool?: string;
+}
+
+function originFor(item: Record<string, unknown>, options: ResultsAddOptions): ResultOrigin | undefined {
+    const tool = typeof item.tool === 'string' ? item.tool : options.tool;
+    const query = typeof item.query === 'string' ? item.query : options.query;
+    if (!tool || !query) return undefined;
+    const engine = typeof item.engine === 'string' ? item.engine : undefined;
+    return { tool, engine, query };
 }
 
 export async function runResultsAdd(options: ResultsAddOptions): Promise<number> {
     const sessionDir = resolveSessionPath(options.session);
-
-    const input = readSingleJsonInput([
-        { option: '--data', value: options.data },
-        { option: '--data-file', value: options.dataFile, file: true },
-    ]);
+    initSessionDir(sessionDir);
+    const input = readSessionJsonInput(sessionDir, [{ option: '--data-file', value: options.dataFile, file: true }]);
     if (!input.ok) {
         console.log(JSON.stringify(createErrorEnvelope(input.code, input.message), null, 2));
         return 1;
     }
 
-    // Validate command-specific result shape after shared transport parsing.
-    const parsed = input.value;
-    const results = Array.isArray(parsed)
-        ? parsed
-        : (isJsonObject(parsed) && Array.isArray(parsed.results) ? parsed.results : []);
-
-    if (results.length === 0) {
-        const envelope = createErrorEnvelope(
-            'NO_RESULTS',
-            'No results found in --data',
-            { hint: 'Ensure the JSON contains a non-empty results array' }
-        );
-        console.log(JSON.stringify(envelope, null, 2));
-        return 1;
-    }
-    if (!results.every(result => isJsonObject(result) && typeof result.url === 'string' && typeof result.title === 'string')) {
-        console.log(JSON.stringify(createErrorEnvelope(
-            'INVALID_RESULTS',
-            'Each result must be an object with string url and title fields',
-            { hint: 'Provide a JSON array of search results or an object with a results array' }
-        ), null, 2));
+    const raw = Array.isArray(input.value) ? input.value : (isJsonObject(input.value) && Array.isArray(input.value.results) ? input.value.results : []);
+    if (!raw.length || !raw.every(isJsonObject)) {
+        console.log(JSON.stringify(createErrorEnvelope('INVALID_RESULTS', 'The input file must contain a non-empty array of result objects'), null, 2));
         return 1;
     }
 
-    const result = appendSessionResults(sessionDir, results.map(({ extractedAt: _extractedAt, ...item }) => ({
-        ...(item as { url: string; title: string; content?: string; source?: string }),
-        origins: [{ query: options.query }],
-    })));
-    injectApprovedResults(sessionDir, result.approvedResults);
-    const pendingCount = getPendingResults(sessionDir).length;
+    const results: SessionResultInput[] = [];
+    for (const item of raw) {
+        if (typeof item.url !== 'string' || typeof item.title !== 'string') {
+            console.log(JSON.stringify(createErrorEnvelope('INVALID_RESULTS', 'Every result requires string url and title fields'), null, 2));
+            return 1;
+        }
+        const origin = originFor(item, options);
+        if (!origin) {
+            console.log(JSON.stringify(createErrorEnvelope('MISSING_ORIGIN', 'Every imported result requires tool and query (in the item or command options)'), null, 2));
+            return 1;
+        }
+        if (options.kind === 'search') {
+            results.push({
+                url: item.url,
+                title: item.title,
+                contentType: 'search',
+                excerpt: typeof item.excerpt === 'string' ? item.excerpt : undefined,
+                origins: [origin],
+                score: typeof item.score === 'number' ? item.score : undefined,
+                publishedDate: typeof item.publishedDate === 'string' ? item.publishedDate : undefined,
+            });
+            continue;
+        }
+        if (typeof item.content !== 'string' || !item.content.trim() || typeof item.extractor !== 'string' || !item.extractor) {
+            console.log(JSON.stringify(createErrorEnvelope('INVALID_EXTRACTED_RESULT', 'Extracted imports require non-empty content and extractor'), null, 2));
+            return 1;
+        }
+        results.push({
+            url: item.url,
+            title: item.title,
+            contentType: 'extracted',
+            content: item.content,
+            extractor: item.extractor,
+            extractedAt: typeof item.extractedAt === 'number' ? item.extractedAt : Date.now(),
+            excerpt: typeof item.excerpt === 'string' ? item.excerpt : undefined,
+            origins: [origin],
+            byline: typeof item.byline === 'string' ? item.byline : undefined,
+            siteName: typeof item.siteName === 'string' ? item.siteName : undefined,
+        });
+    }
 
-    const envelope = createSuccessEnvelope({
+    const result = appendSessionResults(sessionDir, results);
+    console.log(JSON.stringify(createSuccessEnvelope({
         added: result.added,
+        updated: result.updated,
         total: result.total,
-        pendingCount,
-        message: `Added ${result.added} results from external source as pending (${pendingCount} total pending). Run --quality --approve to inject into graph.`,
-    });
-    console.log(JSON.stringify(envelope, null, 2));
+        round: result.round,
+        pendingExtraction: getPendingExtractionResults(sessionDir).length,
+        pendingApproval: getPendingResults(sessionDir).length,
+    }), null, 2));
     return 0;
 }

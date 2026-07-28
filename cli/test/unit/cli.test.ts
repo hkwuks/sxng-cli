@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { readFileSync, mkdtempSync, rmSync } from 'fs';
+import { readFileSync, mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'fs';
 import { join, dirname } from 'path';
 import { tmpdir } from 'os';
 import { fileURLToPath } from 'url';
@@ -12,6 +12,14 @@ const pkgVersion = JSON.parse(readFileSync(join(__dirname, '../../package.json')
 afterEach(() => {
     vi.restoreAllMocks();
 });
+
+function writeSessionInput(sessionDir: string, name: string, value: unknown): string {
+    const dir = join(sessionDir, 'agent-inputs');
+    mkdirSync(dir, { recursive: true });
+    const file = join(dir, name);
+    writeFileSync(file, JSON.stringify(value), 'utf8');
+    return file;
+}
 
 describe('CLI program (commander)', () => {
     const program = createProgram();
@@ -145,7 +153,7 @@ describe('CLI program (commander)', () => {
                 }),
             } as any);
 
-            expect(loadSessionResults(sessionDir)[0].origins).toEqual([{ query: 'origin query', round: 1 }]);
+            expect(loadSessionResults(sessionDir)[0].origins).toEqual([{ tool: 'sxng', engine: 'test', query: 'origin query', round: 1 }]);
         } finally {
             rmSync(sessionDir, { recursive: true, force: true });
         }
@@ -171,8 +179,8 @@ describe('CLI program (commander)', () => {
             await runCli(['--queries', 'first query,second query', '--session', sessionDir, '--format', 'json'], { search } as any);
 
             expect(loadSessionResults(sessionDir).map(result => result.origins)).toEqual([
-                [{ query: 'first query', round: 1 }],
-                [{ query: 'second query', round: 1 }],
+                [{ tool: 'sxng', engine: 'test', query: 'first query', round: 1 }],
+                [{ tool: 'sxng', engine: 'test', query: 'second query', round: 1 }],
             ]);
         } finally {
             rmSync(sessionDir, { recursive: true, force: true });
@@ -184,11 +192,13 @@ describe('CLI program (commander)', () => {
         appendSessionResults(sessionDir, [{
             url: 'https://example.com/summary', title: 'Summary', content: 'Search snippet only.', source: 'exa',
         }]);
+        const [result] = loadSessionResults(sessionDir);
+        const selection = writeSessionInput(sessionDir, 'reject-approval.json', [{ id: result.id, revision: result.revision }]);
         const output = vi.spyOn(console, 'log').mockImplementation(() => {});
         vi.spyOn(process, 'exit').mockImplementation((() => undefined) as never);
 
         try {
-            await runCli(['--session', sessionDir, '--quality', '--approve', '0', '--format', 'json'], {} as any);
+            await runCli(['--session', sessionDir, '--quality', '--approve-file', selection, '--format', 'json'], {} as any);
 
             const result = JSON.parse(output.mock.calls.at(-1)![0] as string);
             expect(result).toMatchObject({
@@ -197,7 +207,7 @@ describe('CLI program (commander)', () => {
             });
             expect(result.error.details.quality).toBeDefined();
             expect(result.error.details.selectedResults).toEqual([
-                expect.objectContaining({ index: 0, source: 'exa', verified: false }),
+                expect.objectContaining({ source: 'exa', verified: false }),
             ]);
             expect(loadSessionResults(sessionDir)[0].status).toBe('pending');
         } finally {
@@ -210,16 +220,18 @@ describe('CLI program (commander)', () => {
         appendSessionResults(sessionDir, [{
             url: 'https://example.com/article', title: 'Article', content: 'Captured source content.', extractedAt: 1,
         }]);
+        const [result] = loadSessionResults(sessionDir);
+        const selection = writeSessionInput(sessionDir, 'approve.json', [{ id: result.id, revision: result.revision }]);
         const output = vi.spyOn(console, 'log').mockImplementation(() => {});
         vi.spyOn(process, 'exit').mockImplementation((() => undefined) as never);
 
         try {
-            await runCli(['--session', sessionDir, '--quality', '--approve', '0', '--format', 'json'], {} as any);
+            await runCli(['--session', sessionDir, '--quality', '--approve-file', selection, '--format', 'json'], {} as any);
 
             const result = JSON.parse(output.mock.calls.at(-1)![0] as string);
             expect(result.data).toMatchObject({
                 approved: 1,
-                selectedResults: [expect.objectContaining({ index: 0, verified: true })],
+                selectedResults: [expect.objectContaining({ verified: true })],
             });
             expect(loadSessionResults(sessionDir)[0].status).toBe('approved');
         } finally {

@@ -6,8 +6,8 @@
  *   { "status": "ok", "data": { "claims": [...] } }
  */
 
-import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs';
-import { join } from 'path';
+import { readFileSync, existsSync, mkdirSync, renameSync, rmSync, writeFileSync } from 'fs';
+import { dirname, join } from 'path';
 import {
   Claim,
   EvidenceSpan,
@@ -52,6 +52,12 @@ interface Envelope<T> {
   data: { items: T[] };
 }
 
+export class ClaimsStateError extends Error {
+  constructor(readonly file: string) {
+    super(`Cannot read claims state: ${file}`);
+  }
+}
+
 function loadArray<T>(file: string): T[] {
   if (!existsSync(file)) return [];
   try {
@@ -60,22 +66,29 @@ function loadArray<T>(file: string): T[] {
     if (parsed.status === 'ok' && Array.isArray(parsed.data?.items)) {
       return parsed.data.items;
     }
-    return [];
+    throw new Error('invalid claims envelope');
   } catch {
-    return [];
+    throw new ClaimsStateError(file);
   }
 }
 
+/** Validate all existing claim artifacts before any related mutation. */
+export function assertClaimsStoreReadable(sessionDir: string): void {
+  loadArray<Claim>(claimsFile(sessionDir));
+  loadArray<EvidenceSpan>(evidencesFile(sessionDir));
+  loadArray<Verdict>(verdictsFile(sessionDir));
+  loadArray<Review>(reviewsFile(sessionDir));
+}
+
 function writeArray<T>(file: string, items: T[]): void {
-  const dir = file.substring(0, file.lastIndexOf(/[\\/]/.test(file) ? file.match(/[\\/]/)![0] : '/'));
+  const dir = dirname(file);
   if (!existsSync(dir)) {
     mkdirSync(dir, { recursive: true });
   }
-  writeFileSync(
-    file,
-    JSON.stringify({ status: 'ok', data: { items } } as Envelope<T>, null, 2),
-    'utf-8'
-  );
+  const temp = join(dir, `.${file.split(/[\\/]/).pop()}.${process.pid}.${Date.now()}.tmp`);
+  writeFileSync(temp, JSON.stringify({ status: 'ok', data: { items } } as Envelope<T>, null, 2), 'utf-8');
+  try { renameSync(temp, file); }
+  catch (error) { try { rmSync(temp, { force: true }); } catch { /* preserve write error */ } throw error; }
 }
 
 // ── Claims ──────────────────────────────────────────────────────────

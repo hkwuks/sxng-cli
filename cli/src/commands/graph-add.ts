@@ -1,211 +1,121 @@
-/**
- * graph-add subcommand - Add entities and edges to knowledge graph.
- *
- * This command receives entities and edges AFTER results have been approved
- * via --quality --approve. Results must already exist as graph nodes before
- * referencing them in edges.
- *
- * - Entities are added immediately (semantic layer)
- * - Edges can reference existing result, entity, domain, or query nodes
- * - Does NOT accept results — use `sxng results-add` for external results
- */
+/** Persist Agent-authored semantic graph data against approved session results. */
 
-import { readFileSync, writeFileSync, existsSync, statSync } from 'fs';
-import { join } from 'path';
-import { deserializeGraph, serializeGraph, graphStats, GraphNodeAttrs, GraphEdgeAttrs, entityId } from '../deep/graph.js';
-import { DirectedGraph } from 'graphology';
-import { createSuccessEnvelope, createErrorEnvelope } from '../protocol.js';
-import { getDefaultSessionRoot } from './session.js';
-import { isJsonObject, readSingleJsonInput } from './json-input.js';
-
-/** Resolve graph file path — if directory (session), use graph.json inside it.
- *  Pure name (no separators) is resolved to the default session root.
- */
-function resolveGraphFile(path: string): string {
-    // Pure name without path separators: resolve to default sessions dir
-    if (!path.includes('/') && !path.includes('\\')) {
-        path = join(getDefaultSessionRoot(), path);
-    }
-    try {
-        if (statSync(path).isDirectory()) {
-            return join(path, 'graph.json');
-        }
-    } catch {
-        // Not a file/dir, return as-is
-    }
-    return path;
-}
+import { createErrorEnvelope, createSuccessEnvelope } from '../protocol.js';
+import { entityId, GraphEdgeAttrs, GraphNodeAttrs, resultId } from '../deep/graph.js';
+import { initSessionDir, mutateSessionGraph, resolveSessionPath } from '../deep/session.js';
+import { isJsonObject, readSessionJsonInput } from './json-input.js';
 
 export interface GraphAddOptions {
-    graphFile: string;
-    data?: string; // JSON string with entities and edges
+    session: string;
     dataFile?: string;
 }
 
 interface EntityInput {
     label: string;
-    entityType?: string; // "person", "technology", "concept", "organization", etc.
+    id?: string;
+    entityType?: string;
     score?: number;
-    id?: string; // explicit ID, otherwise auto-generated from label
     obfuscatedLabel?: string;
-    sourceRounds?: number[];
     frequency?: number;
-    reasoningPaths?: string[];
+    sourceResultIds: string[];
 }
 
 interface EdgeInput {
-    source: string; // node ID
-    target: string; // node ID
+    source: string;
+    target: string;
     relation: string;
     weight?: number;
+    sourceResultIds: string[];
+}
+
+function sourceIdsAreApproved(ids: unknown, approved: Set<string>): ids is string[] {
+    return Array.isArray(ids) && ids.length > 0 && ids.every(id => typeof id === 'string' && approved.has(id));
+}
+
+function mergeIds(left: string[] | undefined, right: string[]): string[] {
+    return [...new Set([...(left ?? []), ...right])].sort();
 }
 
 export async function runGraphAdd(options: GraphAddOptions): Promise<number> {
-    const graphFile = resolveGraphFile(options.graphFile);
-
-    if (!graphFile) {
-        const envelope = createErrorEnvelope(
-            'MISSING_GRAPH_FILE',
-            'No graph file specified',
-            { hint: 'Use: sxng graph-add graph.json --data \'...\'' }
-        );
-        console.log(JSON.stringify(envelope, null, 2));
-        return 1;
-    }
-
-    const input = readSingleJsonInput([
-        { option: '--data', value: options.data },
-        { option: '--data-file', value: options.dataFile, file: true },
-    ]);
+    const sessionDir = resolveSessionPath(options.session);
+    initSessionDir(sessionDir);
+    const input = readSessionJsonInput(sessionDir, [{ option: '--data-file', value: options.dataFile, file: true }]);
     if (!input.ok) {
         console.log(JSON.stringify(createErrorEnvelope(input.code, input.message), null, 2));
         return 1;
     }
     if (!isJsonObject(input.value)) {
-        console.log(JSON.stringify(createErrorEnvelope(
-            'INVALID_GRAPH_DATA',
-            '--data must be a JSON object with entities and/or edges arrays'
-        ), null, 2));
+        console.log(JSON.stringify(createErrorEnvelope('INVALID_GRAPH_DATA', 'Graph input must be an object with entities and/or edges arrays'), null, 2));
         return 1;
     }
     const parsed = input.value as { entities?: EntityInput[]; edges?: EdgeInput[] };
-
-    // Load or create graph
-    let graph: DirectedGraph<GraphNodeAttrs, GraphEdgeAttrs>;
-    if (existsSync(graphFile)) {
-        try {
-            const raw = readFileSync(graphFile, 'utf-8');
-            const fileParsed = JSON.parse(raw);
-            const graphData = fileParsed.status === 'ok' && fileParsed.data?.graph
-                ? fileParsed.data.graph
-                : (fileParsed.nodes && fileParsed.edges ? fileParsed : null);
-
-            graph = graphData
-                ? deserializeGraph(graphData)
-                : new DirectedGraph<GraphNodeAttrs, GraphEdgeAttrs>();
-        } catch {
-            const envelope = createErrorEnvelope(
-                'GRAPH_LOAD_FAILED',
-                `Failed to load graph from: ${graphFile}`,
-                { hint: 'Ensure the file contains a valid graphology graph' }
-            );
-            console.log(JSON.stringify(envelope, null, 2));
-            return 1;
-        }
-    } else {
-        graph = new DirectedGraph<GraphNodeAttrs, GraphEdgeAttrs>();
-    }
-
-    const invalidProvenance = (parsed.entities || []).find(entity => {
-        if (graph.hasNode(entity.id || entityId(entity.label))) return false;
-        return !Array.isArray(entity.sourceRounds)
-            || entity.sourceRounds.length === 0
-            || entity.sourceRounds.some(round => !Number.isSafeInteger(round) || round < 1);
-    });
-    if (invalidProvenance) {
-        const envelope = createErrorEnvelope(
-            'MISSING_ENTITY_PROVENANCE',
-            'Each new entity requires one or more sourceRounds from graph-preprocess resultProvenance',
-            { hint: 'Set sourceRounds from the rounds of the results that support the entity.' }
-        );
-        console.log(JSON.stringify(envelope, null, 2));
+    if (!(parsed.entities?.length || parsed.edges?.length)) {
+        console.log(JSON.stringify(createErrorEnvelope('INVALID_GRAPH_DATA', 'Graph input must contain at least one entity or edge'), null, 2));
         return 1;
     }
 
-    let entitiesAdded = 0;
-
-    // Add entity nodes (semantic layer — goes directly to graph)
-    for (const entity of parsed.entities || []) {
-        const id = entity.id || entityId(entity.label);
-
-        if (!graph.hasNode(id)) {
-            graph.mergeNode(id, {
-                type: 'entity',
-                label: entity.label,
-                entityType: entity.entityType,
-                score: entity.score,
-                obfuscatedLabel: entity.obfuscatedLabel,
-                sourceRounds: entity.sourceRounds,
-                frequency: entity.frequency,
-                reasoningPaths: entity.reasoningPaths,
-            });
-            entitiesAdded++;
-        } else {
-            // Update existing entity — merge new fields
-            const existing = graph.getNodeAttributes(id);
-            graph.mergeNode(id, {
-                ...existing,
-                label: entity.label,
-                entityType: entity.entityType ?? existing.entityType,
-                score: entity.score ?? existing.score,
-                obfuscatedLabel: entity.obfuscatedLabel ?? existing.obfuscatedLabel,
-                sourceRounds: Array.from(new Set([...(existing.sourceRounds || []), ...(entity.sourceRounds || [])])).sort((a, b) => a - b),
-                frequency: entity.frequency ?? existing.frequency,
-                reasoningPaths: entity.reasoningPaths ?? existing.reasoningPaths,
-            });
+    const mutation = mutateSessionGraph(sessionDir, (graph, approved) => {
+        const approvedIds = new Set(approved.map(result => result.id));
+        const invalidEntity = (parsed.entities ?? []).find(entity => !entity.label || !sourceIdsAreApproved(entity.sourceResultIds, approvedIds));
+        const invalidEdge = (parsed.edges ?? []).find(edge => !edge.source || !edge.target || !edge.relation || !sourceIdsAreApproved(edge.sourceResultIds, approvedIds));
+        if (invalidEntity || invalidEdge) return { invalidProvenance: true };
+        let entitiesAdded = 0;
+        for (const entity of parsed.entities ?? []) {
+            const id = entity.id || entityId(entity.label);
+            if (!graph.hasNode(id)) {
+                graph.addNode(id, {
+                    type: 'entity', label: entity.label, entityType: entity.entityType, score: entity.score,
+                    obfuscatedLabel: entity.obfuscatedLabel, frequency: entity.frequency,
+                    sourceResultIds: entity.sourceResultIds,
+                });
+                entitiesAdded++;
+            } else {
+                const previous = graph.getNodeAttributes(id);
+                graph.mergeNodeAttributes(id, {
+                    ...previous, label: entity.label, entityType: entity.entityType ?? previous.entityType,
+                    score: entity.score ?? previous.score, obfuscatedLabel: entity.obfuscatedLabel ?? previous.obfuscatedLabel,
+                    frequency: entity.frequency ?? previous.frequency,
+                    sourceResultIds: mergeIds(previous.sourceResultIds, entity.sourceResultIds),
+                });
+            }
         }
-    }
 
-    const skippedEdges: Array<{ source: string; target: string; relation: string }> = [];
-    let edgesAdded = 0;
-    for (const edge of parsed.edges || []) {
-        if (!graph.hasNode(edge.source) || !graph.hasNode(edge.target)) {
-            skippedEdges.push({ source: edge.source, target: edge.target, relation: edge.relation });
-            continue;
+        let edgesAdded = 0;
+        const skippedEdges: Array<{ source: string; target: string; relation: string }> = [];
+        for (const edge of parsed.edges ?? []) {
+            if (!graph.hasNode(edge.source) || !graph.hasNode(edge.target)) {
+                skippedEdges.push(edge);
+                continue;
+            }
+            const sourceType = graph.getNodeAttribute(edge.source, 'type');
+            const targetType = graph.getNodeAttribute(edge.target, 'type');
+            const endpointOk = (sourceType === 'entity' && targetType === 'entity')
+                || (sourceType === 'result' && targetType === 'entity')
+                || (sourceType === 'entity' && targetType === 'result');
+            const resultEndpoint = sourceType === 'result' ? edge.source : targetType === 'result' ? edge.target : undefined;
+            if (!endpointOk || (resultEndpoint && !edge.sourceResultIds.includes(resultEndpoint))) {
+                skippedEdges.push(edge);
+                continue;
+            }
+            const matching = graph.findEdge(edge.source, edge.target, (_key, attrs) => attrs.relation === edge.relation);
+            if (matching) {
+                const previous = graph.getEdgeAttributes(matching);
+                graph.replaceEdgeAttributes(matching, { ...previous, sourceResultIds: mergeIds(previous.sourceResultIds, edge.sourceResultIds) });
+            } else {
+                graph.addEdge(edge.source, edge.target, { relation: edge.relation, weight: edge.weight ?? 1, sourceResultIds: edge.sourceResultIds });
+                edgesAdded++;
+            }
         }
-        graph.mergeEdge(edge.source, edge.target, {
-            relation: edge.relation,
-            weight: edge.weight ?? 1,
-        });
-        edgesAdded++;
-    }
-
-    // Save graph
-    const serialized = serializeGraph(graph);
-    const stats = graphStats(graph);
-    try {
-        writeFileSync(
-            graphFile,
-            JSON.stringify({ status: 'ok', data: { graph: serialized, stats } }, null, 2),
-            'utf-8'
-        );
-    } catch (e) {
-        const envelope = createErrorEnvelope(
-            'GRAPH_WRITE_FAILED',
-            `Failed to write graph to: ${graphFile}`,
-            { hint: 'Check directory permissions and disk space', details: { error: e instanceof Error ? e.message : String(e) } }
-        );
-        console.log(JSON.stringify(envelope, null, 2));
+        return { entitiesAdded, edgesAdded, skippedEdges };
+    }, { reconcileStructural: true });
+    if ('invalidProvenance' in mutation) {
+        console.log(JSON.stringify(createErrorEnvelope(
+            'INVALID_RESULT_PROVENANCE',
+            'Every semantic entity and edge requires one or more currently approved extracted sourceResultIds',
+        ), null, 2));
         return 1;
     }
-
-    const envelope = createSuccessEnvelope({
-        entitiesAdded,
-        edgesAdded,
-        skippedEdges: skippedEdges.length > 0 ? skippedEdges : undefined,
-        ...(skippedEdges.length > 0 ? { hint: `${skippedEdges.length} edge(s) skipped — target nodes not found in graph.` } : {}),
-        stats,
-    });
-    console.log(JSON.stringify(envelope, null, 2));
+    const { entitiesAdded, edgesAdded, skippedEdges } = mutation;
+    console.log(JSON.stringify(createSuccessEnvelope({ entitiesAdded, edgesAdded, skippedEdges: skippedEdges.length ? skippedEdges : undefined }), null, 2));
     return 0;
 }

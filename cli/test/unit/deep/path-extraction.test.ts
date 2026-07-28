@@ -283,7 +283,7 @@ describe('path-extraction', () => {
                 const chain = result.compositionChains[0];
                 for (const eId of chain.entities) {
                     expect(graph.hasEdge(chain.id, eId)).toBe(true);
-                    const edgeAttrs = graph.getEdgeAttributes(chain.id, eId);
+                    const edgeAttrs = graph.getEdgeAttributes(graph.edges(chain.id, eId)[0]);
                     expect(edgeAttrs.relation).toBe('includes');
                 }
             }

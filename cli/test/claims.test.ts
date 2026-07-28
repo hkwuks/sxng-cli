@@ -25,6 +25,7 @@ function makeSession(): string {
     data: {
       results: [
         {
+          id: 'r:article', revision: 1, contentType: 'extracted', extractor: 'fixture', origins: [],
           url: 'https://example.com/article',
           title: 'Test Article',
           content: 'Tokio is the most widely used async runtime in the Rust ecosystem. It provides a powerful asynchronous programming model. Many production systems rely on Tokio for network services.',
@@ -33,6 +34,7 @@ function makeSession(): string {
           extractedAt: 1_700_000_000_000,
         },
         {
+          id: 'r:report', revision: 1, contentType: 'extracted', extractor: 'fixture', origins: [],
           url: 'https://other-source.org/report',
           title: 'Async Rust Report',
           content: 'The Rust async ecosystem has evolved significantly. While Tokio dominates, async-std also offers a compelling alternative for certain use cases. Community adoption trends show Tokio leading.',
@@ -41,6 +43,7 @@ function makeSession(): string {
           extractedAt: 1_700_000_000_001,
         },
         {
+          id: 'r:policy', revision: 1, contentType: 'extracted', extractor: 'fixture', origins: [],
           url: 'https://policy.example.cn/ai-platform',
           title: '人工智能产业发展政策',
           content: '上海市发布人工智能产业发展政策，AI 平台版本 1.2.4 已上线并支持本地模型部署。',
@@ -49,6 +52,7 @@ function makeSession(): string {
           extractedAt: 1_700_000_000_002,
         },
         {
+          id: 'r:unrelated', revision: 1, contentType: 'extracted', extractor: 'fixture', origins: [],
           url: 'https://unrelated.example.cn/recruiting',
           title: '年度招聘计划',
           content: '人工智能研究团队发布年度招聘计划，重点招聘算法和工程岗位。',
@@ -57,6 +61,7 @@ function makeSession(): string {
           extractedAt: 1_700_000_000_003,
         },
         {
+          id: 'r:pending', revision: 1, contentType: 'extracted', extractor: 'fixture', origins: [],
           url: 'https://pending-source.dev/note',
           title: 'Pending Note',
           content: 'This result is still pending and should not appear in evidence searches.',
@@ -67,6 +72,14 @@ function makeSession(): string {
     },
   }), 'utf-8');
   return d;
+}
+
+function sessionInput(name: string, value: unknown): string {
+  const dir = join(sessionDir, 'agent-inputs');
+  mkdirSync(dir, { recursive: true });
+  const file = join(dir, name);
+  writeFileSync(file, JSON.stringify(value), 'utf8');
+  return file;
 }
 
 import {
@@ -261,7 +274,7 @@ describe('claim-add', () => {
     const log = vi.spyOn(console, 'log').mockImplementation(() => undefined);
 
     expect(await runClaimAdd(sessionDir, {
-      claims: JSON.stringify([
+      claimsFile: sessionInput('claims.json', [
         { text: 'Tokio is widely used.' },
         { text: 'Rust 2024 introduced async closures.' },
         { text: 'async-std is no longer actively maintained.' },
@@ -280,14 +293,15 @@ describe('claim-add', () => {
     vi.spyOn(console, 'log').mockImplementation(() => undefined);
 
     expect(await runClaimAdd(sessionDir, {
-      claims: JSON.stringify([{ text: 'Second claim.' }, { text: 'Third claim.' }]),
+      claimsFile: sessionInput('claims.json', [{ text: 'Second claim.' }, { text: 'Third claim.' }]),
     })).toBe(0);
 
     expect(loadClaims(sessionDir).map(claim => claim.id)).toEqual(['cl_001', 'cl_002', 'cl_003']);
   });
 
   it('adds batch claims from a UTF-8 JSON file', async () => {
-    const file = join(sessionDir, 'claims.json');
+    const file = join(sessionDir, 'agent-inputs', 'claims.json');
+    mkdirSync(join(sessionDir, 'agent-inputs'), { recursive: true });
     writeFileSync(file, `\uFEFF${JSON.stringify([{ text: '中文 Claim。' }])}`, 'utf8');
     vi.spyOn(console, 'log').mockImplementation(() => undefined);
 
@@ -299,8 +313,8 @@ describe('claim-add', () => {
     vi.spyOn(console, 'log').mockImplementation(() => undefined);
 
     expect(await runClaimAdd(sessionDir, {
-      claim: JSON.stringify({ text: 'Inline.' }),
-      claims: JSON.stringify([{ text: 'Batch.' }]),
+      claimFile: sessionInput('claim.json', { text: 'One.' }),
+      claimsFile: sessionInput('claims.json', [{ text: 'Batch.' }]),
     })).toBe(1);
     expect(loadClaims(sessionDir)).toEqual([]);
   });
@@ -322,8 +336,8 @@ describe('deterministic checks', () => {
 
       const code = await runEvidenceVerify(sessionDir, {
         claimId: 'cl_001',
-        evidence: JSON.stringify({
-          resultUrl: 'https://example.com/article',
+        evidenceFile: sessionInput('invalid-evidence.json', {
+          resultId: 'r:article',
           quote: 'This quote was never in the source.',
           charStart: 0,
           charEnd: 5,
@@ -350,8 +364,8 @@ describe('deterministic checks', () => {
       const quote = 'Tokio is the most widely used async runtime in the Rust ecosystem.';
       const code = await runEvidenceVerify(sessionDir, {
         claimId: 'cl_001',
-        evidence: JSON.stringify({
-          resultUrl: 'https://example.com/article',
+        evidenceFile: sessionInput('evidence.json', {
+          resultId: 'r:article',
           quote,
           charStart: 0,
           charEnd: quote.length,
@@ -364,15 +378,58 @@ describe('deterministic checks', () => {
       expect(loadEvidences(sessionDir)[0].extractedAt).toBe(extractedAt);
     });
 
+    it('repairs a partial prior verification when the matching evidence already exists', async () => {
+      const quote = 'Tokio is the most widely used async runtime in the Rust ecosystem.';
+      saveClaims(sessionDir, [{
+        id: 'cl_001', text: 'Tokio is widely used', riskLevel: 'medium',
+        status: 'pending', sessionDir, createdAt: Date.now(),
+      }]);
+      saveEvidences(sessionDir, [{
+        id: 'ev_001', claimId: 'cl_001', resultId: 'r:article', resultUrl: 'https://example.com/article',
+        quote, charStart: 0, charEnd: quote.length,
+        contentHash: createHash('sha256').update(quote).digest('hex'), extractedAt: 1_700_000_000_000,
+      }]);
+
+      expect(await runEvidenceVerify(sessionDir, {
+        claimId: 'cl_001',
+        evidenceFile: sessionInput('repair-evidence.json', { resultId: 'r:article', quote, charStart: 0, charEnd: quote.length }),
+        stance: 'support', reason: 'The approved source directly supports the claim.',
+      })).toBe(0);
+
+      expect(loadEvidences(sessionDir)).toHaveLength(1);
+      expect(loadVerdicts(sessionDir)).toMatchObject([{ claimId: 'cl_001', evidenceIds: ['ev_001'] }]);
+      expect(loadClaims(sessionDir).find(claim => claim.id === 'cl_001')?.status).toBe('verifying');
+    });
+
+    it('rejects evidence from a skipped approved result', async () => {
+      const resultsFile = join(sessionDir, 'results.json');
+      const results = JSON.parse(readFileSync(resultsFile, 'utf-8'));
+      results.data.results[0].skippedAt = Date.now();
+      writeFileSync(resultsFile, JSON.stringify(results), 'utf-8');
+      saveClaims(sessionDir, [{
+        id: 'cl_001', text: 'Tokio is widely used', riskLevel: 'medium',
+        status: 'pending', sessionDir, createdAt: Date.now(),
+      }]);
+      const quote = 'Tokio is the most widely used async runtime in the Rust ecosystem.';
+
+      expect(await runEvidenceVerify(sessionDir, {
+        claimId: 'cl_001',
+        evidenceFile: sessionInput('skipped-evidence.json', { resultId: 'r:article', quote, charStart: 0, charEnd: quote.length }),
+        stance: 'support', reason: 'The source was skipped.',
+      })).toBe(1);
+      expect(loadEvidences(sessionDir)).toEqual([]);
+    });
+
     it('reads evidence from a UTF-8 JSON file', async () => {
       saveClaims(sessionDir, [{
         id: 'cl_001', text: 'Tokio is widely used', riskLevel: 'medium',
         status: 'pending', sessionDir, createdAt: Date.now(),
       }]);
       const quote = 'Tokio is the most widely used async runtime in the Rust ecosystem.';
-      const evidenceFile = join(sessionDir, 'evidence.json');
+      const evidenceFile = join(sessionDir, 'agent-inputs', 'evidence.json');
+      mkdirSync(join(sessionDir, 'agent-inputs'), { recursive: true });
       writeFileSync(evidenceFile, `\uFEFF${JSON.stringify({
-        resultUrl: 'https://example.com/article', quote, charStart: 0, charEnd: quote.length,
+        resultId: 'r:article', quote, charStart: 0, charEnd: quote.length,
       })}`, 'utf8');
 
       expect(await runEvidenceVerify(sessionDir, {
@@ -398,8 +455,8 @@ describe('deterministic checks', () => {
       const quote = 'Tokio is the most widely used async runtime in the Rust ecosystem.';
       const code = await runEvidenceVerify(sessionDir, {
         claimId: 'cl_001',
-        evidence: JSON.stringify({
-          resultUrl: 'https://example.com/article',
+        evidenceFile: sessionInput('missing-extracted-at.json', {
+          resultId: 'r:article',
           quote,
           charStart: 0,
           charEnd: quote.length,
@@ -445,8 +502,8 @@ describe('deterministic checks', () => {
       const quote = 'Tokio is the most widely used async runtime in the Rust ecosystem.';
       const code = await runEvidenceVerify(sessionDir, {
         claimId: 'cl_001',
-        evidence: JSON.stringify({
-          resultUrl: 'https://example.com/article',
+        evidenceFile: sessionInput('complete-evidence.json', {
+          resultId: 'r:article',
           quote,
           charStart: 0,
           charEnd: quote.length,

@@ -47,8 +47,11 @@ export interface EvidenceSpan {
   id: string;
   claimId: string;
 
-  /** Approved result URL this evidence points to */
-  resultUrl: string;
+  /** Stable approved result ID this evidence points to */
+  resultId: string;
+
+  /** Display-only URL retained for audit readability. */
+  resultUrl?: string;
 
   /** Verbatim quote from source */
   quote: string;
@@ -76,6 +79,10 @@ export interface EvidenceSpan {
    * Derived from: normalized publisher domain → SHA256 → 16 hex chars.
    */
   sourceClusterId?: string;
+
+  invalid?: boolean;
+  invalidatedAt?: number;
+  invalidationReason?: 'contentChanged' | 'sourceSkipped';
 }
 
 // ── Verdict ─────────────────────────────────────────────────────────
