@@ -16,6 +16,7 @@ import { deserializeGraph, serializeGraph, graphStats, GraphNodeAttrs, GraphEdge
 import { DirectedGraph } from 'graphology';
 import { createSuccessEnvelope, createErrorEnvelope } from '../protocol.js';
 import { getDefaultSessionRoot } from './session.js';
+import { isJsonObject, readSingleJsonInput } from './json-input.js';
 
 /** Resolve graph file path — if directory (session), use graph.json inside it.
  *  Pure name (no separators) is resolved to the default session root.
@@ -37,7 +38,8 @@ function resolveGraphFile(path: string): string {
 
 export interface GraphAddOptions {
     graphFile: string;
-    data: string; // JSON string with entities and edges
+    data?: string; // JSON string with entities and edges
+    dataFile?: string;
 }
 
 interface EntityInput {
@@ -71,19 +73,22 @@ export async function runGraphAdd(options: GraphAddOptions): Promise<number> {
         return 1;
     }
 
-    // Parse input data
-    let parsed: { entities?: EntityInput[]; edges?: EdgeInput[] };
-    try {
-        parsed = JSON.parse(options.data);
-    } catch {
-        const envelope = createErrorEnvelope(
-            'INVALID_JSON',
-            'Failed to parse --data JSON',
-            { hint: 'Ensure --data contains valid JSON with "entities" and/or "edges" arrays' }
-        );
-        console.log(JSON.stringify(envelope, null, 2));
+    const input = readSingleJsonInput([
+        { option: '--data', value: options.data },
+        { option: '--data-file', value: options.dataFile, file: true },
+    ]);
+    if (!input.ok) {
+        console.log(JSON.stringify(createErrorEnvelope(input.code, input.message), null, 2));
         return 1;
     }
+    if (!isJsonObject(input.value)) {
+        console.log(JSON.stringify(createErrorEnvelope(
+            'INVALID_GRAPH_DATA',
+            '--data must be a JSON object with entities and/or edges arrays'
+        ), null, 2));
+        return 1;
+    }
+    const parsed = input.value as { entities?: EntityInput[]; edges?: EdgeInput[] };
 
     // Load or create graph
     let graph: DirectedGraph<GraphNodeAttrs, GraphEdgeAttrs>;

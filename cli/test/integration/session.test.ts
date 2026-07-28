@@ -76,11 +76,20 @@ describe('session (integration)', () => {
     });
 
     describe('updateSessionGraph', () => {
+        it('does not create structural graph nodes for unverified results', () => {
+            initSessionDir(sessionDir);
+
+            expect(updateSessionGraph(sessionDir, 'test query', [
+                { url: 'https://a.com', title: 'A', content: 'Search summary only.' },
+            ], 1)).toEqual({ nodesAdded: 0, edgesAdded: 0 });
+            expect(loadSessionGraph(sessionDir).order).toBe(0);
+        });
+
         it('creates graph with structural edges', () => {
             initSessionDir(sessionDir);
             const info = updateSessionGraph(sessionDir, 'test query', [
-                { url: 'https://a.com', title: 'A' },
-                { url: 'https://b.com', title: 'B' },
+                { url: 'https://a.com', title: 'A', content: 'Verified A.', extractedAt: 1 },
+                { url: 'https://b.com', title: 'B', content: 'Verified B.', extractedAt: 1 },
             ], 1);
             expect(info.nodesAdded).toBeGreaterThan(0);
             expect(info.edgesAdded).toBeGreaterThan(0);
@@ -89,7 +98,7 @@ describe('session (integration)', () => {
         it('loads saved graph back correctly', () => {
             initSessionDir(sessionDir);
             updateSessionGraph(sessionDir, 'test query', [
-                { url: 'https://a.com', title: 'A' },
+                { url: 'https://a.com', title: 'A', content: 'Verified A.', extractedAt: 1 },
             ], 1);
 
             const graph = loadSessionGraph(sessionDir);
@@ -98,10 +107,54 @@ describe('session (integration)', () => {
     });
 
     describe('approveResults', () => {
+        it('rejects unverified web results without changing session state', () => {
+            appendSessionResults(sessionDir, [
+                { url: 'https://example.com/summary', title: 'Summary', content: 'Search-provided text only.' },
+            ]);
+
+            expect(approveResults(sessionDir, [0]).error).toMatchObject({ code: 'RESULT_NOT_VERIFIED', index: 0 });
+            expect(loadSessionResults(sessionDir)[0].status).toBe('pending');
+            expect(loadSessionGraph(sessionDir).order).toBe(0);
+        });
+
+        it('rejects an entire mixed approval when one selected result is unverified', () => {
+            appendSessionResults(sessionDir, [
+                { url: 'https://example.com/verified', title: 'Verified', content: 'Verified source content.', extractedAt: 1 },
+                { url: 'https://example.com/unverified', title: 'Unverified', content: 'Search-provided text only.' },
+            ]);
+
+            expect(approveResults(sessionDir, [0, 1]).error).toMatchObject({ code: 'RESULT_NOT_VERIFIED', index: 1 });
+            expect(loadSessionResults(sessionDir).map(result => result.status)).toEqual(['pending', 'pending']);
+        });
+
+        it('approves a local document chunk with captured content', () => {
+            appendSessionResults(sessionDir, [
+                {
+                    url: 'file:///notes.txt#chunk-0', title: 'Notes', source: 'local',
+                    content: 'Indexed local document content.', extractedAt: 1,
+                },
+            ]);
+
+            const info = approveResults(sessionDir, [0]);
+
+            expect(info.approved).toBe(1);
+            expect(loadSessionResults(sessionDir)[0].status).toBe('approved');
+        });
+
+        it('does not inject an unverified legacy approved result into the graph', () => {
+            const info = injectApprovedResults(sessionDir, [{
+                url: 'https://example.com/legacy', title: 'Legacy', status: 'approved',
+                origins: [{ query: 'legacy query', round: 1 }],
+            }]);
+
+            expect(info).toEqual({ nodesAdded: 0, edgesAdded: 0 });
+            expect(loadSessionGraph(sessionDir).order).toBe(0);
+        });
+
         it('approves only the selected local document chunk', () => {
             appendSessionResults(sessionDir, [
-                { url: 'file:///notes.txt#chunk-0', title: 'Notes', source: 'local' },
-                { url: 'file:///notes.txt#chunk-1', title: 'Notes', source: 'local' },
+                { url: 'file:///notes.txt#chunk-0', title: 'Notes', source: 'local', content: 'First local chunk.', extractedAt: 1 },
+                { url: 'file:///notes.txt#chunk-1', title: 'Notes', source: 'local', content: 'Second local chunk.', extractedAt: 1 },
             ]);
 
             const info = approveResults(sessionDir, [0]);
@@ -113,10 +166,10 @@ describe('session (integration)', () => {
 
         it('injects only selected results into the query and round that found them', () => {
             appendSessionResults(sessionDir, [
-                { url: 'https://a.com', title: 'A', origins: [{ query: 'first query' }] },
+                { url: 'https://a.com', title: 'A', content: 'Verified A.', extractedAt: 1, origins: [{ query: 'first query' }] },
             ]);
             appendSessionResults(sessionDir, [
-                { url: 'https://b.com', title: 'B', origins: [{ query: 'second query' }] },
+                { url: 'https://b.com', title: 'B', content: 'Verified B.', extractedAt: 1, origins: [{ query: 'second query' }] },
             ]);
 
             const { approvedResults } = approveResults(sessionDir, [1]);
@@ -134,13 +187,13 @@ describe('session (integration)', () => {
 
         it('adds a new query edge when an already approved URL appears in a later round', () => {
             appendSessionResults(sessionDir, [
-                { url: 'https://a.com', title: 'A', origins: [{ query: 'first query' }] },
+                { url: 'https://a.com', title: 'A', content: 'Verified A.', extractedAt: 1, origins: [{ query: 'first query' }] },
             ]);
             const { approvedResults } = approveResults(sessionDir, [0]);
             injectApprovedResults(sessionDir, approvedResults);
 
             const appendInfo = appendSessionResults(sessionDir, [
-                { url: 'https://a.com', title: 'A', origins: [{ query: 'second query' }] },
+                { url: 'https://a.com', title: 'A', content: 'Verified A.', extractedAt: 1, origins: [{ query: 'second query' }] },
             ]);
             injectApprovedResults(sessionDir, appendInfo.approvedResults);
 

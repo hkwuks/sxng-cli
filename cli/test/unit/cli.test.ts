@@ -65,11 +65,35 @@ describe('CLI program (commander)', () => {
         expect(flags.some(f => f.includes('--strategy'))).toBe(true);
     });
 
-    it('graph-add has required --data option', () => {
+    it('registers JSON file input options for structured write commands', () => {
         const ga = program.commands.find(c => c.name() === 'graph-add');
         expect(ga).toBeDefined();
-        const dataOpt = ga!.options.find(o => o.flags.includes('--data'));
-        expect(dataOpt).toBeDefined();
+        expect(ga!.options.some(o => o.flags.includes('--data-file'))).toBe(true);
+        const resultsAdd = program.commands.find(c => c.name() === 'results-add');
+        expect(resultsAdd!.options.some(o => o.flags.includes('--data-file'))).toBe(true);
+        const claimAdd = program.commands.find(c => c.name() === 'claim-add');
+        expect(claimAdd!.options.some(o => o.flags.includes('--claim-file'))).toBe(true);
+        expect(claimAdd!.options.some(o => o.flags.includes('--claims-file'))).toBe(true);
+        const evidenceVerify = program.commands.find(c => c.name() === 'evidence-verify');
+        expect(evidenceVerify!.options.some(o => o.flags.includes('--evidence-file'))).toBe(true);
+    });
+
+    it('passes extract --session to the extraction command', async () => {
+        const sessionDir = mkdtempSync(join(tmpdir(), 'sxng-cli-extract-session-test-'));
+        appendSessionResults(sessionDir, [{
+            url: 'file:///notes.md#chunk-0', title: 'Local note', content: 'Local content.', extractedAt: 1,
+        }]);
+        const output = vi.spyOn(console, 'log').mockImplementation(() => {});
+        vi.spyOn(process, 'exit').mockImplementation((() => undefined) as never);
+
+        try {
+            await runCli(['extract', '--session', sessionDir], {} as any);
+
+            const result = JSON.parse(output.mock.calls.at(-1)![0] as string);
+            expect(result.error.code).toBe('NO_URLS');
+        } finally {
+            rmSync(sessionDir, { recursive: true, force: true });
+        }
     });
 
     it('graph-obfuscate has --list and --fallback-rules options', () => {
@@ -150,6 +174,54 @@ describe('CLI program (commander)', () => {
                 [{ query: 'first query', round: 1 }],
                 [{ query: 'second query', round: 1 }],
             ]);
+        } finally {
+            rmSync(sessionDir, { recursive: true, force: true });
+        }
+    });
+
+    it('rejects approval of an unverified result and returns quality diagnostics', async () => {
+        const sessionDir = mkdtempSync(join(tmpdir(), 'sxng-cli-approval-test-'));
+        appendSessionResults(sessionDir, [{
+            url: 'https://example.com/summary', title: 'Summary', content: 'Search snippet only.', source: 'exa',
+        }]);
+        const output = vi.spyOn(console, 'log').mockImplementation(() => {});
+        vi.spyOn(process, 'exit').mockImplementation((() => undefined) as never);
+
+        try {
+            await runCli(['--session', sessionDir, '--quality', '--approve', '0', '--format', 'json'], {} as any);
+
+            const result = JSON.parse(output.mock.calls.at(-1)![0] as string);
+            expect(result).toMatchObject({
+                status: 'error',
+                error: { code: 'RESULT_NOT_VERIFIED' },
+            });
+            expect(result.error.details.quality).toBeDefined();
+            expect(result.error.details.selectedResults).toEqual([
+                expect.objectContaining({ index: 0, source: 'exa', verified: false }),
+            ]);
+            expect(loadSessionResults(sessionDir)[0].status).toBe('pending');
+        } finally {
+            rmSync(sessionDir, { recursive: true, force: true });
+        }
+    });
+
+    it('approves a verified result and reports its verification state', async () => {
+        const sessionDir = mkdtempSync(join(tmpdir(), 'sxng-cli-approval-test-'));
+        appendSessionResults(sessionDir, [{
+            url: 'https://example.com/article', title: 'Article', content: 'Captured source content.', extractedAt: 1,
+        }]);
+        const output = vi.spyOn(console, 'log').mockImplementation(() => {});
+        vi.spyOn(process, 'exit').mockImplementation((() => undefined) as never);
+
+        try {
+            await runCli(['--session', sessionDir, '--quality', '--approve', '0', '--format', 'json'], {} as any);
+
+            const result = JSON.parse(output.mock.calls.at(-1)![0] as string);
+            expect(result.data).toMatchObject({
+                approved: 1,
+                selectedResults: [expect.objectContaining({ index: 0, verified: true })],
+            });
+            expect(loadSessionResults(sessionDir)[0].status).toBe('approved');
         } finally {
             rmSync(sessionDir, { recursive: true, force: true });
         }

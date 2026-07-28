@@ -8,30 +8,32 @@
 
 import { createSuccessEnvelope, createErrorEnvelope } from '../protocol.js';
 import { appendSessionResults, resolveSessionPath, getPendingResults, injectApprovedResults } from '../deep/session.js';
+import { isJsonObject, readSingleJsonInput } from './json-input.js';
 
 export interface ResultsAddOptions {
     session: string;
-    data: string; // JSON array of results
+    data?: string; // JSON array of results
+    dataFile?: string;
     query: string;
 }
 
 export async function runResultsAdd(options: ResultsAddOptions): Promise<number> {
     const sessionDir = resolveSessionPath(options.session);
 
-    // Parse input data
-    let results: Array<{ url: string; title: string; content?: string; source?: string }>;
-    try {
-        const parsed = JSON.parse(options.data);
-        results = Array.isArray(parsed) ? parsed : (parsed.results || []);
-    } catch {
-        const envelope = createErrorEnvelope(
-            'INVALID_JSON',
-            'Failed to parse --data JSON',
-            { hint: 'Provide a JSON array of results or an object with a "results" array' }
-        );
-        console.log(JSON.stringify(envelope, null, 2));
+    const input = readSingleJsonInput([
+        { option: '--data', value: options.data },
+        { option: '--data-file', value: options.dataFile, file: true },
+    ]);
+    if (!input.ok) {
+        console.log(JSON.stringify(createErrorEnvelope(input.code, input.message), null, 2));
         return 1;
     }
+
+    // Validate command-specific result shape after shared transport parsing.
+    const parsed = input.value;
+    const results = Array.isArray(parsed)
+        ? parsed
+        : (isJsonObject(parsed) && Array.isArray(parsed.results) ? parsed.results : []);
 
     if (results.length === 0) {
         const envelope = createErrorEnvelope(
@@ -42,9 +44,17 @@ export async function runResultsAdd(options: ResultsAddOptions): Promise<number>
         console.log(JSON.stringify(envelope, null, 2));
         return 1;
     }
+    if (!results.every(result => isJsonObject(result) && typeof result.url === 'string' && typeof result.title === 'string')) {
+        console.log(JSON.stringify(createErrorEnvelope(
+            'INVALID_RESULTS',
+            'Each result must be an object with string url and title fields',
+            { hint: 'Provide a JSON array of search results or an object with a results array' }
+        ), null, 2));
+        return 1;
+    }
 
-    const result = appendSessionResults(sessionDir, results.map(item => ({
-        ...item,
+    const result = appendSessionResults(sessionDir, results.map(({ extractedAt: _extractedAt, ...item }) => ({
+        ...(item as { url: string; title: string; content?: string; source?: string }),
         origins: [{ query: options.query }],
     })));
     injectApprovedResults(sessionDir, result.approvedResults);

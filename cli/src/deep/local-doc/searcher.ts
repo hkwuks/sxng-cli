@@ -150,6 +150,7 @@ export async function docSearch(opts: DocSearchOptions): Promise<DocSearchResult
 
   // Format as SessionResult[]
   const results: SessionResult[] = [];
+  const indexedAt = Date.now();
   for (const hit of searchResult.hits) {
     const doc = hit.document;
 
@@ -173,6 +174,7 @@ export async function docSearch(opts: DocSearchOptions): Promise<DocSearchResult
       url,
       title,
       content: doc.content || '',
+      extractedAt: indexedAt,
       source: 'local',
       score: hit.score,
       filePath: doc.filePath,

@@ -34,7 +34,7 @@
 - 🔄 **动态发现** — 自动从 SearXNG 服务器获取可用引擎和分类
 - 📄 **多格式输出** — Markdown（LLM 优化）或 JSON 格式
 - 🧠 **深度搜索** — 多轮迭代研究，支持会话累积、质量评估和恢复策略
-- 🔍 **内容提取** — 从 URL 或会话结果中提取文章全文，支持 Obscura（JS 渲染）和 Jina Reader 回退
+- 🔍 **内容提取** — 从 URL 或会话结果中提取文章全文，支持 Obscura 回退和 Agent 选择的 Jina Reader 提取
 - 🗂️ **会话管理** — 跨轮累积搜索结果；通过规范化 URL 和全文字符 5-gram Jaccard 去重，再进入待审 → 审批 → 注入图谱工作流
 - 🔗 **外部结果融合** — 通过 `results-add` 将 Tavily、Exa 等外部搜索结果注入同一会话管道；共享待审池，统一质量评估
 - ⭐ **质量评估** — 3 个独立指标：内容深度、来源多样性、新颖度
@@ -612,10 +612,10 @@ obscura --version
 | `sxng extract --urls <urls>` | 提取网页内容 |
 | `sxng extract --session <name>` | 提取会话结果并合并内容 |
 | `sxng extract --obscura` | JS 渲染回退（用于 SPA 页面） |
-| `sxng extract --jina` | Jina Reader 回退（用于复杂页面） |
+| `sxng extract --urls <url> --jina` | Agent 为显式指定 URL 选择 Jina Reader 提取 |
 | `sxng --session new` | 创建深度搜索会话 |
 | `sxng --session <name> --quality` | 评估结果质量，列出待审结果 |
-| `sxng --session <name> --quality --approve "0,1"` | 按索引审批待审结果 |
+| `sxng --session <name> --quality --approve "0,1"` | 按索引审批已验证的待审结果 |
 | `sxng suggest-queries <session>` | 获取查询建议数据（供 Agent 使用） |
 | `sxng strategy-info <session>` | 查看当前搜索阶段 |
 | `sxng recovery-analysis <session>` | 获取低质量恢复策略 |
@@ -623,19 +623,19 @@ obscura --version
 | `sxng session-list` | 列出所有会话 |
 | `sxng session-delete <session-name>` | 删除指定会话 |
 | `sxng graph-preprocess <session>` | TF-IDF + 共现分析 + 结果来源轮次 |
-| `sxng graph-add <session>` | 向知识图谱添加实体/边；新实体必须带来源轮次 |
+| `sxng graph-add <session> --data-file <path>` | 从 UTF-8 JSON 文件向知识图谱添加实体/边；新实体必须带来源轮次 |
 | `sxng graph-search <session>` | 按关键词发现实体 |
 | `sxng graph-explore <session>` | 查看实体关系 |
 | `sxng graph-drill <session>` | 追踪特定关系 |
 | `sxng graph-traverse <session>` | 遍历推理路径 |
 | `sxng graph-obfuscate <session>` | 列出混淆候选 |
-| `sxng results-add <session> --query <query> --data <json>` | 将外部搜索结果注入会话（标记为待审） |
+| `sxng results-add <session> --query <query> --data-file <path>` | 从 UTF-8 JSON 文件将外部搜索结果注入会话（标记为待审） |
 | `sxng doc-index <path>` | 索引本地文档（用于 BM25 搜索） |
 | `sxng doc-search <session> <query> --path <path>` | 搜索已索引文档并将结果注入会话 |
-| `sxng claim-add <session> --claims <json>` | 提交原子化陈述（支持单条或批量，自动证据搜索） |
+| `sxng claim-add <session> --claims-file <path>` | 从 UTF-8 JSON 文件提交原子化陈述（支持单条或批量，自动证据搜索） |
 | `sxng claim-list <session>` | 列出陈述 |
 | `sxng evidence-search <session> --claim-id <id>` | 搜索候选证据（只读） |
-| `sxng evidence-verify <session> --claim-id <id>` | 确认证据 + 提交立场（可选自动策略聚合） |
+| `sxng evidence-verify <session> --claim-id <id> --evidence-file <path>` | 从 UTF-8 JSON 文件确认证据 + 提交立场（可选自动策略聚合） |
 | `sxng evidence-list <session> --claim-id <id>` | 列出某条陈述的证据 |
 | `sxng verdict-list <session> --claim-id <id>` | 列出某条陈述的判断结果 |
 | `sxng policy-aggregate <session>` | 手动执行策略聚合 |
@@ -662,7 +662,7 @@ obscura --version
 | `--desc <text>` | 会话描述 |
 | `--redundancy <action>` | 查询冗余检查：`warn`、`adjust`、`skip` |
 | `--quality` | 评估结果质量（需配合 --session） |
-| `--approve <indices>` | 按逗号分隔索引审批待审结果 |
+| `--approve <indices>` | 按逗号分隔索引审批已验证的待审结果 |
 | `--threshold-override <json>` | 覆盖质量阈值（JSON） |
 | `--merge <file>` | 合并新的 JSON 搜索结果文件 |
 
@@ -748,7 +748,7 @@ sxng --categories-list
 ### 工作流
 
 ```
-搜索 → 提取 → 预处理 → 构建图谱 → 质量评估 → 审批 →（循环或探索）
+搜索 → 提取 → 质量评估 → 审批 → 构建图谱 →（循环或探索）
                                                                          ↓
                                           (L2/L3) 陈述—证据—审核管线 → 最终输出
 ```
@@ -763,27 +763,21 @@ sxng --session new --owner "agent-1" --desc "Rust async study" "rust async ecosy
 # 2. 从结果中提取内容
 sxng extract --session <session-name>
 
-# 3. 预处理（TF-IDF、共现分析与结果来源轮次）
-sxng graph-preprocess <session-name>
+# 3. 检查提取输出：stats.success 和 session.updated 标识已取得正文的结果；失败 URL 保持待审。
 
-# 4. 根据 graph-preprocess 的 resultProvenance 添加实体来源轮次
-sxng graph-add <session-name> --data '{
-  "entities": [
-    {"label": "tokio", "entityType": "runtime", "score": 0.95, "sourceRounds": [1]},
-    {"label": "async-std", "entityType": "runtime", "score": 0.85, "sourceRounds": [1]}
-  ],
-  "edges": [
-    {"source": "e:tokio", "target": "e:async_std", "relation": "alternative_to", "weight": 0.9}
-  ]
-}'
-
-# 5. 评估质量 — 结果处于待审状态
+# 4. 评估质量并查看每条结果的 verified 状态
 sxng --session <session-name> --quality
 
-# 6. 按索引审批待审结果（自动注入图谱）
+# 5. 仅审批输出中 verified: true 的索引（自动注入结构图）
 sxng --session <session-name> --quality --approve "0,1,2,3"
 
-# 7. 继续研究（带冗余检查）
+# 6. 预处理会话内容，发现实体并取得来源轮次
+sxng graph-preprocess <session-name>
+
+# 7. 将图谱 JSON 写入该会话的 Agent 临时目录，再添加语义边
+sxng graph-add <session-name> --data-file .\.sxng\agent-inputs\<session-name>\graph-data.json
+
+# 8. 继续研究（带冗余检查）
 sxng --session <session-name> --queries "tokio vs async-std,benchmark 2026" --redundancy warn
 ```
 
@@ -791,6 +785,7 @@ sxng --session <session-name> --queries "tokio vs async-std,benchmark 2026" --re
 
 - 提取后的网页内容先按规范化 URL 去重，再按全文字符 5-gram Jaccard 相似度去重；查询冗余则单独使用词级或字符 bigram Jaccard。
 - `--quality` 用最新已记录轮次与此前已批准的结果比较。此前轮次已经出现过的 URL 即使在最新轮次再次命中，也计为非新颖。
+- 质量评估是诊断，不是事实核验。网页结果只有在 `extract` 写入非空正文和提取时间后才能审批；摘要和调用方提供的提取时间都不被信任。
 - 陈述审核把两个不同的规范化发布域名视为两个来源；不会推断跨域名的公司归属、编辑关系或转载关系。
 
 ### 会话管理
@@ -842,14 +837,34 @@ sxng --session <session-name> --queries "tokio vs async-std,benchmark 2026" --re
 
 来自其他搜索工具（Tavily、Exa 等）的结果可通过 `results-add` 注入到任何活跃会话中。它们和原生 sxng 结果走相同的管道：
 
-```bash
-sxng results-add <session-name> --query "async runtime" --data '[
-  {"url": "https://...", "title": "...", "source": "tavily"},
-  {"url": "https://...", "title": "...", "source": "exa"}
-]'
+```powershell
+# 将外部工具输出作为 UTF-8 JSON 写入该会话的 Agent 临时目录。
+sxng results-add <session-name> --query "async runtime" --data-file .\.sxng\agent-inputs\<session-name>\exa-results.json
 ```
 
-注入后，结果标记为 `pending`（待审），走相同的 `--quality` → `--approve` → `graph-add` 流程。`source` 字段记录每个结果来自哪个工具。所有来源的结果共享同一个待审池，一起参与质量评估。必填的 `--query` 会记录来源查询，使 `graph-preprocess` 能输出正确的 `resultProvenance` 轮次。
+注入后，结果标记为 `pending`（待审）。执行 `extract --session` 后检查 `stats.success`、`stats.failed` 和 `session.updated`，只审批质量输出中 `verified: true` 的结果。提取失败的结果保持待审，不能进入图谱。`source` 字段记录每个结果来自哪个工具；所有来源共享同一个待审池，`--query` 则记录来源查询，供 `graph-preprocess` 追踪来源。
+
+### 结构化 JSON 输入
+
+外部工具输出、多行文本、中文、嵌套引号或大载荷应使用 UTF-8 JSON 文件，避免 PowerShell 转义和 Windows 命令行长度限制。Agent 生成的传输文件统一放在 `.sxng/agent-inputs/<session-name>/`，不要放在项目根目录：`.sxng` 已用于存储 sxng 状态；使用 session 名可规避多个运行在同一工作目录中使用同一个固定文件名时的潜在冲突。这只是文件命名约定，不是 CLI 并发控制。每条命令只能提供一个内联或文件输入：
+
+| 用途 | 内联选项 | 推荐文件选项 |
+|---|---|---|
+| 外部结果 | `--data <json>` | `--data-file <path>` |
+| 图谱实体/边 | `--data <json>` | `--data-file <path>` |
+| 单条/批量陈述 | `--claim` / `--claims` | `--claim-file` / `--claims-file` |
+| 证据核验 | `--evidence <json>` | `--evidence-file <path>` |
+
+文件必须是 UTF-8（允许 UTF-8 BOM）。同时提供多个来源、文件不可读或 JSON 非法时，命令会在写入 session、陈述、证据或图谱前失败。CLI 不会自动删除这些 Agent 临时文件，因此不会误删用户显式提供的文件。
+
+陈述和证据也应使用同一目录，例如：
+
+```powershell
+sxng claim-add my-session --claims-file .\.sxng\agent-inputs\my-session\claims.json
+sxng evidence-verify my-session --claim-id "cl_001" `
+  --evidence-file .\.sxng\agent-inputs\my-session\evidence.json `
+  --stance support --reason "官方文档确认" --complete
+```
 
 ### 本地文档搜索
 
@@ -911,7 +926,7 @@ sxng doc-search <session-name> "关键词" --path ./docs
 
 1. **Defuddle + linkedom**（默认，轻量）— 使用 linkedom 解析原始 HTML，通过 Defuddle 提取可读内容。速度快，无需浏览器。
 2. **Obscura**（JS 渲染回退）— 当 Defuddle 提取内容过少（< 50 字符）时，Obscura 使用 V8 JS 引擎渲染页面并重新提取。使用 `--obscura` 启用。
-3. **Jina Reader**（备选回退）— 使用 `r.jina.ai` 从复杂页面提取内容。使用 `--jina` 启用。
+3. **Jina Reader**（由 Agent 选择）— Agent 先检查默认提取结果，确认指定 URL 的正文不足后，才使用 `r.jina.ai` 提取。Jina 有速率限制，因此不作为自动回退。
 
 ```bash
 # 默认：仅 Defuddle（快速）
@@ -920,8 +935,8 @@ sxng extract --urls "https://example.com"
 # 为 JS 密集页面启用 Obscura 回退
 sxng extract --urls "https://spa-site.com" --obscura
 
-# 使用 Jina Reader 回退
-sxng extract --urls "https://complex-page.com" --jina
+# 检查默认提取结果后，仅对需要的指定 URL 使用 Jina Reader，并合并回会话
+sxng extract --urls "https://complex-page.com" --session <session-name> --jina
 ```
 
 提取选项：
@@ -931,7 +946,7 @@ sxng extract --urls "https://complex-page.com" --jina
 | `--obscura` | 为 JS 渲染页面启用 Obscura 回退 |
 | `--obscura-path <path>` | Obscura 二进制路径（省略则自动检测） |
 | `--obscura-dump <format>` | Obscura 输出格式：`html`（默认）或 `markdown` |
-| `--jina` | 启用 Jina Reader（r.jina.ai）回退 |
+| `--jina` | 使用 Jina Reader（r.jina.ai）提取显式指定的 URL；可与 `--session` 一起使用以合并所选结果 |
 
 ### 动态引擎/分类发现
 

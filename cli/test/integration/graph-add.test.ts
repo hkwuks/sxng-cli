@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtempSync, rmSync, existsSync, readFileSync } from 'fs';
+import { mkdtempSync, rmSync, existsSync, readFileSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
 import { runGraphAdd } from '../../src/commands/graph-add.js';
@@ -41,6 +41,19 @@ describe('graph-add command', () => {
         const parsed = JSON.parse(raw);
         expect(parsed.status).toBe('ok');
         expect(parsed.data.stats.entities).toBe(1);
+    });
+
+    it('adds graph data from a JSON file', async () => {
+        const dataFile = join(tmpDir, 'graph-data.json');
+        writeFileSync(dataFile, JSON.stringify({
+            entities: [{ label: '中文实体', sourceRounds: [1] }],
+        }), 'utf8');
+
+        const code = await runGraphAdd({ graphFile, dataFile } as any);
+
+        expect(code).toBe(0);
+        const saved = JSON.parse(readFileSync(graphFile, 'utf8'));
+        expect(saved.data.stats.entities).toBe(1);
     });
 
     it('rejects a new entity without source rounds', async () => {

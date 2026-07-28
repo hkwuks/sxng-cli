@@ -285,6 +285,25 @@ describe('claim-add', () => {
 
     expect(loadClaims(sessionDir).map(claim => claim.id)).toEqual(['cl_001', 'cl_002', 'cl_003']);
   });
+
+  it('adds batch claims from a UTF-8 JSON file', async () => {
+    const file = join(sessionDir, 'claims.json');
+    writeFileSync(file, `\uFEFF${JSON.stringify([{ text: '中文 Claim。' }])}`, 'utf8');
+    vi.spyOn(console, 'log').mockImplementation(() => undefined);
+
+    expect(await runClaimAdd(sessionDir, { claimsFile: file } as any)).toBe(0);
+    expect(loadClaims(sessionDir).map(claim => claim.text)).toEqual(['中文 Claim。']);
+  });
+
+  it('rejects multiple claim input sources without writing claims', async () => {
+    vi.spyOn(console, 'log').mockImplementation(() => undefined);
+
+    expect(await runClaimAdd(sessionDir, {
+      claim: JSON.stringify({ text: 'Inline.' }),
+      claims: JSON.stringify([{ text: 'Batch.' }]),
+    })).toBe(1);
+    expect(loadClaims(sessionDir)).toEqual([]);
+  });
 });
 
 // ── Section 2: Deterministic Checks ─────────────────────────────────
@@ -343,6 +362,23 @@ describe('deterministic checks', () => {
 
       expect(code).toBe(0);
       expect(loadEvidences(sessionDir)[0].extractedAt).toBe(extractedAt);
+    });
+
+    it('reads evidence from a UTF-8 JSON file', async () => {
+      saveClaims(sessionDir, [{
+        id: 'cl_001', text: 'Tokio is widely used', riskLevel: 'medium',
+        status: 'pending', sessionDir, createdAt: Date.now(),
+      }]);
+      const quote = 'Tokio is the most widely used async runtime in the Rust ecosystem.';
+      const evidenceFile = join(sessionDir, 'evidence.json');
+      writeFileSync(evidenceFile, `\uFEFF${JSON.stringify({
+        resultUrl: 'https://example.com/article', quote, charStart: 0, charEnd: quote.length,
+      })}`, 'utf8');
+
+      expect(await runEvidenceVerify(sessionDir, {
+        claimId: 'cl_001', evidenceFile, stance: 'support', reason: 'Verified from the source.',
+      } as any)).toBe(0);
+      expect(loadEvidences(sessionDir)).toHaveLength(1);
     });
 
     it('requires an extraction time before evidence can be verified', async () => {

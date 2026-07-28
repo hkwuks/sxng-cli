@@ -1,5 +1,5 @@
 /**
- * Content extraction: Defuddle (linkedom) → Obscura → Jina Reader fallback
+ * Content extraction: Defuddle (linkedom) → optional Obscura fallback, or explicit Jina Reader
  */
 
 import { parseHTML } from 'linkedom';
@@ -306,6 +306,21 @@ export class ContentExtractor {
     }
 
     async extract(url: string): Promise<ExtractedContent> {
+        if (this.useJina) {
+            const jinaResult = await jinaExtract(url, { timeoutMs: this.timeoutMs });
+            if (jinaResult) return jinaResult;
+            return {
+                title: '',
+                content: '',
+                excerpt: '',
+                url,
+                length: 0,
+                extractedAt: Date.now(),
+                method: 'jina',
+                error: 'Jina Reader could not extract content',
+            };
+        }
+
         let result: ExtractedContent | null = null;
 
         try {
@@ -333,12 +348,6 @@ export class ContentExtractor {
                 dumpFormat: this.obscuraDumpFormat,
             });
             if (obsResult && obsResult.content.length > result.content.length) return obsResult;
-        }
-
-        // Obscura insufficient → Jina Reader fallback (also works when fetchHtml itself failed)
-        if (this.useJina && result.content.length < MIN_CONTENT_LENGTH) {
-            const jinaResult = await jinaExtract(url, { timeoutMs: this.timeoutMs });
-            if (jinaResult && jinaResult.content.length > result.content.length) return jinaResult;
         }
 
         if (result.content.length < MIN_CONTENT_LENGTH && !result.error) {

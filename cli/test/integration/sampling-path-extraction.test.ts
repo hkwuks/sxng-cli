@@ -25,8 +25,8 @@ describe('sampling + path extraction integration', () => {
             { url: 'https://async.rs', title: 'Async Std', content: 'async-std provides async standard library for Rust' },
         ]);
         updateSessionGraph(sessionDir, 'rust async', [
-            { url: 'https://tokio.rs', title: 'Tokio Runtime' },
-            { url: 'https://async.rs', title: 'Async Std' },
+            { url: 'https://tokio.rs', title: 'Tokio Runtime', content: 'Verified Tokio.', extractedAt: 1 },
+            { url: 'https://async.rs', title: 'Async Std', content: 'Verified Async.', extractedAt: 1 },
         ]);
 
         const graph = loadSessionGraph(sessionDir);

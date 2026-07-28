@@ -19,9 +19,10 @@ import {
 } from '../claims/store.js';
 import { aggregateClaim, PolicyInput } from '../claims/policy.js';
 import { computeSourceClusterId } from '../claims/deterministic-checks.js';
-import { resolveSessionPath, loadSessionResults } from '../deep/session.js';
+import { resolveSessionPath, loadSessionResults, hasVerifiedContent } from '../deep/session.js';
 import { createSuccessEnvelope, createErrorEnvelope } from '../protocol.js';
 import { searchCandidates } from '../claims/deterministic-checks.js';
+import { isJsonObject, readSingleJsonInput } from './json-input.js';
 
 // ── evidence-search ─────────────────────────────────────────────────
 
@@ -78,7 +79,8 @@ export async function runEvidenceVerify(
   session: string,
   options: {
     claimId: string;
-    evidence: string;     // JSON
+    evidence?: string;    // JSON
+    evidenceFile?: string;
     stance: 'support' | 'refute' | 'insufficient';
     reason: string;
     confidence?: number;
@@ -88,18 +90,30 @@ export async function runEvidenceVerify(
 ): Promise<number> {
   const sessionDir = resolveSessionPath(session);
 
-  // Parse evidence input
-  let evInput: EvidenceInput;
-  try {
-    evInput = JSON.parse(options.evidence);
-  } catch {
-    console.log(JSON.stringify(createErrorEnvelope('INVALID_EVIDENCE', 'Failed to parse --evidence JSON'), null, 2));
+  const input = readSingleJsonInput([
+    { option: '--evidence', value: options.evidence },
+    { option: '--evidence-file', value: options.evidenceFile, file: true },
+  ]);
+  if (!input.ok) {
+    console.log(JSON.stringify(createErrorEnvelope(input.code, input.message), null, 2));
     return 1;
   }
+  if (!isJsonObject(input.value)) {
+    console.log(JSON.stringify(createErrorEnvelope('INVALID_EVIDENCE', '--evidence must be a JSON object'), null, 2));
+    return 1;
+  }
+  const evInput: EvidenceInput = {
+    resultUrl: input.value.resultUrl as string,
+    quote: input.value.quote as string,
+    charStart: input.value.charStart as number,
+    charEnd: input.value.charEnd as number,
+    contentHash: typeof input.value.contentHash === 'string' ? input.value.contentHash : undefined,
+  };
 
   // Validate required fields
-  if (!evInput.resultUrl || !evInput.quote) {
-    console.log(JSON.stringify(createErrorEnvelope('MISSING_FIELDS', '--evidence must contain resultUrl and quote'), null, 2));
+  if (typeof evInput.resultUrl !== 'string' || typeof evInput.quote !== 'string'
+      || !Number.isSafeInteger(evInput.charStart) || !Number.isSafeInteger(evInput.charEnd)) {
+    console.log(JSON.stringify(createErrorEnvelope('MISSING_FIELDS', '--evidence must contain string resultUrl and quote plus integer charStart and charEnd'), null, 2));
     return 1;
   }
 
@@ -122,16 +136,16 @@ export async function runEvidenceVerify(
     return 1;
   }
 
-  const content = result.content || '';
+  if (!hasVerifiedContent(result)) {
+    console.log(JSON.stringify(createErrorEnvelope('RESULT_NOT_VERIFIED', 'Approved result has no verified extracted content; re-extract the source before verifying evidence'), null, 2));
+    return 1;
+  }
+
+  const content = result.content;
   if (evInput.charEnd > content.length || evInput.charStart < 0) {
     console.log(JSON.stringify(createErrorEnvelope('OFFSET_OUT_OF_RANGE', `charStart/charEnd out of range (content length: ${content.length})`), null, 2));
     return 1;
   }
-  if (result.extractedAt === undefined) {
-    console.log(JSON.stringify(createErrorEnvelope('EXTRACTION_TIME_MISSING', 'Approved result has no extraction timestamp; re-extract the source before verifying evidence'), null, 2));
-    return 1;
-  }
-
   // Verify content hash
   const { createHash } = await import('crypto');
   const slice = content.slice(evInput.charStart, evInput.charEnd);

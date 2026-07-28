@@ -24,7 +24,7 @@ import { ContentExtractor } from './deep/extractor.js';
 import { rrf } from './deep/rrf.js';
 import { normalizeUrl, resultUrlKey } from './deep/dedupe.js';
 import { deserializeGraph, graphStats, GraphNodeAttrs, GraphEdgeAttrs } from './deep/graph.js';
-import { initSessionDir, resolveSessionPath, appendSessionResults, loadSessionResults, loadSessionGraph, countPendingResults, getPendingResults, approveResults, injectApprovedResults } from './deep/session.js';
+import { initSessionDir, resolveSessionPath, appendSessionResults, loadSessionResults, loadSessionGraph, countPendingResults, getPendingResults, approveResults, injectApprovedResults, hasVerifiedContent } from './deep/session.js';
 import { runSessionList, runSessionDelete, getDefaultSessionRoot } from './commands/session.js';
 import { graphPreprocess } from './deep/graph-preprocess.js';
 import { checkQueryRedundancy, RedundancyConfig } from './deep/query-redundancy.js';
@@ -816,8 +816,8 @@ export function createProgram(): Command {
         .option('--obscura', 'Use Obscura as fallback for JS-heavy pages')
         .option('--obscura-path <path>', 'Path to Obscura binary')
         .option('--obscura-dump <format>', 'Obscura dump format: html, markdown', 'html')
-        .option('--jina', 'Use Jina Reader (r.jina.ai) as fallback')
-        .action(async (opts) => {
+        .option('--jina', 'Use Jina Reader (r.jina.ai); requires explicit --urls')
+        .action(async (opts, command) => {
             const extractor = new ContentExtractor({
                 obscura: opts.obscura ?? false,
                 obscuraPath: opts.obscuraPath,
@@ -826,7 +826,9 @@ export function createProgram(): Command {
             });
             const extractOptions: ExtractOptions = {
                 urls: opts.urls?.split(',').map((u: string) => u.trim()).filter(Boolean),
-                session: opts.session,
+                // Commander resolves a duplicated root/subcommand option on the parent.
+                session: opts.session ?? command.parent?.opts().session,
+                jina: opts.jina ?? false,
             };
             const code = await runExtract(extractor, extractOptions);
             process.exit(code);
@@ -857,11 +859,13 @@ export function createProgram(): Command {
         .command('graph-add')
         .argument('<path>', 'Graph file or session name')
         .description('Add entities/edges to knowledge graph. New entities require sourceRounds from graph-preprocess.')
-        .requiredOption('--data <json>', 'JSON with entities/edges')
+        .option('--data <json>', 'JSON with entities/edges')
+        .option('--data-file <path>', 'UTF-8 JSON file with entities/edges')
         .action(async (path, opts) => {
             const code = await runGraphAdd({
                 graphFile: path,
                 data: opts.data,
+                dataFile: opts.dataFile,
             });
             process.exit(code);
         });
@@ -870,7 +874,8 @@ export function createProgram(): Command {
         .command('results-add')
         .argument('<session>', 'Session directory or name')
         .description('Append external search results to session as pending (awaiting quality assessment)')
-        .requiredOption('--data <json>', 'JSON array of results or object with "results" array')
+        .option('--data <json>', 'JSON array of results or object with "results" array')
+        .option('--data-file <path>', 'UTF-8 JSON file with results')
         .requiredOption('--query <query>', 'Search query that produced these results')
         .addHelpText('after', `
 Examples:
@@ -882,6 +887,7 @@ Use --quality --approve to inject into graph.`)
             const code = await runResultsAdd({
                 session,
                 data: opts.data,
+                dataFile: opts.dataFile,
                 query: opts.query,
             });
             process.exit(code);
@@ -1199,6 +1205,8 @@ See also: graph-explore (for viewing relations of a known entity)`)
         .description('Add claims (single or batch) with auto evidence-search')
         .option('--claim <json>', 'Single claim JSON')
         .option('--claims <json>', 'Batch claims JSON array')
+        .option('--claim-file <path>', 'UTF-8 JSON file with one claim')
+        .option('--claims-file <path>', 'UTF-8 JSON file with a claim array')
         .option('-f, --format <fmt>', 'Output format: json (default), md')
         .addHelpText('after', `
 Examples:
@@ -1208,6 +1216,8 @@ Examples:
             const code = await runClaimAdd(session, {
                 claim: opts.claim,
                 claims: opts.claims,
+                claimFile: opts.claimFile,
+                claimsFile: opts.claimsFile,
                 format: opts.format,
             });
             process.exit(code);
@@ -1246,7 +1256,8 @@ Examples:
         .argument('<session>', 'Session directory or name')
         .description('Confirm evidence + submit stance + optional auto-policy')
         .requiredOption('--claim-id <id>', 'Claim ID')
-        .requiredOption('--evidence <json>', 'Evidence object: {resultUrl, quote, charStart, charEnd}')
+        .option('--evidence <json>', 'Evidence object: {resultUrl, quote, charStart, charEnd}')
+        .option('--evidence-file <path>', 'UTF-8 JSON file with evidence object')
         .requiredOption('--stance <s>', 'Stance: support, refute, insufficient')
         .requiredOption('--reason <text>', 'Judgement rationale')
         .option('--confidence <n>', 'Confidence 0-1', parseFloat)
@@ -1256,6 +1267,7 @@ Examples:
             const code = await runEvidenceVerify(session, {
                 claimId: opts.claimId,
                 evidence: opts.evidence,
+                evidenceFile: opts.evidenceFile,
                 stance: opts.stance,
                 reason: opts.reason,
                 confidence: opts.confidence,
@@ -1390,20 +1402,55 @@ export async function runCli(args: string[], service: SearXNGService): Promise<n
             const approvedResults = sessionResults.filter(r => r.status === 'approved');
             const priorResults = approvedResults.length > 0 ? approvedResults : [];
 
-            // Handle Agent approval first (before showing quality assessment)
+            const quality = assessResultQuality(
+                pending,
+                priorResults,
+                thresholdOverride
+            );
+            const describeResult = (result: typeof pending[number], index: number) => ({
+                index,
+                url: result.url,
+                source: result.source || 'sxng',
+                contentLength: result.content?.length ?? 0,
+                extractedAt: result.extractedAt,
+                verified: hasVerifiedContent(result),
+            });
+
+            // Approval is allowed only after reporting current quality and verification state.
             if (opts.approve) {
-                const indices = (opts.approve as string).split(',').map((s: string) => parseInt(s.trim(), 10)).filter((n: number) => !isNaN(n));
-                const { approved, total, approvedResults } = approveResults(sessionDir, indices);
+                const indices = (opts.approve as string).split(',').map((value: string) => {
+                    const trimmed = value.trim();
+                    return /^-?\d+$/.test(trimmed) ? Number(trimmed) : Number.NaN;
+                });
+                const selectedResults = indices
+                    .filter(index => Number.isSafeInteger(index) && index >= 0 && index < pending.length)
+                    .map(index => describeResult(pending[index], index));
+                const approval = approveResults(sessionDir, indices);
+
+                if (approval.error) {
+                    console.log(JSON.stringify(createErrorEnvelope(
+                        approval.error.code,
+                        approval.error.message,
+                        {
+                            details: { quality, selectedResults, error: approval.error },
+                            hint: 'Run sxng extract --session <session> for unverified results, then review and approve again.',
+                        }
+                    ), null, 2));
+                    process.exit(1);
+                    return;
+                }
 
                 // Inject only the results selected by this approval action.
-                const injectInfo = injectApprovedResults(sessionDir, approvedResults);
+                const injectInfo = injectApprovedResults(sessionDir, approval.approvedResults);
 
                 console.log(JSON.stringify(createSuccessEnvelope({
-                    approved,
-                    total,
+                    approved: approval.approved,
+                    total: approval.total,
                     nodesAdded: injectInfo.nodesAdded,
                     edgesAdded: injectInfo.edgesAdded,
-                    message: `Approved ${approved} results, injected into graph (+${injectInfo.nodesAdded} nodes, +${injectInfo.edgesAdded} edges)`,
+                    quality,
+                    selectedResults,
+                    message: `Approved ${approval.approved} results, injected into graph (+${injectInfo.nodesAdded} nodes, +${injectInfo.edgesAdded} edges)`,
                 }), null, 2));
                 process.exit(0);
                 return;
@@ -1427,13 +1474,6 @@ export async function runCli(args: string[], service: SearXNGService): Promise<n
                 return;
             }
 
-            // Show pending results with indices for Agent selection
-            const quality = assessResultQuality(
-                pending,
-                priorResults,
-                thresholdOverride
-            );
-
             const outputFormat = (opts.format || config.defaultFormat) as 'json' | 'md';
             if (outputFormat === 'json') {
                 // JSON output includes pending results with indices for Agent
@@ -1448,7 +1488,8 @@ export async function runCli(args: string[], service: SearXNGService): Promise<n
                         contentPreview: r.content ? r.content.slice(0, 300) : undefined,
                         contentLength: r.content?.length ?? 0,
                         domain: (() => { try { return new URL(r.url).hostname; } catch { return ''; } })(),
-                        extractionMethod: r.content?.length ? 'defuddle' : 'none',
+                        extractedAt: r.extractedAt,
+                        verified: hasVerifiedContent(r),
                     })),
                     hint: 'Agent reviews content and approves by index: sxng --session <name> --quality --approve "0,1,2"',
                 }), null, 2));

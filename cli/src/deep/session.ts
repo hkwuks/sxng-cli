@@ -30,6 +30,29 @@ export interface SessionResult {
     [key: string]: unknown;
 }
 
+export interface ApprovalError {
+    code: 'INVALID_APPROVAL_INDEX' | 'DUPLICATE_APPROVAL_INDEX' | 'RESULT_NOT_VERIFIED';
+    message: string;
+    index?: number;
+    url?: string;
+}
+
+export interface ApprovalResult {
+    approved: number;
+    total: number;
+    approvedResults: SessionResult[];
+    error?: ApprovalError;
+}
+
+/** A result may enter the graph only after the session captured its body. */
+export function hasVerifiedContent(result: SessionResult): result is SessionResult & { content: string; extractedAt: number } {
+    return typeof result.content === 'string'
+        && result.content.trim().length > 0
+        && typeof result.extractedAt === 'number'
+        && Number.isFinite(result.extractedAt)
+        && result.extractedAt > 0;
+}
+
 export interface SessionResultsFile {
     status: 'ok';
     data: {
@@ -220,16 +243,44 @@ export function getApprovedResults(sessionDir: string): SessionResult[] {
 /** Approve results by their indices (0-based) in the pending list.
  *  Returns the number of approved results.
  */
-export function approveResults(sessionDir: string, indices: number[]): { approved: number; total: number; approvedResults: SessionResult[] } {
+export function approveResults(sessionDir: string, indices: number[]): ApprovalResult {
     const results = loadSessionResults(sessionDir);
     const pending = results.filter(r => !r.status || r.status === 'pending');
 
-    // Keep local chunk fragments so selecting one chunk does not approve its siblings.
+    // Validate every selection before changing result status or writing session state.
     const approvedResultKeys = new Set<string>();
     for (const idx of indices) {
-        if (idx >= 0 && idx < pending.length) {
-            approvedResultKeys.add(resultUrlKey(pending[idx]));
+        if (!Number.isSafeInteger(idx) || idx < 0 || idx >= pending.length) {
+            return {
+                approved: 0,
+                total: results.length,
+                approvedResults: [],
+                error: { code: 'INVALID_APPROVAL_INDEX', message: `Pending result index ${idx} is out of range`, index: idx },
+            };
         }
+        if (approvedResultKeys.has(resultUrlKey(pending[idx]))) {
+            return {
+                approved: 0,
+                total: results.length,
+                approvedResults: [],
+                error: { code: 'DUPLICATE_APPROVAL_INDEX', message: `Pending result index ${idx} was selected more than once`, index: idx },
+            };
+        }
+        if (!hasVerifiedContent(pending[idx])) {
+            return {
+                approved: 0,
+                total: results.length,
+                approvedResults: [],
+                error: {
+                    code: 'RESULT_NOT_VERIFIED',
+                    message: 'Result has no verified extracted content; run sxng extract --session before approval',
+                    index: idx,
+                    url: pending[idx].url,
+                },
+            };
+        }
+        // Keep local chunk fragments so selecting one chunk does not approve its siblings.
+        approvedResultKeys.add(resultUrlKey(pending[idx]));
     }
 
     // Update status
@@ -262,7 +313,8 @@ export function approveResults(sessionDir: string, indices: number[]): { approve
  *  Uses query from session meta.json if not provided.
  */
 export function injectApprovedResults(sessionDir: string, approved: SessionResult[]): { nodesAdded: number; edgesAdded: number } {
-    if (approved.length === 0) {
+    const verified = approved.filter(hasVerifiedContent);
+    if (verified.length === 0) {
         return { nodesAdded: 0, edgesAdded: 0 };
     }
 
@@ -271,7 +323,7 @@ export function injectApprovedResults(sessionDir: string, approved: SessionResul
     const beforeEdges = graph.size;
     const groups = new Map<string, { query: string; round?: number; results: Array<{ url: string; title: string; source?: string }> }>();
 
-    for (const result of approved) {
+    for (const result of verified) {
         for (const origin of result.origins || []) {
             const key = `${origin.round ?? 0}\0${origin.query}`;
             const group = groups.get(key) ?? { query: origin.query, round: origin.round, results: [] };
@@ -295,14 +347,19 @@ export function countPendingResults(sessionDir: string): number {
 export function updateSessionGraph(
     sessionDir: string,
     query: string,
-    results: Array<{ url: string; title: string; rank?: number; source?: string }>,
+    results: SessionResult[],
     round?: number
 ): { nodesAdded: number; edgesAdded: number } {
+    const verified = results.filter(hasVerifiedContent);
+    if (verified.length === 0) {
+        return { nodesAdded: 0, edgesAdded: 0 };
+    }
+
     const graph = loadSessionGraph(sessionDir);
     const beforeNodes = graph.order;
     const beforeEdges = graph.size;
 
-    buildStructuralEdges(graph, query, results, round);
+    buildStructuralEdges(graph, query, verified, round);
     saveSessionGraph(sessionDir, graph);
 
     return {

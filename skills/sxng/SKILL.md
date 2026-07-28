@@ -41,15 +41,15 @@ sxng --session <session> "more queries"
 sxng extract --urls "url1,url2"             # Extract from URLs
 sxng extract --session <session>            # Extract session results
 sxng extract --urls "url1" --obscura        # Fallback: JS rendering
-sxng extract --urls "url1" --jina           # Fallback: Jina Reader
+sxng extract --urls "url1" --jina           # Agent-selected Jina extraction for this URL
 
 # Claim—Evidence—Review (L2/L3 only, after search)
-sxng claim-add <session> --claim '<json>'                    # Add single claim
-sxng claim-add <session> --claims '<json array>'             # Batch add claims
+sxng claim-add <session> --claim-file .\.sxng\agent-inputs\<session>\claim.json           # Add one UTF-8 JSON claim
+sxng claim-add <session> --claims-file .\.sxng\agent-inputs\<session>\claims.json         # Add UTF-8 JSON claim array
 sxng claim-list <session>                                    # List claims
 sxng evidence-search <session> --claim-id <id>               # Search evidence candidates (read-only)
 sxng evidence-verify <session> --claim-id <id> \             # Verify evidence + stance
-  --evidence '<json>' --stance support --reason '...' --complete
+  --evidence-file .\.sxng\agent-inputs\<session>\evidence.json --stance support --reason '...' --complete
 sxng evidence-list <session> --claim-id <id>                 # List evidence for a claim
 sxng verdict-list <session> --claim-id <id>                  # List verdicts for a claim
 sxng policy-aggregate <session>                              # Manual policy aggregation
@@ -65,8 +65,8 @@ sxng session-report <session>               # Full session report
 
 # Knowledge graph
 sxng graph-preprocess <session>             # TF-IDF + co-occurrence analysis
-sxng results-add <session> --query "source query" --data '[...]'  # Append external results as pending
-sxng graph-add <session> --data '{...}'     # Add entities/edges (after approval)
+sxng results-add <session> --query "source query" --data-file .\.sxng\agent-inputs\<session>\results.json  # Append external results as pending
+sxng graph-add <session> --data-file .\.sxng\agent-inputs\<session>\graph-data.json       # Add entities/edges (after approval)
 sxng graph-search <session> --keyword "x"   # Discover entities
 sxng graph-search <session> --keyword "x" --limit 5  # Limit results
 sxng graph-explore <session> --seed "x"     # View entity relations
@@ -104,24 +104,25 @@ sxng --health                               # Check server status
 | `--desc` | `--desc "research topic"` | Session description |
 | `--redundancy` | `--redundancy warn` | Redundancy check: warn / adjust / skip |
 | `--quality` | `--quality` | Assess result quality (requires --session) |
-| `--approve <indices>` | `--approve "0,1,2"` | Approve pending results by index (requires --quality) |
+| `--approve <indices>` | `--approve "0,1,2"` | Approve only verified pending results by index (requires --quality) |
 | `--threshold-override` | `--threshold-override '{"contentDepth":100}'` | Override quality thresholds (JSON) |
 
 ## Extract
 
-Extract full article content from web pages. If simple extraction fails (SPA or JS-heavy pages), use `--obscura` or `--jina` as fallback.
+Extract full article content from web pages. Use `--obscura` as a fallback for JS-heavy pages. Jina is rate-limited: inspect the default extraction first, then let the Agent decide whether a specific URL needs `--jina`.
 
 ```bash
 sxng extract --urls "https://example.com/a,https://example.com/b"
 sxng extract --session <session-name>
 sxng extract --urls "https://spa-site.com" --obscura
-sxng extract --urls "https://spa-site.com" --jina
+# After reviewing the default extraction, use Jina only for a selected URL and merge it back to the session.
+sxng extract --urls "https://spa-site.com" --session <session-name> --jina
 ```
 
 | Option | Purpose |
 |--------|---------|
 | `--obscura` | JS-rendering fallback for SPA pages |
-| `--jina` | Jina Reader fallback for complex pages |
+| `--jina` | Extract explicitly supplied URLs with Jina Reader; combine with `--session` to merge the selected results |
 
 ## Deep Search
 
@@ -166,7 +167,7 @@ All results go into the same pool, same pipeline:
 sxng --session <session> "query"  ──┐
 sxng results-add <session> --query "source query" ... ──┤──→ results.json (pending)
                                     │
-sxng extract --session <session>  ──┘   (updates content only)
+sxng extract --session <session>  ──┘   (on success writes content + extractedAt)
                                     │
                     ┌───────────────▼───────────────┐
                     │  --quality (view pending)     │
@@ -192,8 +193,9 @@ sxng extract --session <session>  ──┘   (updates content only)
 ```
 
 - **All results** (sxng + external) become `pending` in the same `results.json`
-- **Extract** only fills `content` — does not add new results
-- **Approve** injects approved results into graph (structural edges)
+- **Extract** does not add results. A successful session merge writes both `content` and `extractedAt`.
+- **Approve** accepts only entries reported as `verified: true`, then injects them into graph (structural edges).
+- **Failed extraction** stays pending. It cannot be approved or graph-injected until a later extraction succeeds.
 - **graph-add** only adds entities/edges — results go through approve first
 - **Claim pipeline** (L2/L3 only): before a Claim can use a result as evidence, extract that URL in the session so the evidence records its actual `extractedAt`; then Agent submits claims → CLI auto-searches evidence → Agent verifies → CLI aggregates policy → Agent adjusts output
 
@@ -204,18 +206,17 @@ sxng extract --session <session>  ──┘   (updates content only)
 sxng --session new --owner "agent-1" --desc "topic" "query"
 # Output includes session path, use it for subsequent commands
 
-# Extract content from results
+# Extract content from results. Inspect `stats.success`, `stats.failed`, and
+# `session.updated`; a failed URL remains pending.
 sxng extract --session <session>
 
-# Preprocess for entity discovery
-sxng graph-preprocess <session>
-
-# Assess quality & approve pending results (injects approved into graph)
+# Assess quality, then approve only listed entries with verified: true.
 sxng --session <session> --quality
 sxng --session <session> --quality --approve "0,1,2"
 
-# Add entities/edges to knowledge graph (after results in graph)
-sxng graph-add <session> --data '{"entities":[...],"edges":[...]}'
+# Preprocess session content, then add entities/edges to the graph.
+sxng graph-preprocess <session>
+sxng graph-add <session> --data-file .\.sxng\agent-inputs\<session>\graph-data.json
 
 # Get suggestions if quality needs improvement
 sxng suggest-queries <session>
@@ -240,7 +241,7 @@ sxng session-delete --older 24              # Delete sessions older than 24h
 sxng --session <session> --quality
 ```
 
-Returns 3 independent indicators: contentDepth, sourceDiversity, novelty. Verdict: good / acceptable / poor. Based on verdict, use `suggest-queries` or `recovery-analysis` for next steps.
+Returns 3 independent diagnostics: contentDepth, sourceDiversity, novelty. Verdict: good / acceptable / poor. Based on verdict, use `suggest-queries` or `recovery-analysis` for next steps. Quality does not verify factual correctness, relevance, source authority, or Claim support.
 
 All results accumulate as *pending* in the same pool. At **≥30 pending**, CLI warns the Agent to assess. The Agent runs quality, sees pending results with indices, and approves:
 
@@ -248,7 +249,8 @@ All results accumulate as *pending* in the same pool. At **≥30 pending**, CLI 
 # View pending results with indices (and quality score)
 sxng --session <session> --quality
 
-# Approve selected indices — injects into graph automatically
+# Approve selected indices only when their JSON output says verified: true.
+# Any unverified, duplicate, or invalid index makes the whole request fail without writes.
 sxng --session <session> --quality --approve "0,1,2"
 ```
 
@@ -266,20 +268,35 @@ Results must be approved first (→ structural layer). Then use `graph-add` to a
 # Correct order:
 # 1. Search or results-add
 sxng --session <session> "query"
-sxng results-add <session> --query "source query" --data '[...]'  # external results
+sxng results-add <session> --query "source query" --data-file .\.sxng\agent-inputs\<session>\external-results.json
 
-# 2. Extract and preprocess before approval; retain resultProvenance IDs and rounds
+# 2. Extract, and check that stats.success and session.updated are nonzero
 sxng extract --session <session>
-sxng graph-preprocess <session>
 
-# 3. Approve pending → structural graph built
+# 3. Inspect quality output; approve only verified pending results → structural graph built
 sxng --session <session> --quality --approve "0,1,2"
 
-# 4. Add entities/edges (include sourceRounds; use explicit entity IDs for same-request edges and resultProvenance IDs for result edges)
-sxng graph-add <session> --data '{"entities":[...],"edges":[...]}'
+# 4. Preprocess session content, then add graph JSON from a file.
+sxng graph-preprocess <session>
+sxng graph-add <session> --data-file .\.sxng\agent-inputs\<session>\graph-data.json
 ```
 
 **External search results**: When using other search tools (tavily, exa, etc.), inject results via the same pipeline—`results-add --query` → `extract` → `--approve` → `graph-add`—exactly like sxng results.
+
+### Structured JSON Input
+
+Use file input for external tool output, Chinese text, multiline fields, nested quotes, or large payloads. All JSON files must be UTF-8; a UTF-8 BOM is accepted. Each command accepts exactly one inline or file input, so a missing source, multiple sources, unreadable file, unsupported encoding, or malformed JSON fails before writing state.
+
+| Command | Inline option | File option |
+|---|---|---|
+| External results | `--data <json>` | `--data-file <path>` |
+| Graph entities/edges | `--data <json>` | `--data-file <path>` |
+| One Claim / batch Claims | `--claim` / `--claims` | `--claim-file` / `--claims-file` |
+| Evidence verification | `--evidence <json>` | `--evidence-file <path>` |
+
+For PowerShell, prefer `--*-file`. Short, controlled inline JSON remains supported for automation.
+
+Create Agent-produced files under `.sxng/agent-inputs/<session>/`, never at the project root. They are temporary transport data rather than user project input; `.sxng` already owns sxng state, and using the session name avoids a potential clash when separate runs would otherwise write the same fixed filename in one working directory. This is a file-naming convention, not CLI concurrency control. Do not delete the directory or its contents unless the user explicitly asks: a file may have been explicitly supplied by the user.
 
 When adding edges, `source`/`target` must reference existing node IDs. Do not hand-build IDs from a URL: use the `id` returned in `graph-preprocess.resultProvenance` for result nodes. Every new entity must include `sourceRounds` from the supporting provenance rows. If an edge references an entity created in the same `graph-add` call, give that entity an explicit `id` and use the same value in the edge.
 

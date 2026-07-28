@@ -10,6 +10,7 @@ import { dedupe } from '../deep/dedupe.js';
 export interface ExtractOptions {
     urls?: string[];
     session?: string;
+    jina?: boolean;
 }
 
 interface ExtractOutput {
@@ -27,6 +28,16 @@ export async function runExtract(
     options: ExtractOptions
 ): Promise<number> {
     let urls: string[] = [];
+
+    if (options.jina && (!options.urls || options.urls.length === 0)) {
+        const envelope = createErrorEnvelope(
+            'JINA_REQUIRES_URLS',
+            'Jina extraction requires explicit URLs so the Agent controls rate-limited requests',
+            { hint: 'Review default extraction first, then use: sxng extract --urls "https://example.com/page" --jina [--session <session>]' }
+        );
+        console.log(JSON.stringify(envelope, null, 2));
+        return 1;
+    }
 
     // Resolve session path if provided
     if (options.session) {

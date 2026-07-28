@@ -1,5 +1,5 @@
-import { describe, expect, it } from 'vitest';
-import { obscuraDownloadUrl } from '../../../src/deep/extractor.js';
+import { describe, expect, it, vi } from 'vitest';
+import { ContentExtractor, obscuraDownloadUrl } from '../../../src/deep/extractor.js';
 
 describe('obscuraDownloadUrl', () => {
     it.each([
@@ -13,5 +13,32 @@ describe('obscuraDownloadUrl', () => {
         expect(url.protocol).toBe('https:');
         expect(url.hostname).toBe('github.com');
         expect(url.pathname).toBe(`/h4ckf0r0day/obscura/releases/latest/download/${tarball}`);
+    });
+});
+
+describe('ContentExtractor', () => {
+    it('uses Jina directly when an Agent explicitly requests it', async () => {
+        const url = 'https://example.com/article';
+        const jinaContent = 'J'.repeat(120);
+
+        const fetchMock = vi.fn(async () => ({
+            ok: true,
+            text: async () => jinaContent,
+        }));
+        vi.stubGlobal('fetch', fetchMock);
+
+        try {
+            const result = await new ContentExtractor({ jina: true }).extract(url);
+
+            expect(result.method).toBe('jina');
+            expect(result.content).toBe(jinaContent);
+            expect(fetchMock).toHaveBeenCalledTimes(1);
+            expect(fetchMock).toHaveBeenCalledWith(
+                `https://r.jina.ai/${url}`,
+                expect.any(Object),
+            );
+        } finally {
+            vi.unstubAllGlobals();
+        }
     });
 });

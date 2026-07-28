@@ -25,8 +25,8 @@ describe('graph-preprocess (integration)', () => {
             { url: 'https://blog.rust-lang.org/async', title: 'Rust Async Ecosystem', content: 'The Rust async ecosystem includes tokio and async runtimes' },
         ]);
         updateSessionGraph(sessionDir, 'rust async', [
-            { url: 'https://tokio.rs', title: 'Tokio Runtime' },
-            { url: 'https://async.rs', title: 'Async Std' },
+            { url: 'https://tokio.rs', title: 'Tokio Runtime', content: 'Verified Tokio.', extractedAt: 1 },
+            { url: 'https://async.rs', title: 'Async Std', content: 'Verified Async.', extractedAt: 1 },
         ]);
 
         const result = graphPreprocess(sessionDir);
