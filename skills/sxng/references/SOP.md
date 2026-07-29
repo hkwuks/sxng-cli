@@ -1,19 +1,19 @@
 # SXNG DeepSearch SOP
 
-> **Proactive Deep Search**: When the user asks a question that requires multi-angle comparison, research, cross-validation, or any topic where simple search might not suffice — go straight to `--session` deep search. Do not start with simple search and "upgrade" later; creating a session from the first round costs nothing and gives you quality assessment, redundancy checks, and knowledge graph from the start. When uncertain between L1 and L2, choose L2.
+> **Proactive Deep Search**: When the user asks a question that requires multi-angle comparison, research, cross-validation, or any topic where simple search might not suffice, go straight to `--session` deep search. Do not start with simple search and "upgrade" later; creating a session from the first round costs nothing and gives you quality assessment, redundancy checks, and knowledge graph from the start. When uncertain between L1 and L2, choose L2.
 >
-> **Before using this SOP**: Read `skills/sxng/references/pipeline.md` first — it explains the data flow (single pending pool, batch approval, graph injection order). This SOP assumes you understand that pipeline.
+> **Before using this SOP**: Read `skills/sxng/references/pipeline.md` first; it explains the data flow (single pending pool, batch approval, graph injection order). This SOP assumes you understand that pipeline.
 
 > Standard Operating Procedure for multi-round deep research (Session + Knowledge Graph + Quality Assessment + Recovery)
 
 ## 1. Core Philosophy
 
-**Search ≠ Answer**. A single search returns raw information, not verified facts. This SOP ensures output quality through **multi-round iteration + knowledge graph + quality assessment + recovery strategies**.
+**Search != Answer**. A single search returns raw information, not verified facts. This SOP ensures output quality through **multi-round iteration + knowledge graph + quality assessment + recovery strategies**.
 
 **Workflow**:
 
 ```
-Intent Analysis → Query Planning (with coverage status) → Multi-source Search → Content Extraction → Quality Assessment → Graph Building → Recovery/Suggestions → (Loop or Output)
+Intent Analysis -> Query Planning (with coverage status) -> Multi-source Search -> Content Extraction -> Quality Assessment -> Graph Building -> Recovery/Suggestions -> Loop or Output
 ```
 
 ---
@@ -32,7 +32,7 @@ Intent Analysis → Query Planning (with coverage status) → Multi-source Searc
 
 ### When to Use Simple Search (no `--session`)
 
-**Only use simple search when the question is a trivial single-fact lookup with no need for cross-validation.** If there's any chance more depth is needed, start with `--session` — it doesn't cost extra and preserves options.
+**Only use simple search when the question is a trivial single-fact lookup with no need for cross-validation.** If there's any chance more depth is needed, start with `--session`; it doesn't cost extra and preserves options.
 
 | Scenario | Example |
 |----------|---------|
@@ -65,8 +65,8 @@ sxng extract --urls "https://pypi.org/project/fastapi/"
 ```
 
 **Stop Conditions**:
-- [x] Found >= 1 authoritative source (official docs / PyPI / GitHub)
-- [x] No conflicting information
+- Found >= 1 authoritative source (official docs / PyPI / GitHub)
+- No conflicting information
 
 ---
 
@@ -83,14 +83,13 @@ sxng extract --urls "https://pypi.org/project/fastapi/"
 
 ```bash
 # Step 1: Create Session
-sxng --session new --owner "agent-1" --desc "Vector DB comparison" \
-     "vector database 2026 Pinecone Weaviate Qdrant comparison"
+sxng --session new --owner "agent-1" --desc "Vector DB comparison" "vector database 2026 Pinecone Weaviate Qdrant comparison"
 
 # Step 2: Extract, then preprocess the extracted content
 sxng extract --session <session>
 sxng graph-preprocess <session> --format json
-# For JS-heavy pages (SPAs), add --obscura fallback:
-# sxng extract --session <session> --obscura
+# For a JS-heavy page, select the concrete session URL and use Obscura:
+# sxng extract --session <session> --urls "https://example.com/page" --obscura
 
 # Step 3: Quality assessment + approve selected {id, revision} objects into the structural graph
 sxng --session <session> --quality
@@ -101,8 +100,7 @@ sxng graph-add <session> --data-file .\.sxng\sessions\<session>\agent-inputs\gra
 
 # Step 5: If a Query Plan gap remains, get suggestions + supplementary search
 sxng suggest-queries <session> --format json
-sxng --session <session> --queries \
-     "Pinecone pricing 2026,Weaviate vs Qdrant benchmark" --redundancy warn
+sxng --session <session> --queries "Pinecone pricing 2026,Weaviate vs Qdrant benchmark" --redundancy warn
 
 # Return to Steps 2-4 for every new result batch: extract, preprocess,
 # approve, then add any needed entities or edges.
@@ -112,10 +110,10 @@ sxng graph-explore <session> --seed "Pinecone" --format json
 ```
 
 **Stop Conditions**:
-- [x] Quality assessment verdict is good or acceptable
-- [x] Each candidate has >= 2 independent sources
-- [x] Key entities connected in graph
-- [x] Every core Query Plan row is `covered`, or any `blocked` row is disclosed in the output
+- Quality assessment verdict is good or acceptable
+- Each candidate has >= 2 independent sources
+- Key entities connected in graph
+- Every core Query Plan row is `covered`, or any `blocked` row is disclosed in the output
 
 ---
 
@@ -144,8 +142,7 @@ Before searching, create this plan in the Agent's working notes. It is not persi
 | `<question>` | official / independent / counter-evidence / current source | unsearched | `<query only when a gap exists>` |
 
 ```bash
-sxng --session new --owner "researcher" --desc "RAG Vector DB deep research" \
-     --queries "vector database 2026 ranking,vector DB for RAG comparison"
+sxng --session new --owner "researcher" --desc "RAG Vector DB deep research" --queries "vector database 2026 ranking,vector DB for RAG comparison"
 ```
 
 #### Phase 2: Preprocessing & Entity Discovery
@@ -174,14 +171,14 @@ sxng --session <session> --quality --approve-file .\.sxng\sessions\<session>\age
 
 #### Phase 4: Build Knowledge Graph
 
-> **Before Phase 4**: Approved results must already exist in the graph via `--quality --approve-file`. `graph-add` only accepts entities and edges — results go through the pending pipeline first.
+> **Before Phase 4**: Approved results must already exist in the graph via `--quality --approve-file`. `graph-add` only accepts entities and edges; results go through the pending pipeline first.
 
 ```bash
 sxng graph-add <session> --data-file .\.sxng\sessions\<session>\agent-inputs\graph.json
 ```
 
 The knowledge graph has two layers:
-- **Structural** (auto-built via --approve-file): query→result→domain nodes and edges
+- **Structural** (auto-built via --approve-file): query->result->domain nodes and edges
 - **Semantic** (added by you via `graph-add`): entity nodes with custom relation edges
 
 When adding edges, `source`/`target` must reference existing node IDs. Run `graph-preprocess` after extraction and use `resultProvenance[].id` for result nodes; never construct a result ID from its URL. Every entity and edge needs currently approved `sourceResultIds` from those provenance rows. When an edge references a newly created entity in the same request, set an explicit `id` such as `e:entity-name`. Node ID prefix rules:
@@ -196,14 +193,13 @@ When adding edges, `source`/`target` must reference existing node IDs. Run `grap
 
 References to non-existent nodes are skipped and reported in `skippedEdges`.
 
-**External Search Results Integration**: When you use other search tools (tavily, exa, open-web-search, etc.) during a deep search session, use `results-add` to inject results. They go through the same pipeline as sxng-native results: **pending → quality assessment → approval → graph injection**. Use `graph-add` only for entities/edges after approval.
+**External Search Results Integration**: When you use other search tools (tavily, exa, open-web-search, etc.) during a deep search session, use `results-add` to inject results. They go through the same pipeline as sxng-native results: **pending -> quality assessment -> approval -> graph injection**. Use `graph-add` only for entities/edges after approval.
 
 ```bash
 # Step 1: Save external discovery JSON under the session, then import it (becomes pending).
-sxng results-add <session> --kind search --tool exa --query "external source query" \
-  --data-file .\.sxng\sessions\<session>\agent-inputs\external-search.json
+sxng results-add <session> --kind search --tool exa --query "external source query" --data-file .\.sxng\sessions\<session>\agent-inputs\external-search.json
 
-# Step 2: Extract, then run quality assessment → approve (injects into graph)
+# Step 2: Extract, then run quality assessment and approve (injects into graph)
 sxng extract --session <session>
 sxng --session <session> --quality
 sxng --session <session> --quality --approve-file .\.sxng\sessions\<session>\agent-inputs\approve.json
@@ -212,29 +208,29 @@ sxng --session <session> --quality --approve-file .\.sxng\sessions\<session>\age
 sxng graph-add <session> --data-file .\.sxng\sessions\<session>\agent-inputs\graph.json
 ```
 
-The origin `tool` (`"sxng"` | `"tavily"` | `"exa"` | `"open-web-search"` | ...) records which tool produced each result. sxng-native results default to `"sxng"`. External results participate equally in quality assessment, path discovery, and domain diversity — the graph treats them identically regardless of source.
+The origin `tool` (`"sxng"` | `"tavily"` | `"exa"` | `"open-web-search"` | ...) records which tool produced each result. sxng-native results default to `"sxng"`. External results participate equally in quality assessment, path discovery, and domain diversity; the graph treats them identically regardless of source.
 
 > **Note**: `results-add --kind search` marks discoveries as `pending` and they require extraction. `--kind extracted` accepts an external body with `content` and `extractor`, then it awaits approval. Neither kind enters the graph until Agent approval via `--quality --approve-file`.
 
 > **Two-layer quality assessment:**
 > 1. **Programmatic pre-filter**: CLI computes 3 indicators (contentDepth, sourceDiversity, novelty) to flag obviously poor batches
-> 2. **Agent final review**: Agent sees each pending result's title, content preview, source, and domain — then decides which to keep
+> 2. **Agent final review**: Agent sees each pending result's title, content preview, source, and domain; then decides which `{id, revision}` objects to keep
 >
-> Results are accumulated as `pending` — they are not in the knowledge graph until approved by the Agent via `--approve-file`. External results injected via `results-add` also go through pending first.
+> Results are accumulated as `pending`; they are not in the knowledge graph until approved by the Agent via `--approve-file`. External results injected via `results-add` also go through pending first.
 
 3 independent indicators for programmatic pre-filter (each with its own threshold):
 
 | Indicator | Purpose | Threshold |
 |-----------|---------|-----------|
-| contentDepth | Filter empty/very short extractions | ≥ 150 chars average |
-| sourceDiversity | Ensure not all from same domain | ≥ 3 distinct domains |
-| novelty | Prevent circular/redundant results | ≥ 30% novel (Jaccard) |
+| contentDepth | Filter empty/very short extractions | >= 150 chars average |
+| sourceDiversity | Ensure not all from same domain | >= 3 distinct domains |
+| novelty | Prevent circular/redundant results | >= 30% novel (Jaccard) |
 
 | Verdict | Meaning | Agent Action |
 |---------|---------|-------------|
 | good | All pre-filters pass | Review and approve likely good results |
-| acceptable | 1 pre-filter failed | Review carefully — some results may still be valuable |
-| poor | ≥2 pre-filters failed | Strong signal to reformulate query or adjust strategy |
+| acceptable | 1 pre-filter failed | Review carefully; some results may still be valuable |
+| poor | >=2 pre-filters failed | Strong signal to reformulate query or adjust strategy |
 
 > **Agent decision criteria** (based on per-result data in `--quality` output):
 > - **Relevance**: Does the content preview address the query?
@@ -252,9 +248,9 @@ sxng suggest-queries <session> --format json
 ```
 
 **Agent Decision Logic**:
-- `topEntities` has high degree × frequency but unexplored entities → search using them as keywords
-- `unexploredDomains` is non-empty → choose query terms related to new domains
-- `qualityLastRound.failedIndicators` contains "sourceDiversity" → add `-e` flag to use different engines
+- `topEntities` has high degree x frequency but unexplored entities: search using them as keywords
+- `unexploredDomains` is non-empty: choose query terms related to new domains
+- `qualityLastRound.failedIndicators` contains "sourceDiversity": add `-e` flag to use different engines
 - Choose only a query that closes one recorded Query Plan gap. If no gap remains, stop rather than searching for more supporting material.
 - When the gap is an official source, target the official publisher; when it is independence, seek a non-cross-posted source; when it is a conflict, seek the primary record or retain the disagreement.
 
@@ -275,8 +271,8 @@ sxng recovery-analysis <session> --format json
 | Strategy | Applicable Scenario | Agent Action |
 |----------|---------------------|-------------|
 | reformulate | Query too specific, too few results | Remove qualifiers, use broader terms |
-| engine_rotation | Current engine missed results | Switch engine combination (e.g., google → arxiv+github) |
-| category_shift | Current category has poor results | Switch to different category (e.g., general → it) |
+| engine_rotation | Current engine missed results | Switch engine combination (e.g., google -> arxiv+github) |
+| category_shift | Current category has poor results | Switch to different category (e.g., general -> it) |
 | backtrack | >=2 consecutive poor rounds | Return to last good quality round, explore different direction |
 
 Also check search stage suggestions:
@@ -290,7 +286,7 @@ sxng strategy-info <session> --format json
 
 ### Search Backend Failure Recovery
 
-**Scenario**: SearXNG (or the current search backend) returns 0 results, errors out, or times out. The session itself is healthy — only the search source failed.
+**Scenario**: SearXNG (or the current search backend) returns 0 results, errors out, or times out. The session itself is healthy; only the search source failed.
 
 **Correct Response**:
 
@@ -299,18 +295,18 @@ sxng strategy-info <session> --format json
    ```bash
     sxng results-add <session> --kind search --tool <tool> --query "failed-backend query" --data-file .sxng/sessions/<session>/agent-inputs/fallback-search.json
    ```
-3. **Continue the normal pipeline**: extract → `--quality` → `--approve-file` → graph-preprocess → `graph-add`.
+3. **Continue the normal pipeline**: extract -> `--quality` -> `--approve-file` -> graph-preprocess -> `graph-add`.
 
 **What NOT to do**:
 
-| ❌ Don't | ✅ Do |
+| Don't | Do |
 |----------|------|
 | Create a new session for the same topic | Reuse the existing session |
 | Output search results directly without injecting | Always inject via `results-add` |
 | Abandon the session because "SearXNG is down" | The session owns the state, not the backend |
-| Use a different search flow that bypasses the session's pipeline | Every result goes through the same pending → approve → graph flow |
+| Use a different search flow that bypasses the session's pipeline | Every result goes through the same pending -> approve -> graph flow |
 
-**Rule**: A backend failure is NOT session corruption. The session stores state — it is decoupled from any single search source. Only abandon a session when its data files are actually corrupted (`results.json` unreadable), never because a backend returned errors.
+**Rule**: A backend failure is NOT session corruption. The session stores state; it is decoupled from any single search source. Only abandon a session when its data files are actually corrupted (`results.json` unreadable), never because a backend returned errors.
 
 #### Phase 8: Graph Exploration (navigate knowledge space after quality is good)
 
@@ -368,8 +364,8 @@ Extract from user question:
 
 | Strategy | Applicable Scenario |
 |----------|---------------------|
-| `broad_exploration` | Exploratory ("what are the options") — first 2-3 rounds |
-| `targeted_deep_dive` | Analytical (candidates identified, need details) — after entity growth slows |
+| `broad_exploration` | Exploratory ("what are the options"), first 2-3 rounds |
+| `targeted_deep_dive` | Analytical (candidates identified, need details), after entity growth slows |
 
 Use `strategy-info` command to determine current stage.
 
@@ -392,7 +388,7 @@ Use `strategy-info` command to determine current stage.
    - Results injected into session as `source: "local"` (pending state)
    - Does NOT increment session round counter (merged with current web round)
 
-2. Results follow the same pipeline: pending → quality → approve → graph
+2. Results follow the same pipeline: pending -> quality -> approve -> graph
 
 ### Agent Decision Flow
 
@@ -405,13 +401,13 @@ Use `strategy-info` command to determine current stage.
 
 ### Quality Assessment Note
 
-Local-only results (`source: "local"`) will have `sourceDiversity: 1` because all results share the same domain-less source. This is correct behavior — pure local search is not diverse enough to pass quality. Always combine with web results for adequate source diversity.
+Local-only results (`source: "local"`) will have `sourceDiversity: 1` because all results share the same domain-less source. This is correct behavior; pure local search is not diverse enough to pass quality. Always combine with web results for adequate source diversity.
 
 ---
 
-## Claim—Evidence—Review Audit (L2/L3 Only)
+## Claim-Evidence-Review Audit (L2/L3 Only)
 
-After completing Phase 1–8 and synthesizing a draft, run the
+After completing Phase 1-8 and synthesizing a draft, run the
 [Claim-Evidence-Review Audit](claim-evidence-review.md) before final output.
 L1 searches have no session or approved-results pool, so they do not run it.
 
@@ -427,7 +423,7 @@ Before outputting final answer, verify:
 - [ ] Used `sxng extract` to extract key page content
 - [ ] L2/L3 levels used `--session` and knowledge graph
 - [ ] L3 level used `--quality` assessment and decided next steps accordingly
-- [ ] **L2/L3: ran Claim—Evidence—Review pipeline** (`claim-add` → `evidence-verify` → review)
+- [ ] **L2/L3: ran Claim-Evidence-Review pipeline** (`claim-add` -> `evidence-verify` -> review)
 - [ ] **Final output only cites `approved` claims** (`needsReview` claims either dropped or marked as uncertain)
 - [ ] No evidence-free phrases like "it is generally believed" / "reports indicate"
 - [ ] Graph coverage verified via `graph-explore`
@@ -435,5 +431,5 @@ Before outputting final answer, verify:
 ---
 
 > **Further Reading**:
-> - [Evidence Standards](evidence-standards.md) — source credibility tiers, cross-validation rules, conflict resolution, citation format
-> - [Appendix: Example & Anti-Patterns](appendix.md) — complete L3 walkthrough and common mistakes to avoid
+> - [Evidence Standards](evidence-standards.md): source credibility tiers, cross-validation rules, conflict resolution, citation format
+> - [Appendix: Example & Anti-Patterns](appendix.md): complete L3 walkthrough and common mistakes to avoid

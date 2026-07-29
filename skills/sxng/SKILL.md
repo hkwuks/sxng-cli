@@ -1,27 +1,27 @@
 ---
 name: sxng
-description: "Search the web for ANY current information, facts, docs, answers, or content. ALWAYS invoke this skill when the user asks about real-world topics — technologies, products, libraries, frameworks, APIs, versions, prices, comparisons, tutorials, error solutions, documentation, reviews, news, or any factual question. CRITICAL RULE: search before relying on your training data when there's even a small chance the answer could be outdated or incomplete. Use even when the user doesn't say 'search' — any question about the current state of the world triggers this. Recognize inquiry patterns like: what is / how to / tell me about / find / compare / vs / latest / new / update / fix / error / solve / why does / when did / where can I / which is / guide / tutorial / example / documentation / review / alternative / difference / price / cost. Use deep search (--session) for multi-dimensional comparisons, research reports, thorough investigations, or when initial results are shallow. Use extract for page content from specific URLs."
+description: "Search the web for ANY current information, facts, docs, answers, or content. ALWAYS invoke this skill when the user asks about real-world topics: technologies, products, libraries, frameworks, APIs, versions, prices, comparisons, tutorials, error solutions, documentation, reviews, news, or any factual question. CRITICAL RULE: search before relying on your training data when there's even a small chance the answer could be outdated or incomplete. Use even when the user doesn't say 'search'; any question about the current state of the world triggers this. Recognize inquiry patterns like: what is / how to / tell me about / find / compare / vs / latest / new / update / fix / error / solve / why does / when did / where can I / which is / guide / tutorial / example / documentation / review / alternative / difference / price / cost. Use deep search (--session) for multi-dimensional comparisons, research reports, thorough investigations, or when initial results are shallow. Use extract for page content from specific URLs."
 ---
 
 # SearXNG Web Search
 
-> **CRITICAL: Use this skill PROACTIVELY.** The default answer to any information-seeking question should be a web search, not your training data. When in doubt, search — a search costs seconds, a confidently wrong answer costs trust. This section is your trigger guide.
+> **CRITICAL: Use this skill PROACTIVELY.** The default answer to any information-seeking question should be a web search, not your training data. When in doubt, search; a search costs seconds, a confidently wrong answer costs trust. This section is your trigger guide.
 
-Use `sxng` CLI to search the web. Results are deduplicated by normalized URL and content Jaccard similarity; session accumulation preserves same-title results when their URLs differ. CLI automatically filters out results with empty title or content.
+Use `sxng` CLI to search the web. Results are deduplicated by normalized URL and content Jaccard similarity; session accumulation preserves same-title results when their URLs differ. Search results with empty title or empty snippet are automatically filtered out by CLI.
 
-## Proactive Usage — Always Search When
+## Proactive Usage - Always Search When
 
 | If the user... | Then... |
 |---------------|---------|
-| Asks about any technology, library, framework, tool, or product | → search for current info (versions, docs, comparisons, reviews) |
-| Asks "what is", "how to", "tell me about", "find", "compare", "vs" | → search the web |
-| Reports an error or unexpected behavior | → search for solutions, known issues, fixes |
-| Wants a recommendation ("which is better", "best X for Y") | → deep search with multi-round session |
-| Asks about prices, costs, or alternatives | → search for current data |
-| Asks about events, dates, or news | → search (your training data is outdated for this) |
-| Provides a URL and wants content extracted | → `sxng extract --urls` |
-| Wants to understand a page's full content | → `sxng extract --urls` to get the article body |
-| Has a question you're not 100% confident about | → search to verify |
+| Asks about any technology, library, framework, tool, or product | Search for current info (versions, docs, comparisons, reviews) |
+| Asks "what is", "how to", "tell me about", "find", "compare", "vs" | Search the web |
+| Reports an error or unexpected behavior | Search for solutions, known issues, fixes |
+| Wants a recommendation ("which is better", "best X for Y") | Use deep search with a multi-round session |
+| Asks about prices, costs, or alternatives | Search for current data |
+| Asks about events, dates, or news | Search; your training data is outdated for this |
+| Provides a URL and wants content extracted | Use `sxng extract --urls` |
+| Wants to understand a page's full content | Use `sxng extract --urls` to get the article body |
+| Has a question you're not 100% confident about | Search to verify |
 
 **Rule of thumb**: If the answer exists on the web, use sxng. Do not guess, do not rely on static knowledge. Your training data is a snapshot; the web is current.
 
@@ -31,7 +31,7 @@ Use `sxng` CLI to search the web. Results are deduplicated by normalized URL and
 # Simple search
 sxng <query>                                # Search (markdown output)
 sxng --format json <query>                  # Search (JSON output)
-sxng --queries "q1,q2,q3"                  # Multi-query with RRF fusion & dedup
+sxng --queries "q1,q2,q3"                  # Multi-query with RRF fusion and dedup
 
 # Deep search session
 sxng --session new --owner "agent-1" --desc "topic" "query"
@@ -40,16 +40,15 @@ sxng --session <session> "more queries"
 # Content extraction
 sxng extract --urls "url1,url2"             # Extract from URLs
 sxng extract --session <session>            # Extract session results
-sxng extract --urls "url1" --obscura        # Fallback: JS rendering
-sxng extract --urls "url1" --jina           # Agent-selected Jina extraction for this URL
+sxng extract --session <session> --urls "url1" --obscura  # JS-rendering fallback for a selected session URL
+sxng extract --session <session> --urls "url1" --jina     # Agent-selected Jina extraction for a selected session URL
 
-# Claim—Evidence—Review (L2/L3 only, after search)
+# Claim-Evidence-Review (L2/L3 only, after search)
 sxng claim-add <session> --claim-file .\.sxng\sessions\<session>\agent-inputs\claim.json           # Add one UTF-8 JSON claim
 sxng claim-add <session> --claims-file .\.sxng\sessions\<session>\agent-inputs\claims.json         # Add UTF-8 JSON claim array
 sxng claim-list <session>                                    # List claims
 sxng evidence-search <session> --claim-id <id>               # Search evidence candidates (read-only)
-sxng evidence-verify <session> --claim-id <id> \             # Verify evidence + stance
-  --evidence-file .\.sxng\sessions\<session>\agent-inputs\evidence.json --stance support --reason '...' --complete
+sxng evidence-verify <session> --claim-id <id> --evidence-file .\.sxng\sessions\<session>\agent-inputs\evidence.json --stance support --reason "..." --complete
 sxng evidence-list <session> --claim-id <id>                 # List evidence for a claim
 sxng verdict-list <session> --claim-id <id>                  # List verdicts for a claim
 sxng policy-aggregate <session>                              # Manual policy aggregation
@@ -132,12 +131,12 @@ Deep search enables multi-round iterative research with session accumulation, qu
 
 > Read the [SOP](references/SOP.md) for core procedures and [Evidence Standards](references/evidence-standards.md) for source quality rules before starting. For the final L2/L3 claim audit, read [Claim-Evidence-Review Audit](references/claim-evidence-review.md) after synthesizing the draft.
 
-> **🔗 Session Continuity Rule (Hard Requirement)**
+> **Session Continuity Rule (Hard Requirement)**
 >
-> Once a deep search session is created, **ALL results from ALL search backends MUST go into that same session** via `results-add`. The session is the state container — abandoning it discards the knowledge graph, quality history, redundancy state, and strategy progression.
+> Once a deep search session is created, **ALL results from ALL search backends MUST go into that same session** via `results-add`. The session is the state container; abandoning it discards the knowledge graph, quality history, redundancy state, and strategy progression.
 >
 > **Allowed:**
-> - Switch search backends when one fails (sxng → tavily → exa → open-web-search)
+> - Switch search backends when one fails (sxng -> tavily -> exa -> open-web-search)
 > - Inject external results into the current session via `results-add`
 > - Extract content from URLs independently and add to the session
 >
@@ -146,7 +145,7 @@ Deep search enables multi-round iterative research with session accumulation, qu
 > - Abandon the session and output results outside it
 > - Use a different search flow that bypasses the existing session
 >
-> **Exception**: Only create a new session if the current one is **corrupted** (e.g. `results.json` is unreadable). A search backend returning 0 results or errors is NOT corruption — switch backends, not sessions.
+> **Exception**: Only create a new session if the current one is **corrupted** (e.g. `results.json` is unreadable). A search backend returning 0 results or errors is NOT corruption; switch backends, not sessions.
 
 ### Query Plan (L2/L3 Hard Requirement)
 
@@ -165,41 +164,23 @@ For L2/L3 research, keep a small **Query Plan in the Agent's working notes**. It
 
 All results go into the same pool, same pipeline:
 
-```bash
-sxng --session <session> "query"  ──┐
-sxng results-add <session> --kind <search|extracted> ... ──┤──→ results.json (pending)
-                                    │
-sxng extract --session <session>  ──┘   (on success writes content + extractedAt)
-                                    │
-                    ┌───────────────▼───────────────┐
-                    │  --quality (view pending)     │
-                    │  --approve-file (→ graph)      │
-                    └───────────────┬───────────────┘
-                                    │
-                    ┌───────────────▼───────────────┐
-                    │  graph-add (entities/edges)   │
-                    └───────────────────────────────┘
-                    │
-                    │  (L2/L3 only)
-                    │
-                    ┌───────────────▼───────────────┐
-                    │  claim-add (+ auto evidence)  │
-                    │  evidence-verify (+ auto      │
-                    │    policy-aggregate → review)  │
-                    └───────────────┬───────────────┘
-                    │
-                    ┌───────────────▼───────────────┐
-                    │  Agent adjusts final output   │
-                    │  (only cite approved claims)  │
-                    └───────────────────────────────┘
+```text
+sxng search or results-add -> results.json (pending)
+sxng extract --session     -> writes content + extractedAt on success
+sxng --quality             -> Agent reviews pending results
+sxng --approve-file        -> approved results enter the structural graph
+sxng graph-add             -> Agent adds semantic entities/edges
+L2/L3 only:
+  claim-add -> evidence-verify -> policy-aggregate -> review
+  Agent adjusts final output and cites only approved claims.
 ```
 
 - **All results** (sxng + external) become `pending` in the same `results.json`
 - **Extract** does not add results. A successful session merge writes both `content` and `extractedAt`.
 - **Approve** accepts only entries reported as `verified: true`, then injects them into graph (structural edges).
 - **Failed extraction** stays pending. It cannot be approved or graph-injected until a later extraction succeeds.
-- **graph-add** only adds entities/edges — results go through approve first
-- **Claim pipeline** (L2/L3 only): before a Claim can use a result as evidence, extract that URL in the session so the evidence records its actual `extractedAt`; then Agent submits claims → CLI auto-searches evidence → Agent verifies → CLI aggregates policy → Agent adjusts output
+- **graph-add** only adds entities/edges; results go through approve first
+- **Claim pipeline** (L2/L3 only): before a Claim can use a result as evidence, extract that URL in the session so the evidence records its actual `extractedAt`; then Agent submits claims -> CLI auto-searches evidence -> Agent verifies -> CLI aggregates policy -> Agent adjusts output
 
 ### Quick Start
 
@@ -245,10 +226,10 @@ sxng --session <session> --quality
 
 Returns 3 independent diagnostics: contentDepth, sourceDiversity, novelty. Verdict: good / acceptable / poor. Based on verdict, use `suggest-queries` or `recovery-analysis` for next steps. Quality does not verify factual correctness, relevance, source authority, or Claim support.
 
-All results accumulate as *pending* in the same pool. At **≥30 pending**, CLI warns the Agent to assess. The Agent runs quality, sees pending results with indices, and approves:
+All results accumulate as *pending* in the same pool. At **>=30 pending**, CLI warns the Agent to assess. The Agent runs quality, reviews the pending results, and approves by writing selected `{id, revision}` objects:
 
 ```bash
-# View pending results with indices (and quality score)
+# View pending results with id, revision, verification state, and quality score
 sxng --session <session> --quality
 
 # Save selected {id, revision} objects only when their JSON output says verified: true.
@@ -261,10 +242,10 @@ One `--approve-file` call processes selected results from all sources together.
 ### Knowledge Graph
 
 Two layers:
-- **Structural** (auto-built via `--approve-file`): query→result→domain nodes and edges
+- **Structural** (auto-built via `--approve-file`): query->result->domain nodes and edges
 - **Semantic** (added by you via `graph-add`): entity nodes with custom relation edges
 
-Results must be approved first (→ structural layer). Then use `graph-add` to add entities/edges referencing those result nodes.
+Results must be approved first so they exist in the structural layer. Then use `graph-add` to add entities/edges referencing those result nodes.
 
 ```bash
 # Correct order:
@@ -275,7 +256,7 @@ sxng results-add <session> --kind search --tool exa --query "source query" --dat
 # 2. Extract, and check that stats.success and session.updated are nonzero
 sxng extract --session <session>
 
-# 3. Inspect quality output; approve only verified pending results → structural graph built
+# 3. Inspect quality output; approve only verified pending results. This builds the structural graph.
 sxng --session <session> --quality --approve-file .\.sxng\sessions\<session>\agent-inputs\approve.json
 
 # 4. Preprocess session content, then add graph JSON from a file.
@@ -283,7 +264,7 @@ sxng graph-preprocess <session>
 sxng graph-add <session> --data-file .\.sxng\sessions\<session>\agent-inputs\graph-data.json
 ```
 
-**External results**: Import search discovery with `results-add --kind search` → `extract` → `--approve-file` → `graph-add`. If the external tool already returned a body, import it with `--kind extracted`, non-empty `content`, and `extractor`; it awaits approval without re-extraction.
+**External results**: Import search discovery with `results-add --kind search` -> `extract` -> `--approve-file` -> `graph-add`. If the external tool already returned a body, import it with `--kind extracted`, non-empty `content`, and `extractor`; it awaits approval without re-extraction.
 
 ### Structured JSON Input
 
@@ -357,28 +338,28 @@ See SOP for detailed L1/L2/L3 complexity guidelines.
 
 ## Tips
 
-- Default format: search & graph nav → md; analysis commands → json. Override with `-f` or `--format`.
-- Results with empty title or content are automatically filtered out by CLI
+- Default format: search and graph nav -> md; analysis commands -> json. Override with `-f` or `--format`.
+- Search results with empty title or empty snippet are automatically filtered out by CLI
 - Use `--time week/day` for recent information
 - If searches fail, retry the same command with the required sandbox/network permission before using fallback tools
-- Use `--quality` after accumulating enough pending results (≥30 triggers a warning)
+- Use `--quality` after accumulating enough pending results (>=30 triggers a warning)
 - Use `--redundancy warn` to avoid repeating similar queries
 
 ## Result Quality Filtering
 
-When presenting search results to the user, apply lightweight quality judgment based on your own understanding. This is not a separate step — just a natural part of reading and outputting results.
+When presenting search results to the user, apply lightweight quality judgment based on your own understanding. This is not a separate step; just a natural part of reading and outputting results.
 
 **Filter out** results that clearly fall into these categories:
 
-- The title and snippet are both unrelated to the query intent (not just missing keywords — semantically off-topic)
+- The title and snippet are both unrelated to the query intent (not just missing keywords; semantically off-topic)
 - The snippet is pure SEO stuffing: keyword repetition with no factual content
 - The page is a known low-quality aggregator (mirrors, scrapers, parked domains) and adds no value beyond what other results already provide
 
 **Do NOT filter** results that are:
 
-- Partially relevant or tangentially related — they may provide useful context
-- Written in a different style or tone than expected — relevance matters more than presentation
-- Missing some query terms but still on-topic — semantic match > keyword match
-- From lesser-known sources — small blogs and forums often have the best answers
+- Partially relevant or tangentially related; they may provide useful context
+- Written in a different style or tone than expected; relevance matters more than presentation
+- Missing some query terms but still on-topic; semantic match > keyword match
+- From lesser-known sources; small blogs and forums often have the best answers
 
 **Principle: keep liberally, filter conservatively.** When uncertain about a result's relevance, always keep it. It is better to show a slightly noisy result than to hide a useful one.

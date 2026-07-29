@@ -1,53 +1,28 @@
-# Search Pipeline — How Results Flow Through the System
+# Search Pipeline - How Results Flow Through the System
 
 ## One Pool, One Pipeline
 
-All results — whether from sxng search, external tools (tavily/exa), or any other source — go into **the same `results.json` pool** in the session directory. There is no separate path for external results. Everything follows the same flow:
+All results, whether from sxng search, external tools (tavily/exa), or any other source, go into **the same `results.json` pool** in the session directory. There is no separate path for external results. Everything follows the same flow:
 
-```
-                         ┌─────────────────────────────┐
-                         │      results.json pool      │
-                         │  (all results, deduped)      │
-                         │  status: pending | approved  │
-                         └─────────────────────────────┘
-                                   │
-                    ─── Pending ───┤
-                                   │
-                    ┌──────────────▼──────────────┐
-                         │  Agent: --quality            │
-                         │  → see pending id + revision │
-                         │  → approve: --approve-file   │
-                    └──────────────┬──────────────┘
-                                   │
-                    ─── Approved ──┤
-                                   │
-                    ┌──────────────▼──────────────┐
-                    │  Auto-inject into graph     │
-                    │  (structural edges:          │
-                    │   query→result→domain)       │
-                    └─────────────────────────────┘
-                                   │
-                    ┌──────────────▼──────────────┐
-                    │  Agent: graph-add           │
-                    │  → entities (semantic)       │
-                    │  → edges (relations)         │
-                    └─────────────────────────────┘
-                                   │
-                    ┌──────────────▼──────────────┐
-                    │  Agent: claim-add           │
-                    │  → auto evidence-search     │
-                    │  → evidence-verify          │
-                    │  → auto policy-aggregate    │
-                    │  → Review (approved/        │
-                    │     needsReview/rejected)    │
-                    └─────────────────────────────┘
-                                   │
-                                   ▼
-                         ┌──────────────────┐
-                         │  Final output     │
-                         │  (approved claims │
-                         │   only)           │
-                         └──────────────────┘
+```text
+results.json pool (all deduped results)
+  status: pending | approved
+
+pending
+  -> Agent runs --quality
+  -> Agent writes selected {id, revision} objects
+  -> Agent approves with --approve-file
+
+approved
+  -> CLI injects structural query->result->domain edges
+  -> Agent uses graph-add for semantic entities and relations
+
+L2/L3 only
+  -> Agent runs claim-add
+  -> CLI auto evidence-searches
+  -> Agent runs evidence-verify
+  -> CLI policy-aggregates
+  -> Agent adjusts final output and cites approved claims only
 ```
 
 ## How Results Enter the Pool
@@ -64,22 +39,22 @@ All results — whether from sxng search, external tools (tavily/exa), or any ot
 
 ## Accumulation & Batch Processing
 
-Results accumulate as pending. A warning fires at **≥30 pending results**, prompting quality assessment. This batch approach:
+Results accumulate as pending. A warning fires at **>=30 pending results**, prompting quality assessment. This batch approach:
 
 - Reduces token spend (one assessment per batch, not per result)
 - Gives the Agent more context for quality decisions (sees all pending together)
 - Lets external and sxng results be evaluated together
 
-There is no hard upper limit — the Agent decides when to assess. The 30-count is a warning, not a block.
+There is no hard upper limit; the Agent decides when to assess. The 30-count is a warning, not a block.
 
 ## Quality Assessment
 
 `sxng --session <session> --quality` outputs:
 
-1. **Quality score** — 3 programmatic indicators (contentDepth, sourceDiversity, novelty) with verdict (good/acceptable/poor)
-2. **Pending results list** — each with stable `id`, `revision`, title, URL, source, content preview, and domain
+1. **Quality score**: 3 programmatic indicators (contentDepth, sourceDiversity, novelty) with verdict (good/acceptable/poor)
+2. **Pending results list**: each with stable `id`, `revision`, title, URL, source, content preview, domain, and verification state
 
-The Agent examines the pending list (including content previews) and returns which indices to keep.
+The Agent examines the pending list and writes selected `{id, revision}` objects to the approval file. Do not approve by index.
 
 ## Approval & Graph Injection
 
@@ -89,7 +64,7 @@ sxng --session <session> --quality --approve-file ./.sxng/sessions/<session>/age
 
 This single command:
 1. Marks selected `{id, revision}` results as `approved`
-2. Injects them into the graph (structural layer: query→result→domain edges)
+2. Injects them into the graph (structural layer: query->result->domain edges)
 3. Reports how many nodes/edges were added
 
 After approval, the result nodes exist in the graph and can be referenced by `graph-add` edges.
@@ -104,13 +79,13 @@ sxng graph-add <session> --data-file ./.sxng/sessions/<session>/agent-inputs/gra
 
 Edges can reference any existing node type: `e:` (entity), `r:` (result), `q:` (query), `d:` (domain), `p:` (path).
 
-## Claim—Evidence—Review Pipeline (L2/L3 Only)
+## Claim-Evidence-Review Pipeline (L2/L3 Only)
 
-After the knowledge graph is built, the Agent can run the claim audit pipeline to verify individual statements before output. This is a **post-search** step — it does not modify the search pool or graph. Re-extract any chosen evidence URL first if it lacks `extractedAt`; verification rejects evidence without a real extraction time.
+After the knowledge graph is built, the Agent can run the claim audit pipeline to verify individual statements before output. This is a **post-search** step; it does not modify the search pool or graph. Re-extract any chosen evidence URL first if it lacks `extractedAt`; verification rejects evidence without a real extraction time.
 
 ```
-Synthesize draft → claim-add → evidence-search (auto) → 
-evidence-verify → policy-aggregate (auto) → Agent adjusts output
+Synthesize draft -> claim-add -> evidence-search (auto) ->
+evidence-verify -> policy-aggregate (auto) -> Agent adjusts output
 ```
 
 See [Claim-Evidence-Review Audit](claim-evidence-review.md) for the full procedure.

@@ -1,4 +1,4 @@
-# Appendix: Complete Example & Anti-Patterns
+# Appendix: Complete Example and Anti-Patterns
 
 > Worked examples and common mistakes for deep search sessions.
 >
@@ -8,60 +8,51 @@
 
 ```bash
 # Phase 1: Create Session
-sxng --session new --owner "researcher" --desc "Vector DB deep research 2026" \
-     --queries "vector database 2026 ranking,vector DB for RAG comparison"
-SESSION="ds_1234567890_abcdef"
+sxng --session new --owner "researcher" --desc "Vector DB deep research 2026" --queries "vector database 2026 ranking,vector DB for RAG comparison"
+# Use the session name printed by the previous command as <session>.
 
 # Phase 2: Extract + preprocess
-sxng extract --session $SESSION
-sxng graph-preprocess $SESSION --format json
+sxng extract --session <session>
+sxng graph-preprocess <session> --format json
 
 # Phase 3: Quality assessment + approve selected {id, revision} objects into the structural graph
-sxng --session $SESSION --quality
+sxng --session <session> --quality
 # Save selected objects from quality output to approve.json, then approve and inject into graph:
-sxng --session $SESSION --quality --approve-file ./.sxng/sessions/$SESSION/agent-inputs/approve.json
+sxng --session <session> --quality --approve-file ./.sxng/sessions/<session>/agent-inputs/approve.json
 
 # Phase 4: Save semantic entities and edges with approved sourceResultIds from
 # graph-preprocess in graph.json, then add them after result nodes exist.
-sxng graph-add $SESSION --data-file ./.sxng/sessions/$SESSION/agent-inputs/graph.json
+sxng graph-add <session> --data-file ./.sxng/sessions/<session>/agent-inputs/graph.json
 
 # Phase 5-6: If quality not met, supplementary search
-sxng suggest-queries $SESSION --format json
-sxng --session $SESSION --queries \
-     "Qdrant rust implementation,HNSW vs IVF performance" --redundancy warn
+sxng suggest-queries <session> --format json
+sxng --session <session> --queries "Qdrant rust implementation,HNSW vs IVF performance" --redundancy warn
 
 # Re-extract + assess + approve + preprocess + add entities
-sxng extract --session $SESSION
-sxng --session $SESSION --quality
-sxng --session $SESSION --quality --approve-file ./.sxng/sessions/$SESSION/agent-inputs/approve-round-2.json
-sxng graph-preprocess $SESSION --format json
-sxng graph-add $SESSION --data-file ./.sxng/sessions/$SESSION/agent-inputs/graph-round-2.json
+sxng extract --session <session>
+sxng --session <session> --quality
+sxng --session <session> --quality --approve-file ./.sxng/sessions/<session>/agent-inputs/approve-round-2.json
+sxng graph-preprocess <session> --format json
+sxng graph-add <session> --data-file ./.sxng/sessions/<session>/agent-inputs/graph-round-2.json
 
 # Phase 7: Recovery when consecutive poor rounds
-sxng recovery-analysis $SESSION --format json
-sxng strategy-info $SESSION --format json
+sxng recovery-analysis <session> --format json
+sxng strategy-info <session> --format json
 
 # Phase 8: Graph exploration
-sxng graph-search $SESSION --keyword "vector"
-sxng graph-explore $SESSION --seed "Pinecone" --format json
-sxng graph-drill $SESSION --seed "Pinecone" --relations "uses,competitor" --format json
+sxng graph-search <session> --keyword "vector"
+sxng graph-explore <session> --seed "Pinecone" --format json
+sxng graph-drill <session> --seed "Pinecone" --relations "uses,competitor" --format json
 
-# Phase 9: Claim—Evidence—Review (after draft, before output).
+# Phase 9: Claim-Evidence-Review (after draft, before output).
 # Save claims and each {resultId, quote, charStart, charEnd} evidence object under agent-inputs.
-sxng claim-add $SESSION --claims-file ./.sxng/sessions/$SESSION/agent-inputs/claims.json
-sxng evidence-verify $SESSION --claim-id "cl_001" \
-  --evidence-file ./.sxng/sessions/$SESSION/agent-inputs/evidence-cl_001.json \
-  --stance support --reason "Official site confirms" --complete
-sxng evidence-verify $SESSION --claim-id "cl_002" \
-  --evidence-file ./.sxng/sessions/$SESSION/agent-inputs/evidence-cl_002.json --stance support --reason "..." --complete
-sxng evidence-verify $SESSION --claim-id "cl_003" \
-  --evidence-file ./.sxng/sessions/$SESSION/agent-inputs/evidence-cl_003.json --stance insufficient --reason "No benchmark data found" --complete
+sxng claim-add <session> --claims-file ./.sxng/sessions/<session>/agent-inputs/claims.json
+sxng evidence-verify <session> --claim-id "cl_001" --evidence-file ./.sxng/sessions/<session>/agent-inputs/evidence-cl_001.json --stance support --reason "Official site confirms" --complete
+sxng evidence-verify <session> --claim-id "cl_002" --evidence-file ./.sxng/sessions/<session>/agent-inputs/evidence-cl_002.json --stance support --reason "..." --complete
+sxng evidence-verify <session> --claim-id "cl_003" --evidence-file ./.sxng/sessions/<session>/agent-inputs/evidence-cl_003.json --stance insufficient --reason "No benchmark data found" --complete
 
 # Phase 10: Agent adjusts output based on review results
-# cl_001 → approved (cite), cl_002 → approved (cite), cl_003 → needsReview (do not cite or mark uncertain)
-
-# Cleanup
-sxng session-delete $SESSION
+# cl_001: approved (cite), cl_002: approved (cite), cl_003: needsReview (do not cite or mark uncertain)
 ```
 
 ---
@@ -80,13 +71,13 @@ sxng session-delete $SESSION
 | Continuing search without quality assessment | Use `--quality` each round, decide accordingly |
 | Repeating queries wasting rounds | Use `--redundancy warn` to check redundancy |
 | Not recovering from consecutive poor rounds | Use `recovery-analysis` for strategy suggestions |
-| Not cleaning up sessions after use | Regularly run `session-delete --older` |
+| Deleting sessions without user approval | Keep session inputs unless the user explicitly asks to delete them |
 | Using `query-graph` | Deprecated, use `graph-explore` + `graph-drill` |
-| Search backend fails → abandon session | Switch backend (tavily/exa), inject via `results-add`, keep session |
-| SearXNG returns 0 results → create new session | The session is decoupled from any backend; use `results-add` instead |
+| Search backend fails -> abandon session | Switch backend (tavily/exa), inject via `results-add`, keep session |
+| SearXNG returns 0 results -> create new session | The session is decoupled from any backend; use `results-add` instead |
 | Inline JSON or a project-root temp file | Put UTF-8 JSON in `.sxng/sessions/<session>/agent-inputs/` and use `--*-file` |
 | Treating a search excerpt as a body | Import it with `--kind search`, then extract; use `--kind extracted` only for actual external bodies |
 
 ---
 
-> **Back to**: [SOP](SOP.md) — core operational procedure
+> **Back to**: [SOP](SOP.md): core operational procedure

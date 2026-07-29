@@ -25,7 +25,7 @@
 - AI-translated aggregator sites
 - Content without publication dates
 
-> When presenting search results, follow the Result Quality Filtering principle: keep liberally, filter conservatively — when uncertain, keep rather than delete (see Section 1 above).
+> When presenting search results, follow the Result Quality Filtering principle: keep liberally, filter conservatively; when uncertain, keep rather than delete (see Section 1 above).
 
 ---
 
@@ -44,7 +44,7 @@ Sources:
 **Single non-authoritative source needs annotation**:
 ```
 A company plans to open-source its internal framework (Confidence: Low, single non-official source)
-— Only one tech media report, company has not confirmed.
+- Only one tech media report, company has not confirmed.
 
 Sources:
 - [Tech media report](https://example.com/article)
@@ -56,10 +56,10 @@ Sources:
 
 When sources disagree:
 
-1. **Don't hide disagreements** — present evidence from both sides
-2. **Assess authority** — official > mainstream media > self-media
-3. **Assess timeliness** — recent > older
-4. **Give judgment** — explain reasoning or honestly mark as uncertain
+1. **Don't hide disagreements**: present evidence from both sides
+2. **Assess authority**: official > mainstream media > self-media
+3. **Assess timeliness**: recent > older
+4. **Give judgment**: explain reasoning or honestly mark as uncertain
 
 ---
 
@@ -70,4 +70,4 @@ When sources disagree:
 
 ---
 
-> **Back to**: [SOP](SOP.md) — core operational procedure
+> **Back to**: [SOP](SOP.md): core operational procedure

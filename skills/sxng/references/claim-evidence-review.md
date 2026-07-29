@@ -1,6 +1,6 @@
-# Claim—Evidence—Review Audit (L2/L3 Only)
+# Claim-Evidence-Review Audit (L2/L3 Only)
 
-Run this only after completing Phase 1–8 of the deep-search SOP and synthesizing
+Run this only after completing Phase 1-8 of the deep-search SOP and synthesizing
 a draft from approved results and the knowledge graph, before the final answer.
 L1 searches have no session or approved-results pool, so they do not run it.
 
@@ -8,14 +8,10 @@ L1 searches have no session or approved-results pool, so they do not run it.
 
 ```
 Phase 1-8: deep-search SOP
-         ↓
-Synthesize draft from approved results + knowledge graph
-         ↓
-Claim—Evidence—Review (two steps)
-         ↓
-Adjust final output from the Review
-         ↓
-Final output (cite approved claims only)
+-> Synthesize draft from approved results + knowledge graph
+-> Claim-Evidence-Review (two steps)
+-> Adjust final output from the Review
+-> Final output (cite approved claims only)
 ```
 
 ## CLI Interaction
@@ -27,10 +23,7 @@ sxng claim-add <session> --claims-file ./.sxng/sessions/<session>/agent-inputs/c
 
 # Step 2: Save {resultId, quote, charStart, charEnd} as UTF-8 JSON under this
 # session. For each claim, confirm evidence and submit a stance.
-sxng evidence-verify <session> --claim-id "cl_001" \
-  --evidence-file ./.sxng/sessions/<session>/agent-inputs/evidence-cl_001.json \
-  --stance 'support' --reason 'Official docs confirm directly' \
-  --complete
+sxng evidence-verify <session> --claim-id "cl_001" --evidence-file ./.sxng/sessions/<session>/agent-inputs/evidence-cl_001.json --stance "support" --reason "Official docs confirm directly" --complete
 # Returns evidence, verdict, and review; --complete triggers aggregation.
 
 # Repeat Step 2 for cl_002 and cl_003.
@@ -42,16 +35,11 @@ not a URL; only verified extracted bodies are eligible.
 
 ## Review Decision
 
-```
-Review result
-     │
- ┌───┴────────┐
- │            │
-approved   needsReview
- │            │
-cite it   ┌───┴──────────────┐
-          │                  │
-    revise the claim     conflicting evidence
-    and re-verify        preserve the disagreement in output
-                         no action → drop it; do not cite it
+```text
+Review result: approved
+  -> cite it
+
+Review result: needsReview
+  -> revise the claim and re-verify, or preserve conflicting evidence in output
+  -> if no action is taken, drop it and do not cite it
 ```
