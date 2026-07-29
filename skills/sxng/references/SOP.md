@@ -275,6 +275,11 @@ sxng recovery-analysis <session> --format json
 | category_shift | Current category has poor results | Switch to different category (e.g., general -> it) |
 | backtrack | >=2 consecutive poor rounds | Return to last good quality round, explore different direction |
 
+When `--quality` is consecutively `poor`, or `sourceDiversity` / `contentDepth`
+fails across multiple rounds, consider adding Tavily, Exa, or similar external
+search tools in addition to changing engines/categories, then inject those
+results into the current session with `results-add`.
+
 Also check search stage suggestions:
 
 ```bash
