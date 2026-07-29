@@ -142,7 +142,10 @@ function withSessionLock<T>(sessionDir: string, action: () => T): T {
 
 /** Keep related session artifacts consistent while one command updates them. */
 export function mutateSessionState<T>(sessionDir: string, action: () => T): T {
-    return withSessionLock(sessionDir, action);
+    return withSessionLock(sessionDir, () => {
+        repairInvalidDependents(sessionDir, loadSessionResults(sessionDir));
+        return action();
+    });
 }
 
 function originKey(origin: ResultOrigin): string {
@@ -205,74 +208,62 @@ function touch(result: SessionResult): void {
     result.revision += 1;
 }
 
-function pruneGraphProvenance(graph: DirectedGraph<GraphNodeAttrs, GraphEdgeAttrs>, resultIdValue: string): void {
+function pruneGraphProvenance(graph: DirectedGraph<GraphNodeAttrs, GraphEdgeAttrs>, resultIdValue: string): boolean {
+    let changed = false;
     const nodesToDrop: string[] = [];
     graph.forEachNode((node, attrs) => {
         if (!attrs.sourceResultIds?.includes(resultIdValue)) return;
         const sourceResultIds = attrs.sourceResultIds.filter(id => id !== resultIdValue);
-        if (sourceResultIds.length) graph.mergeNodeAttributes(node, { sourceResultIds });
+        if (sourceResultIds.length) {
+            graph.mergeNodeAttributes(node, { sourceResultIds });
+            changed = true;
+        }
         else nodesToDrop.push(node);
     });
-    for (const node of nodesToDrop) graph.dropNode(node);
+    for (const node of nodesToDrop) {
+        graph.dropNode(node);
+        changed = true;
+    }
 
     const edgesToDrop: string[] = [];
     graph.forEachEdge((edge, attrs) => {
         if (!attrs.sourceResultIds?.includes(resultIdValue)) return;
         const sourceResultIds = attrs.sourceResultIds.filter(id => id !== resultIdValue);
-        if (sourceResultIds.length) graph.replaceEdgeAttributes(edge, { ...attrs, sourceResultIds });
+        if (sourceResultIds.length) {
+            graph.replaceEdgeAttributes(edge, { ...attrs, sourceResultIds });
+            changed = true;
+        }
         else edgesToDrop.push(edge);
     });
-    for (const edge of edgesToDrop) graph.dropEdge(edge);
+    for (const edge of edgesToDrop) {
+        graph.dropEdge(edge);
+        changed = true;
+    }
 
-    if (graph.hasNode(resultIdValue)) graph.dropNode(resultIdValue);
+    if (graph.hasNode(resultIdValue)) {
+        graph.dropNode(resultIdValue);
+        changed = true;
+    }
 
     // Path nodes derive from semantic entities and are invalid once an input entity disappears.
     const pathsToDrop: string[] = [];
     graph.forEachNode((node, attrs) => {
         if (attrs.type === 'path' && attrs.entities?.some(entity => !graph.hasNode(entity))) pathsToDrop.push(node);
     });
-    for (const node of pathsToDrop) graph.dropNode(node);
+    for (const node of pathsToDrop) {
+        graph.dropNode(node);
+        changed = true;
+    }
 
     const structuralNodesToDrop: string[] = [];
     graph.forEachNode((node, attrs) => {
         if ((attrs.type === 'query' || attrs.type === 'domain') && graph.degree(node) === 0) structuralNodesToDrop.push(node);
     });
-    for (const node of structuralNodesToDrop) graph.dropNode(node);
-}
-
-function invalidateBodyDependents(sessionDir: string, resultIdValue: string, reason: 'contentChanged' | 'sourceSkipped' = 'contentChanged'): void {
-    // A bad claim artifact must survive extraction untouched; repair happens in claim/evidence/review commands.
-    try {
-        assertClaimsStoreReadable(sessionDir);
-        const now = Date.now();
-        const evidences = loadEvidences(sessionDir);
-        const invalidated = new Set<string>();
-        for (const evidence of evidences) {
-            if (evidence.resultId === resultIdValue && !evidence.invalid) {
-                evidence.invalid = true;
-                evidence.invalidatedAt = now;
-                evidence.invalidationReason = reason;
-                invalidated.add(evidence.claimId);
-            }
-        }
-        if (invalidated.size) {
-            saveEvidences(sessionDir, evidences);
-            const claims = loadClaims(sessionDir);
-            for (const claim of claims) if (invalidated.has(claim.id)) claim.status = 'verifying';
-            saveClaims(sessionDir, claims);
-            const reviews = loadReviews(sessionDir).filter(review => !invalidated.has(review.claimId));
-            saveReviews(sessionDir, reviews);
-        }
-    } catch { /* Preserve corrupt claim artifacts for their dedicated repair commands. */ }
-    try {
-        const { graph, missing } = readSessionGraph(sessionDir);
-        if (!missing) {
-            pruneGraphProvenance(graph, resultIdValue);
-            writeSessionGraph(sessionDir, graph);
-        }
-    } catch (error) {
-        if (!(error instanceof SessionStateError)) throw error;
+    for (const node of structuralNodesToDrop) {
+        graph.dropNode(node);
+        changed = true;
     }
+    return changed;
 }
 
 function writeResults(sessionDir: string, results: SessionResult[], rounds: number): void {
@@ -390,7 +381,6 @@ export function appendSessionResults(
                 if (bodyChanged) {
                     existing.contentType = 'extracted';
                     existing.content = nextContent;
-                    invalidateBodyDependents(sessionDir, existing.id);
                     changed = true;
                 }
                 if (existing.extractor !== (input.extractor || 'default')) {
@@ -434,6 +424,7 @@ export function appendSessionResults(
 
         const all = [...byKey.values()];
         writeResults(sessionDir, all, round);
+        repairInvalidDependents(sessionDir, all);
         touchMeta(sessionDir);
         return { added, updated, total: all.length, round, approvedResults };
     });
@@ -456,10 +447,57 @@ export function getApprovedResults(sessionDir: string): SessionResult[] {
     return loadSessionResults(sessionDir).filter(result => result.status === 'approved' && !result.skippedAt && hasVerifiedContent(result));
 }
 
+function repairInvalidDependents(sessionDir: string, results: SessionResult[]): void {
+    const invalidReasons = new Map(
+        results
+            .filter(result => result.skippedAt || result.status !== 'approved' || !hasVerifiedContent(result))
+            .map(result => [result.id, result.skippedAt ? 'sourceSkipped' : 'contentChanged'] as const),
+    );
+    if (!invalidReasons.size) return;
+    try {
+        assertClaimsStoreReadable(sessionDir);
+        const evidences = loadEvidences(sessionDir);
+        const affectedClaims = new Set<string>();
+        const now = Date.now();
+        let evidenceChanged = false;
+        for (const evidence of evidences) {
+            const reason = invalidReasons.get(evidence.resultId);
+            if (reason) {
+                affectedClaims.add(evidence.claimId);
+            }
+            if (reason && !evidence.invalid) {
+                evidence.invalid = true;
+                evidence.invalidatedAt = now;
+                evidence.invalidationReason = reason;
+                evidenceChanged = true;
+            }
+        }
+        if (affectedClaims.size) {
+            if (evidenceChanged) saveEvidences(sessionDir, evidences);
+            const claims = loadClaims(sessionDir);
+            for (const claim of claims) if (affectedClaims.has(claim.id)) claim.status = 'verifying';
+            saveClaims(sessionDir, claims);
+            saveReviews(sessionDir, loadReviews(sessionDir).filter(review => !affectedClaims.has(review.claimId)));
+        }
+    } catch { /* Preserve corrupt claim artifacts for their dedicated repair commands. */ }
+
+    try {
+        const { graph, missing } = readSessionGraph(sessionDir);
+        if (!missing) {
+            let graphChanged = false;
+            for (const resultIdValue of invalidReasons.keys()) graphChanged = pruneGraphProvenance(graph, resultIdValue) || graphChanged;
+            if (graphChanged) writeSessionGraph(sessionDir, graph);
+        }
+    } catch (error) {
+        if (!(error instanceof SessionStateError)) throw error;
+    }
+}
+
 export function approveResults(sessionDir: string, selections: ApprovalSelection[]): ApprovalResult {
     return withSessionLock(sessionDir, () => {
         const state = readResultsFile(sessionDir);
         const results = state?.data.results ?? [];
+        repairInvalidDependents(sessionDir, results);
         const selected = new Set<string>();
         for (const selection of selections) {
             const result = results.find(item => item.id === selection.id);
@@ -503,13 +541,15 @@ export function setSkipped(sessionDir: string, selections: ApprovalSelection[], 
         for (const result of selected) {
             const shouldChange = skipped ? result.skippedAt === undefined : result.skippedAt !== undefined;
             if (shouldChange) {
+                const wasSkipped = result.skippedAt !== undefined;
                 result.skippedAt = skipped ? Date.now() : undefined;
-                if (skipped) invalidateBodyDependents(sessionDir, result.id, 'sourceSkipped');
+                if (wasSkipped && !skipped && result.status === 'approved') result.status = 'pending';
                 touch(result);
                 changed++;
             }
         }
         writeResults(sessionDir, results, state?.data.rounds ?? 0);
+        repairInvalidDependents(sessionDir, results);
         touchMeta(sessionDir);
         return { changed, results: selected };
     });
@@ -537,6 +577,7 @@ export function recordExtractionOutcome(
                 continue;
             }
             if (typeof outcome.content !== 'string' || !outcome.content.trim()) continue;
+            const wasSkipped = result.skippedAt !== undefined;
             const changedBody = result.contentType !== 'extracted' || result.content !== outcome.content;
             result.contentType = 'extracted';
             result.content = outcome.content;
@@ -551,12 +592,12 @@ export function recordExtractionOutcome(
             result.failureCount = undefined;
             result.lastFailedAt = undefined;
             result.lastFailure = undefined;
-            if (changedBody && result.status === 'approved') result.status = 'pending';
-            if (changedBody) invalidateBodyDependents(sessionDir, result.id);
+            if ((changedBody || wasSkipped) && result.status === 'approved') result.status = 'pending';
             touch(result);
             updated++;
         }
         writeResults(sessionDir, results, state?.data.rounds ?? 0);
+        repairInvalidDependents(sessionDir, results);
         touchMeta(sessionDir);
         return { updated, failed, total: results.length };
     });
@@ -584,7 +625,10 @@ function readSessionGraph(sessionDir: string): { graph: DirectedGraph<GraphNodeA
 }
 
 export function loadSessionGraph(sessionDir: string): DirectedGraph<GraphNodeAttrs, GraphEdgeAttrs> {
-    return readSessionGraph(sessionDir).graph;
+    return withSessionLock(sessionDir, () => {
+        repairInvalidDependents(sessionDir, loadSessionResults(sessionDir));
+        return readSessionGraph(sessionDir).graph;
+    });
 }
 
 function writeSessionGraph(sessionDir: string, graph: DirectedGraph<GraphNodeAttrs, GraphEdgeAttrs>): void {
@@ -612,6 +656,7 @@ export function mutateSessionGraph<T>(
     options?: { reconcileStructural?: boolean },
 ): T {
     return withSessionLock(sessionDir, () => {
+        repairInvalidDependents(sessionDir, loadSessionResults(sessionDir));
         const { graph, missing } = readSessionGraph(sessionDir);
         // Results are authoritative; a missing derived graph can safely regain its structural layer.
         const approved = getApprovedResults(sessionDir);
@@ -620,10 +665,6 @@ export function mutateSessionGraph<T>(
         writeSessionGraph(sessionDir, graph);
         return value;
     });
-}
-
-export function saveSessionGraph(sessionDir: string, graph: DirectedGraph<GraphNodeAttrs, GraphEdgeAttrs>): void {
-    withSessionLock(sessionDir, () => writeSessionGraph(sessionDir, graph));
 }
 
 export function injectApprovedResults(sessionDir: string, approved: SessionResult[]): { nodesAdded: number; edgesAdded: number } {

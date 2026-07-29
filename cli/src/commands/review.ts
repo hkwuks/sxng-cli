@@ -40,7 +40,10 @@ export async function runPolicyAggregate(
       const allVerdicts = loadVerdicts(sessionDir);
       const existingReviews = loadReviews(sessionDir);
 
-      let targets = options.claimId ? allClaims.filter(claim => claim.id === options.claimId) : allClaims.filter(claim => claim.status === 'verifying');
+      const reviewedClaimIds = new Set(existingReviews.map(review => review.claimId));
+      let targets = options.claimId
+        ? allClaims.filter(claim => claim.id === options.claimId)
+        : allClaims.filter(claim => claim.status === 'verifying' || (claim.status === 'reviewed' && !reviewedClaimIds.has(claim.id)));
       if (options.claimId && targets.length === 0) return [];
 
       const reviewable: Array<{ claim: typeof allClaims[0]; input: PolicyInput }> = [];

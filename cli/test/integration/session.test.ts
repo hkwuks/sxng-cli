@@ -15,6 +15,7 @@ import {
   setSkipped,
   validateSessionInputFile,
 } from '../../src/deep/session.js';
+import { loadClaims, loadEvidences, loadReviews, saveClaims, saveEvidences, saveReviews } from '../../src/claims/store.js';
 
 describe('session result contract', () => {
   let sessionDir: string;
@@ -124,6 +125,73 @@ describe('session result contract', () => {
     const injected = injectApprovedResults(sessionDir, approval.approvedResults);
     expect(injected.nodesAdded).toBeGreaterThan(0);
     expect(loadSessionGraph(sessionDir).someNode((_id, attrs) => attrs.type === 'result')).toBe(true);
+  });
+
+  it('repairs prior evidence, reviews, and graph data after an imported body changes', () => {
+    appendSessionResults(sessionDir, [{
+      url: 'https://example.com/article', title: 'Article', contentType: 'extracted', content: 'Original body.',
+      extractor: 'defuddle', origins: [{ tool: 'sxng', query: 'example query' }],
+    }]);
+    const [initial] = loadSessionResults(sessionDir);
+    const approval = approveResults(sessionDir, [{ id: initial.id, revision: initial.revision }]);
+    injectApprovedResults(sessionDir, approval.approvedResults);
+    saveClaims(sessionDir, [{ id: 'cl_001', text: 'Original body', riskLevel: 'medium', status: 'reviewed', sessionDir, createdAt: 1 }]);
+    saveEvidences(sessionDir, [{
+      id: 'ev_001', claimId: 'cl_001', resultId: initial.id, resultUrl: initial.url,
+      quote: 'Original body.', charStart: 0, charEnd: 14, contentHash: 'fixture', extractedAt: initial.extractedAt!,
+    }]);
+    saveReviews(sessionDir, [{
+      claimId: 'cl_001', decision: 'approved', autoPass: true,
+      checks: { sourceIndependent: true, hasRefute: false, allSupport: true },
+      matchedRule: 'fixture', reviewer: 'agent', reviewedAt: 1,
+    }]);
+
+    appendSessionResults(sessionDir, [{
+      url: initial.url, title: 'Article', contentType: 'extracted', content: 'Replacement body.',
+      extractor: 'external', origins: [{ tool: 'exa', query: 'example query' }],
+    }]);
+
+    expect(loadSessionResults(sessionDir)[0].status).toBe('pending');
+    expect(loadEvidences(sessionDir)[0]).toMatchObject({ invalid: true, invalidationReason: 'contentChanged' });
+    expect(loadClaims(sessionDir)[0].status).toBe('verifying');
+    expect(loadReviews(sessionDir)).toEqual([]);
+    expect(loadSessionGraph(sessionDir).hasNode(initial.id)).toBe(false);
+  });
+
+  it('repairs stale graph data during read-only graph loading', () => {
+    appendSessionResults(sessionDir, [{
+      url: 'https://example.com/article', title: 'Article', contentType: 'extracted', content: 'Verified body.',
+      extractor: 'defuddle', origins: [{ tool: 'sxng', query: 'example query' }],
+    }]);
+    const [initial] = loadSessionResults(sessionDir);
+    const approval = approveResults(sessionDir, [{ id: initial.id, revision: initial.revision }]);
+    injectApprovedResults(sessionDir, approval.approvedResults);
+    expect(loadSessionGraph(sessionDir).hasNode(initial.id)).toBe(true);
+
+    const resultsFile = join(sessionDir, 'results.json');
+    const state = JSON.parse(readFileSync(resultsFile, 'utf8'));
+    state.data.results[0].skippedAt = Date.now();
+    state.data.results[0].revision += 1;
+    writeFileSync(resultsFile, JSON.stringify(state, null, 2), 'utf8');
+
+    expect(loadSessionGraph(sessionDir).hasNode(initial.id)).toBe(false);
+  });
+
+  it('requires reapproval after an approved result is unskipped', () => {
+    appendSessionResults(sessionDir, [{
+      url: 'https://example.com/article', title: 'Article', contentType: 'extracted', content: 'Verified body.',
+      extractor: 'defuddle', origins: [{ tool: 'sxng', query: 'example query' }],
+    }]);
+    const [initial] = loadSessionResults(sessionDir);
+    approveResults(sessionDir, [{ id: initial.id, revision: initial.revision }]);
+    const approved = loadSessionResults(sessionDir)[0];
+
+    setSkipped(sessionDir, [{ id: approved.id, revision: approved.revision }], true);
+    const skipped = loadSessionResults(sessionDir)[0];
+    setSkipped(sessionDir, [{ id: skipped.id, revision: skipped.revision }], false);
+
+    expect(loadSessionResults(sessionDir)[0].status).toBe('pending');
+    expect(loadSessionResults(sessionDir)[0].skippedAt).toBeUndefined();
   });
 
   it('accepts Agent JSON only inside the owning session agent-inputs directory', () => {

@@ -185,6 +185,44 @@ describe('quality-assess', () => {
             expect(result.breakdown.novelty.value).toBe(0);
         });
 
+        it('does not compare the latest round against skipped results', () => {
+            const results = makeResults([
+                {
+                    url: 'https://a.com/1', title: 'Skipped', content: 'The complete approved report describes a verified infrastructure milestone.',
+                    status: 'approved', skippedAt: 1, origins: [{ query: 'first', round: 1 }],
+                },
+                {
+                    url: 'https://b.com/2', title: 'Current', content: 'The complete approved report describes a verified infrastructure milestone.',
+                    status: 'approved', origins: [{ query: 'second', round: 2 }],
+                },
+            ]);
+
+            expect(assessLatestResultQuality(results).breakdown.novelty.value).toBe(1);
+        });
+
+        it('does not count skipped latest-round results', () => {
+            const results = makeResults([
+                {
+                    url: 'https://a.com/1',
+                    title: 'Skipped current',
+                    content: 'short',
+                    skippedAt: 1,
+                    origins: [{ query: 'current', round: 2 }],
+                },
+                {
+                    url: 'https://b.com/2',
+                    title: 'Current',
+                    content: 'A complete extracted current source with enough body for quality assessment.'.repeat(4),
+                    origins: [{ query: 'current', round: 2 }],
+                },
+            ]);
+
+            const result = assessLatestResultQuality(results, { contentDepth: 100, sourceDiversity: 1 });
+
+            expect(result.breakdown.contentDepth.value).toBeGreaterThan(100);
+            expect(result.breakdown.sourceDiversity.value).toBe(1);
+        });
+
         it('does not count a URL repeated from an earlier round as novel', () => {
             const results = makeResults([
                 {

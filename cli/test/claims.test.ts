@@ -124,6 +124,7 @@ import {
 } from '../src/claims/policy.js';
 import { runClaimAdd } from '../src/commands/claim.js';
 import { runEvidenceVerify } from '../src/commands/evidence.js';
+import { runPolicyAggregate } from '../src/commands/review.js';
 
 // ── Setup / Teardown ────────────────────────────────────────────────
 
@@ -732,6 +733,16 @@ describe('deterministic checks', () => {
       expect(pendingMatch).toBeUndefined();
     });
 
+    it('should not return results that were skipped after approval', () => {
+      const resultsFile = join(sessionDir, 'results.json');
+      const results = JSON.parse(readFileSync(resultsFile, 'utf-8'));
+      results.data.results[0].skippedAt = Date.now();
+      writeFileSync(resultsFile, JSON.stringify(results), 'utf-8');
+
+      const candidates = searchCandidates(sessionDir, 'Tokio is the most widely used async runtime');
+      expect(candidates).not.toContainEqual(expect.objectContaining({ resultId: 'r:article' }));
+    });
+
     it('should return empty array for empty or too-short query', () => {
       expect(searchCandidates(sessionDir, 'a')).toHaveLength(0);
       expect(searchCandidates(sessionDir, '')).toHaveLength(0);
@@ -1069,6 +1080,26 @@ describe('policy engine', () => {
       expect(results[1].claimId).toBe('cl_002');
       expect(results[1].decision).toBe('needsReview');
       expect(results[1].matchedRule).toBe('singleRefute');
+    });
+  });
+
+  describe('policy aggregation command', () => {
+    it('repairs a reviewed claim when its review record is missing', async () => {
+      saveClaims(sessionDir, [{
+        id: 'cl_001', text: 'Tokio is widely used', riskLevel: 'medium',
+        status: 'reviewed', sessionDir, createdAt: Date.now(),
+      }]);
+      saveEvidences(sessionDir, [{
+        id: 'ev_001', claimId: 'cl_001', resultId: 'r:article', resultUrl: 'https://example.com/article',
+        quote: 'Tokio is the most widely used async runtime in the Rust ecosystem.',
+        charStart: 0, charEnd: 64, contentHash: 'fixture', extractedAt: 1_700_000_000_000,
+      }]);
+      saveVerdicts(sessionDir, [{
+        id: 'vd_001', claimId: 'cl_001', evidenceIds: ['ev_001'], stance: 'support', reason: 'fixture', createdAt: Date.now(),
+      }]);
+
+      expect(await runPolicyAggregate(sessionDir, {})).toBe(0);
+      expect(loadReviews(sessionDir)).toMatchObject([{ claimId: 'cl_001' }]);
     });
   });
 });

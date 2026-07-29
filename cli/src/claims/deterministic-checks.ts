@@ -9,7 +9,6 @@
 import { createHash } from 'crypto';
 import { EvidenceSpan } from './types.js';
 import { SessionResult, getApprovedResults } from '../deep/session.js';
-import { loadSessionResults } from '../deep/session.js';
 
 // ── Anchor check ────────────────────────────────────────────────────
 
@@ -156,8 +155,7 @@ export function searchCandidates(
   const threshold = /[\u3400-\u9fff]/u.test(claimText)
     ? CJK_JACCARD_THRESHOLD
     : JACCARD_THRESHOLD;
-  const allResults = loadSessionResults(sessionDir);
-  const approved = allResults.filter(r => r.status === 'approved' && r.contentType === 'extracted' && r.content);
+  const approved = getApprovedResults(sessionDir);
 
   const candidates: Array<{ score: number; candidate: EvidenceCandidate }> = [];
 

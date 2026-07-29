@@ -1429,7 +1429,7 @@ export async function runCli(args: string[], service: SearXNGService): Promise<n
             const pending = getPendingResults(sessionDir);
 
             // For novelty calculation, only compare against approved/historical results
-            const approvedResults = sessionResults.filter(r => r.status === 'approved');
+            const approvedResults = sessionResults.filter(r => r.status === 'approved' && !r.skippedAt && hasVerifiedContent(r));
             const priorResults = approvedResults.length > 0 ? approvedResults : [];
 
             const quality = assessResultQuality(

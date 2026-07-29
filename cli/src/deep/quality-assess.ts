@@ -129,9 +129,9 @@ export function assessLatestResultQuality(
     const latestRound = Math.max(...rounds);
     const isFromRound = (result: SessionResult, predicate: (round: number) => boolean): boolean =>
         (result.origins || []).some(origin => origin.round !== undefined && predicate(origin.round));
-    const latestResults = sessionResults.filter(result => isFromRound(result, round => round === latestRound));
+    const latestResults = sessionResults.filter(result => !result.skippedAt && isFromRound(result, round => round === latestRound));
     const priorApproved = sessionResults.filter(result =>
-        result.status === 'approved' && isFromRound(result, round => round < latestRound)
+        result.status === 'approved' && !result.skippedAt && isFromRound(result, round => round < latestRound)
     );
     const seenEarlierUrls = new Set(
         sessionResults

@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { extractPaths } from '../../src/deep/path-extraction.js';
 import { createGraph, entityId, GraphNodeAttrs } from '../../src/deep/graph.js';
 import { sampleGraph } from '../../src/deep/graph-sampling.js';
-import { initSessionDir, appendSessionResults, updateSessionGraph, loadSessionGraph, saveSessionGraph } from '../../src/deep/session.js';
+import { initSessionDir, appendSessionResults, updateSessionGraph, loadSessionGraph, mutateSessionGraph } from '../../src/deep/session.js';
 import { mkdtempSync, rmSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
@@ -29,37 +29,31 @@ describe('sampling + path extraction integration', () => {
             { url: 'https://async.rs', title: 'Async Std', content: 'Verified Async.', extractedAt: 1 },
         ]);
 
-        const graph = loadSessionGraph(sessionDir);
+        const { sampleResult, pathResult, pathCount } = mutateSessionGraph(sessionDir, graph => {
+            // Add entity nodes manually (as Agent would via graph-add)
+            graph.mergeNode(entityId('tokio'), { type: 'entity', label: 'tokio', entityType: 'runtime', score: 0.9 });
+            graph.mergeNode(entityId('async_std'), { type: 'entity', label: 'async-std', entityType: 'runtime', score: 0.7 });
+            graph.mergeNode(entityId('rust'), { type: 'entity', label: 'rust', entityType: 'language', score: 0.95 });
+            graph.addEdge(entityId('tokio'), entityId('rust'), { relation: 'depends_on', weight: 1 });
+            graph.addEdge(entityId('async_std'), entityId('rust'), { relation: 'depends_on', weight: 1 });
 
-        // Add entity nodes manually (as Agent would via graph-add)
-        graph.mergeNode(entityId('tokio'), { type: 'entity', label: 'tokio', entityType: 'runtime', score: 0.9 });
-        graph.mergeNode(entityId('async_std'), { type: 'entity', label: 'async-std', entityType: 'runtime', score: 0.7 });
-        graph.mergeNode(entityId('rust'), { type: 'entity', label: 'rust', entityType: 'language', score: 0.95 });
-        graph.addEdge(entityId('tokio'), entityId('rust'), { relation: 'depends_on', weight: 1 });
-        graph.addEdge(entityId('async_std'), entityId('rust'), { relation: 'depends_on', weight: 1 });
-
-        // Sample with augmented_chain
-        const sampleResult = sampleGraph(graph, {
-            strategy: 'augmented_chain',
-            seedEntities: [entityId('tokio')],
-            maxHops: 3,
+            const sampleResult = sampleGraph(graph, {
+                strategy: 'augmented_chain',
+                seedEntities: [entityId('tokio')],
+                maxHops: 3,
+            });
+            const pathResult = extractPaths(graph);
+            let pathCount = 0;
+            graph.forEachNode((_node: string, attrs: GraphNodeAttrs) => {
+                if (attrs.type === 'path') pathCount++;
+            });
+            return { sampleResult, pathResult, pathCount };
         });
 
         expect(sampleResult.entities.length).toBeGreaterThan(0);
-
-        // Extract paths
-        const pathResult = extractPaths(graph);
         expect(pathResult.conjunctions.length).toBeGreaterThan(0);
-
-        // Check that path nodes were added to graph
-        let pathCount = 0;
-        graph.forEachNode((node: string, attrs: GraphNodeAttrs) => {
-            if (attrs.type === 'path') pathCount++;
-        });
         expect(pathCount).toBeGreaterThan(0);
 
-        // Save and reload
-        saveSessionGraph(sessionDir, graph);
         const reloaded = loadSessionGraph(sessionDir);
 
         let pathCountReloaded = 0;

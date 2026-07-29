@@ -132,7 +132,8 @@ export async function runEvidenceVerify(
         && item.resultId === result.id
         && item.quote === evidenceInput.quote
         && item.charStart === evidenceInput.charStart
-        && item.charEnd === evidenceInput.charEnd);
+        && item.charEnd === evidenceInput.charEnd
+        && !item.invalid);
       const idempotent = Boolean(duplicate);
       const evidence: EvidenceSpan = duplicate ?? {
           id: `ev_${String(evidences.length + 1).padStart(3, '0')}`,

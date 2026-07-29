@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { graphPreprocess } from '../../src/deep/graph-preprocess.js';
-import { initSessionDir, appendSessionResults, updateSessionGraph, loadSessionGraph, saveSessionGraph } from '../../src/deep/session.js';
+import { initSessionDir, appendSessionResults, updateSessionGraph, mutateSessionGraph } from '../../src/deep/session.js';
 import { entityId, resultId } from '../../src/deep/graph.js';
 import { mkdtempSync, rmSync } from 'fs';
 import { join } from 'path';
@@ -71,9 +71,9 @@ describe('graph-preprocess (integration)', () => {
             { url: 'https://a.com', title: 'A', contentType: 'extracted', content: 'tokio runtime', extractor: 'test' },
         ]);
 
-        const graph = loadSessionGraph(sessionDir);
-        graph.mergeNode(entityId('tokio'), { type: 'entity', label: 'tokio', entityType: 'runtime' });
-        saveSessionGraph(sessionDir, graph);
+        mutateSessionGraph(sessionDir, graph => {
+            graph.mergeNode(entityId('tokio'), { type: 'entity', label: 'tokio', entityType: 'runtime' });
+        });
 
         const result = graphPreprocess(sessionDir);
         expect(result.existingEntities.length).toBe(1);
