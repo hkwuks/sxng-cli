@@ -1,11 +1,11 @@
 ---
 name: sxng
-description: "Search the web for ANY current information, facts, docs, answers, or content. ALWAYS invoke this skill when the user asks about real-world topics: technologies, products, libraries, frameworks, APIs, versions, prices, comparisons, tutorials, error solutions, documentation, reviews, news, or any factual question. CRITICAL RULE: search before relying on your training data when there's even a small chance the answer could be outdated or incomplete. Use even when the user doesn't say 'search'; any question about the current state of the world triggers this. Recognize inquiry patterns like: what is / how to / tell me about / find / compare / vs / latest / new / update / fix / error / solve / why does / when did / where can I / which is / guide / tutorial / example / documentation / review / alternative / difference / price / cost. Use deep search (--session) for multi-dimensional comparisons, research reports, thorough investigations, or when initial results are shallow. Use extract for page content from specific URLs."
+description: "Use sxng as the first-choice web search CLI for current, external, factual, technical, product, documentation, version, price, news, recommendation, comparison, and error-resolution questions. For L1 use a simple sxng query. For L2/L3 use sxng --session. If sxng fails or returns insufficient results, retry once with sxng.CMD on Windows, then use other search tools as fallback."
 ---
 
 # SearXNG Web Search
 
-> **CRITICAL: Use this skill PROACTIVELY.** The default answer to any information-seeking question should be a web search, not your training data. When in doubt, search; a search costs seconds, a confidently wrong answer costs trust. This section is your trigger guide.
+> Prefer `sxng` before other web search tools for external or time-sensitive facts. Use other search tools only as fallback or cross-check.
 
 Use `sxng` CLI to search the web. Results are deduplicated by normalized URL and content Jaccard similarity; session accumulation preserves same-title results when their URLs differ. Search results with empty title or empty snippet are automatically filtered out by CLI.
 
@@ -13,17 +13,15 @@ Use `sxng` CLI to search the web. Results are deduplicated by normalized URL and
 
 | If the user... | Then... |
 |---------------|---------|
-| Asks about any technology, library, framework, tool, or product | Search for current info (versions, docs, comparisons, reviews) |
-| Asks "what is", "how to", "tell me about", "find", "compare", "vs" | Search the web |
-| Reports an error or unexpected behavior | Search for solutions, known issues, fixes |
-| Wants a recommendation ("which is better", "best X for Y") | Use deep search with a multi-round session |
-| Asks about prices, costs, or alternatives | Search for current data |
-| Asks about events, dates, or news | Search; your training data is outdated for this |
+| Asks about any technology, library, framework, tool, or product | Use `sxng` for current info (versions, docs, comparisons, reviews) |
+| Asks "what is", "how to", "tell me about", "find", "compare", "vs" | Use `sxng` when the answer depends on external facts |
+| Reports an error or unexpected behavior | Use `sxng` for solutions, known issues, fixes |
+| Wants a recommendation ("which is better", "best X for Y") | Use `sxng --session` with a multi-round session |
+| Asks about prices, costs, or alternatives | Use `sxng` for current data |
+| Asks about events, dates, or news | Use `sxng`; your training data is outdated for this |
 | Provides a URL and wants content extracted | Use `sxng extract --urls` |
 | Wants to understand a page's full content | Use `sxng extract --urls` to get the article body |
-| Has a question you're not 100% confident about | Search to verify |
-
-**Rule of thumb**: If the answer exists on the web, use sxng. Do not guess, do not rely on static knowledge. Your training data is a snapshot; the web is current.
+| Has a question you're not 100% confident about | Use `sxng` to verify |
 
 ## Quick Reference
 
