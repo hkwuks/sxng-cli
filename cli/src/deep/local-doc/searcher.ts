@@ -8,6 +8,7 @@
 
 import { resolve } from 'path';
 import { search as oramaSearch } from '@orama/orama';
+import { distance as levenshtein } from 'fastest-levenshtein';
 import { scanFiles } from './scanner.js';
 import {
   buildIndexFromScannedFiles,
@@ -145,6 +146,14 @@ export async function docSearch(opts: DocSearchOptions): Promise<DocSearchResult
     );
   }
 
+  // BM25 zero-results fallback: fuzzy title match via Levenshtein
+  if (!searchResult.hits || searchResult.hits.length === 0) {
+    const fallback = fuzzyTitleFallback(db, query, topK);
+    if (fallback.length > 0) {
+      searchResult = { hits: fallback };
+    }
+  }
+
   if (!searchResult.hits || searchResult.hits.length === 0) {
     return {
       session: opts.session,
@@ -217,6 +226,54 @@ export async function docSearch(opts: DocSearchOptions): Promise<DocSearchResult
     refreshed,
     results,
   };
+}
+
+/**
+ * Fallback when BM25 returns zero: match query words against document titles
+ * using Levenshtein distance ≤ 2. Returns at most topK results.
+ */
+function fuzzyTitleFallback(
+  db: any,
+  query: string,
+  topK: number,
+): Array<{ id: string; score: number; document: any }> {
+  const qWords = query.toLowerCase().split(/\s+/).filter(Boolean);
+  if (qWords.length === 0) return [];
+
+  // ponytail: Orama internal doc store, cache-based fallback if access pattern changes
+  const docs = db.data?.documents;
+  if (!docs || typeof docs.values !== 'function') return [];
+
+  const candidates: Array<{ doc: any; avgDist: number }> = [];
+
+  for (const doc of docs.values()) {
+    const title = (doc.title || '').toLowerCase();
+    const tWords = title.split(/\s+/).filter(Boolean);
+    if (tWords.length === 0) continue;
+
+    let matched = 0;
+    let totalDist = 0;
+    for (const qw of qWords) {
+      let best = Infinity;
+      for (const tw of tWords) {
+        const d = levenshtein(qw, tw);
+        if (d < best) best = d;
+      }
+      if (best <= 2) { matched++; totalDist += best; }
+    }
+    // At least half the query words must find a fuzzy match
+    if (matched >= Math.ceil(qWords.length / 2)) {
+      candidates.push({ doc, avgDist: totalDist / matched });
+    }
+  }
+
+  candidates.sort((a, b) => a.avgDist - b.avgDist);
+
+  return candidates.slice(0, topK).map((c, i) => ({
+    id: c.doc.id || String(i),
+    score: 1 / (1 + c.avgDist),
+    document: c.doc,
+  }));
 }
 
 export { parseBoost };
