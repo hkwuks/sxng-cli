@@ -77,9 +77,10 @@ sxng doc-index <path>                        # Index documents (auto-triggered b
 sxng doc-search <session> <query> --path <p>  # Search indexed docs & inject into session
 
 # Utility
+sxng init                                   # Interactive setup (includes Ollama API key)
 sxng session-list                           # List workspace sessions
 sxng session-delete --older 24              # Delete old sessions
-sxng --engines-list                         # List available engines
+sxng --engines-list                         # List available engines (includes ollama if configured)
 sxng --categories-list                      # List available categories
 sxng --health                               # Check server status
 ```
@@ -88,7 +89,7 @@ sxng --health                               # Check server status
 
 | Option | Example | Purpose |
 |--------|---------|---------|
-| `-e, --engines` | `-e google,github` | Specific search engines |
+| `-e, --engines` | `-e google,github` | Specific search engines (use `ollama` for Ollama web search) |
 | `-c, --categories` | `-c it,science` | Filter by category |
 | `-l, --limit` | `-l 20` | Max results (default: 10) |
 | `-p, --page` | `-p 2` | Pagination |
@@ -342,6 +343,7 @@ See SOP for detailed L1/L2/L3 complexity guidelines.
 - If searches fail, retry the same command with the required sandbox/network permission before using fallback tools
 - Use `--quality` after accumulating enough pending results (>=30 triggers a warning)
 - Use `--redundancy warn` to avoid repeating similar queries
+- **Ollama web search**: If `ollamaApiKey` is configured (via `sxng init` or `OLLAMA_API_KEY` env var), `ollama` appears in `--engines-list`. L1: use `--engines ollama` to search via Ollama alongside SearXNG. L2/L3: Agent uses `results-add --tool ollama --kind search` to inject Ollama results into the session pipeline.
 
 ## Result Quality Filtering
 

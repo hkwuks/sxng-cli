@@ -30,6 +30,7 @@ L2/L3 only
 | Source | Command | Status |
 |--------|---------|--------|
 | sxng search | `sxng --session <session> "query"` | pending |
+| Ollama web search (L1) | `sxng --session <session> --engines ollama "query"` | pending |
 | External search | `sxng results-add <session> --kind search --tool <tool> --query "source query" --data-file <session-input>` | pending, requires extraction |
 | External extracted body | `sxng results-add <session> --kind extracted --tool <tool> --query "source query" --data-file <session-input>` | pending approval |
 | Content extraction | `sxng extract --session <session>` | updates content, same status |

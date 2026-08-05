@@ -73,7 +73,7 @@ sxng evidence-verify <session> --claim-id "cl_003" --evidence-file ./.sxng/sessi
 | Not recovering from consecutive poor rounds | Use `recovery-analysis` for strategy suggestions |
 | Deleting sessions without user approval | Keep session inputs unless the user explicitly asks to delete them |
 | Using `query-graph` | Deprecated, use `graph-explore` + `graph-drill` |
-| Search backend fails -> abandon session | Switch backend (tavily/exa), inject via `results-add`, keep session |
+| Search backend fails -> abandon session | Switch backend (ollama/tavily/exa), inject via `results-add`, keep session |
 | SearXNG returns 0 results -> create new session | The session is decoupled from any backend; use `results-add` instead |
 | Inline JSON or a project-root temp file | Put UTF-8 JSON in `.sxng/sessions/<session>/agent-inputs/` and use `--*-file` |
 | Treating a search excerpt as a body | Import it with `--kind search`, then extract; use `--kind extracted` only for actual external bodies |
