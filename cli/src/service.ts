@@ -157,7 +157,7 @@ export class SearXNGService {
                 ? deduped.slice(0, options.limit)
                 : deduped;
 
-            return {
+            const searchResponse: SearchResponse = {
                 query: data.query || options.query,
                 numberOfResults: data.numberOfResults || limitedResults.length,
                 results: limitedResults,
@@ -167,6 +167,8 @@ export class SearXNGService {
                 infoboxes: data.infoboxes || [],
                 unresponsiveEngines: data.unresponsive_engines || []
             };
+
+            return searchResponse;
         } catch (error) {
             if (axios.isAxiosError(error)) {
                 throw new Error(`Search failed: ${error.response?.statusText || error.message}`);

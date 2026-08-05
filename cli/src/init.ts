@@ -15,6 +15,7 @@ export interface SearXNGConfig {
     useProxy: boolean;
     proxyUrl: string;
     timeout: number;
+    ollamaApiKey: string;
 }
 
 const DEFAULT_CONFIG: SearXNGConfig = {
@@ -24,7 +25,8 @@ const DEFAULT_CONFIG: SearXNGConfig = {
     defaultLimit: 10,
     useProxy: false,
     proxyUrl: '',
-    timeout: 10000
+    timeout: 10000,
+    ollamaApiKey: ''
 };
 
 class ConfiguratorInterface {
@@ -143,6 +145,14 @@ export async function initConfig(): Promise<number> {
     } else {
         config.proxyUrl = '';
     }
+
+    // Configure Ollama (fallback search)
+    console.log('\n--- Ollama (Fallback Search) ---');
+    console.log('Optional: when SearXNG is unavailable, sxng falls back to Ollama web search.');
+    config.ollamaApiKey = await configurator.question(
+        'Ollama API key (leave blank to skip)',
+        config.ollamaApiKey
+    );
 
     // Review and confirm
     console.log('\n--- Configuration Summary ---');

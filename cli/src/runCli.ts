@@ -12,6 +12,7 @@ const pkg = JSON.parse(readFileSync(join(__dirname, '../package.json'), 'utf-8')
 import { SearXNGService, SearchOptions, SearchResult, SearchResponse } from './service.js';
 import { createSuccessEnvelope, createErrorEnvelope } from './protocol.js';
 import { config } from './config.js';
+import { OllamaService } from './ollama-service.js';
 import { initConfig } from './init.js';
 import { runExtract, ExtractOptions } from './commands/extract.js';
 import { runQueryGraph, QueryGraphOptions } from './commands/query-graph.js';
@@ -538,13 +539,36 @@ async function runSearch(
                 language: options.language,
                 timeRange: options.timeRange as any,
             };
-            const results = await service.search(searchOptions);
+
+            // Split engines: 'ollama' goes to OllamaService, rest to SearXNG
+            const engines = searchOptions.engines ?? [];
+            const useOllama = engines.includes('ollama') && config.ollamaApiKey;
+            const sxngEngines = engines.filter(e => e !== 'ollama');
+
+            let results: SearchResponse;
+            if (useOllama) {
+                const ollama = new OllamaService({ apiKey: config.ollamaApiKey });
+                const ollamaResp = await ollama.search({ query: queries[0], limit });
+                if (sxngEngines.length > 0) {
+                    // Also search SearXNG with remaining engines, merge
+                    const sxngResp = await service.search({ ...searchOptions, engines: sxngEngines });
+                    results = {
+                        ...sxngResp,
+                        results: [...ollamaResp.results, ...sxngResp.results],
+                        numberOfResults: ollamaResp.results.length + sxngResp.numberOfResults,
+                    };
+                } else {
+                    results = ollamaResp;
+                }
+            } else {
+                results = await service.search(searchOptions);
+            }
 
             let sessionInfo: ReturnType<typeof appendSessionResults> | null = null;
             if (options.session) {
                 sessionInfo = appendSessionResults(options.session, results.results.map(result => ({
                     ...result,
-                    origins: [{ tool: 'sxng', engine: result.engine, query: queries[0] }],
+                    origins: [{ tool: result.engine === 'ollama' ? 'ollama' : 'sxng', engine: result.engine, query: queries[0] }],
                 })));
                 injectApprovedResults(options.session, sessionInfo.approvedResults);
                 // Check pending count and warn if >= 30
@@ -603,18 +627,30 @@ async function runSearch(
         }
 
         const allResponses: SearchResponse[] = [];
+        const engines = options.engines ?? [];
+        const useOllama = engines.includes('ollama') && config.ollamaApiKey;
+        const sxngEngines = engines.filter(e => e !== 'ollama');
+
         for (const query of queries) {
             const searchOptions: SearchOptions = {
                 query,
-                engines: options.engines,
+                engines: sxngEngines.length > 0 ? sxngEngines : engines,
                 categories: options.categories,
                 limit,
                 page: options.page,
                 language: options.language,
                 timeRange: options.timeRange as any,
             };
-            const response = await service.search(searchOptions);
-            allResponses.push(response);
+
+            if (useOllama) {
+                const ollama = new OllamaService({ apiKey: config.ollamaApiKey });
+                const ollamaResp = await ollama.search({ query, limit });
+                allResponses.push(ollamaResp);
+            }
+            if (sxngEngines.length > 0 || !useOllama) {
+                const response = await service.search(searchOptions);
+                allResponses.push(response);
+            }
         }
 
         let rankings = allResponses.map(resp =>
@@ -712,7 +748,7 @@ async function runSearch(
                 for (const result of response.results) {
                     const key = normalizeUrl(result.url);
                     const origins = originsByUrl.get(key) || [];
-                    origins.push({ tool: 'sxng', engine: result.engine, query: response.query });
+                    origins.push({ tool: result.engine === 'ollama' ? 'ollama' : 'sxng', engine: result.engine, query: response.query });
                     originsByUrl.set(key, origins);
                 }
             }
@@ -1549,7 +1585,7 @@ export async function runCli(args: string[], service: SearXNGService): Promise<n
         if (opts.enginesList) {
             try {
                 const engines = await service.getEngines();
-                if (engines.length === 0) {
+                if (engines.length === 0 && !config.ollamaApiKey) {
                     const envelope = createErrorEnvelope(
                         'ENGINES_FETCH_EMPTY',
                         'No engines returned from SearXNG server',
@@ -1559,6 +1595,7 @@ export async function runCli(args: string[], service: SearXNGService): Promise<n
                     process.exit(1);
                     return;
                 }
+                if (config.ollamaApiKey) engines.push('ollama');
                 const envelope = createSuccessEnvelope({ engines, source: 'server' });
                 console.log(JSON.stringify(envelope, null, 2));
                 process.exit(0);

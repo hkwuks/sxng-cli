@@ -21,6 +21,7 @@ export interface SearXNGConfig {
     useProxy: boolean;
     proxyUrl: string;
     timeout: number;
+    ollamaApiKey: string;
     redundancyThreshold: number;
     redundancyBigramThreshold: number;
 }
@@ -34,6 +35,7 @@ const DEFAULT_CONFIG: SearXNGConfig = {
     useProxy: false,
     proxyUrl: '',
     timeout: 10000,
+    ollamaApiKey: '',
     redundancyThreshold: 0.7,
     redundancyBigramThreshold: 0.5,
 };
@@ -108,6 +110,7 @@ function mergeConfig(): SearXNGConfig {
     if (fileConfig.timeout !== undefined) config.timeout = fileConfig.timeout;
     if (fileConfig.redundancyThreshold !== undefined) config.redundancyThreshold = fileConfig.redundancyThreshold;
     if (fileConfig.redundancyBigramThreshold !== undefined) config.redundancyBigramThreshold = fileConfig.redundancyBigramThreshold;
+    if (fileConfig.ollamaApiKey !== undefined) config.ollamaApiKey = fileConfig.ollamaApiKey;
 
     const envBaseUrl = readOptionalEnv('SEARXNG_BASE_URL');
     if (envBaseUrl) config.baseUrl = envBaseUrl;
@@ -152,6 +155,9 @@ function mergeConfig(): SearXNGConfig {
     if (envRedundancyBigramThreshold !== undefined) {
         config.redundancyBigramThreshold = readFloatEnv('SEARXNG_REDUNDANCY_BIGRAM_THRESHOLD', config.redundancyBigramThreshold);
     }
+
+    const envOllamaApiKey = readOptionalEnv('OLLAMA_API_KEY');
+    if (envOllamaApiKey) config.ollamaApiKey = envOllamaApiKey;
 
     return config;
 }
