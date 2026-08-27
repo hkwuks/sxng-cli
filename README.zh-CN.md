@@ -674,6 +674,50 @@ docker compose up -d
 
 这会在后台启动 SearXNG（端口 `8080`）和 Valkey。使用 `docker compose ps` 或 `sxng --health` 验证服务是否正常运行。
 
+**Python venv 方式（无 Docker）**
+
+> SearXNG 官方**不发布 PyPI 包**，没有 `pip install searxng` 这种安装方式。官方推荐从源码 clone 后装入 venv（见 https://docs.searxng.org/admin/installation-searxng.html ）。下面是本地开发版一键脚本（WSL/Linux，已安装 python3 + git）：
+
+```bash
+# 1) 系统依赖（编译 lxml/cryptography/msgspec 等必需）
+sudo apt-get install -y \
+  python3-dev python3-venv python-is-python3 \
+  git build-essential libxslt-dev zlib1g-dev libffi-dev libssl-dev
+
+# 2) 克隆 + venv + 安装（官方推荐方式）
+git clone --depth 1 https://github.com/searxng/searxng.git ~/searxng-src
+python3 -m venv ~/searxng-src/.venv
+~/searxng-src/.venv/bin/pip install -e ~/searxng-src
+
+# 3) 最小 settings.yml（开 json 格式供 CLI 使用）
+mkdir -p ~/.config/searxng
+cat > ~/.config/searxng/settings.yml <<'EOF'
+use_default_settings: true
+
+server:
+  secret_key: "ultrasecretkey"   # 本地开发默认值；正式用 `openssl rand -hex 16` 替换
+  limiter: false
+
+search:
+  safe_search: 0
+  formats:
+    - html
+    - json
+
+valkey:
+  url: false   # 单机开发不需要 Redis/Valkey
+EOF
+
+# 4) 启动（默认端口 8888；生产部署按官方文档配 uWSGI）
+SEARXNG_SETTINGS_PATH=~/.config/searxng/settings.yml \
+  ~/searxng-src/.venv/bin/python -m searx.webapp
+
+# 5) 验证 + 接入 sxng-cli
+curl -s http://localhost:8888/healthz   # 返回 OK
+sxng init                               # baseUrl = http://localhost:8888
+sxng --health && sxng "hello world"
+```
+
 ### 通过 npm 安装（推荐）
 
 ```bash
@@ -711,14 +755,48 @@ npm link
 > ```text
 > 你可以访问一台 WSL/Linux 机器。请端到端安装 sxng-cli 并配置它的搜索后端：
 >
-> 1. **SearXNG 后端**（推荐，自托管、隐私友好）：
->    - **先**根据本 README 中的示例创建 `./searxng/settings.yml`（启用 `formats: html, json`，这样 CLI 才能读取 JSON）。该文件必须在容器启动前存在，否则 SearXNG 不会读取你的配置。
->    - 再使用本仓库示例 `docker-compose.yml` 运行 `docker compose up -d`（SearXNG 映射到宿主机端口 8080 + Valkey）。等待 `curl -s http://localhost:8080/healthz` 返回 OK。
->    - 如果 Docker 不可用，回退为 pip 安装 SearXNG。注意 pip 版的 SearXNG 是 Web 服务而非命令行工具，必须先启动才能供 CLI 调用：`pip install searxng`，然后运行 `searxng-web`（默认监听 `http://localhost:8888`），并将该 URL 填入 `baseUrl`。
+> 1. **SearXNG 后端**（推荐，自托管、隐私友好）— 两种方式，优先 Docker：
+>    - **方式 A — Docker（首选）**：**先**根据本 README 中的示例创建 `./searxng/settings.yml`（启用 `formats: html, json`，这样 CLI 才能读取 JSON）。该文件必须在容器启动前存在，否则 SearXNG 不会读取你的配置。再使用本仓库示例 `docker-compose.yml` 运行 `docker compose up -d`（SearXNG 映射到宿主机端口 8080 + Valkey）。等待 `curl -s http://localhost:8080/healthz` 返回 OK。
+>    - **方式 B — Python venv（官方推荐方式，Docker 不可用时使用）**：SearXNG **不在 PyPI 上**，**没有** `pip install searxng`。按官方 pip/venv 文档安装（https://docs.searxng.org/admin/installation-searxng.html ）：
+>      ```bash
+>      # 1) 系统依赖（编译 lxml/cryptography/msgspec 等必需）
+>      sudo apt-get install -y \
+>        python3-dev python3-venv python-is-python3 \
+>        git build-essential libxslt-dev zlib1g-dev libffi-dev libssl-dev
+>
+>      # 2) 克隆 + venv + 安装（官方推荐方式）
+>      git clone --depth 1 https://github.com/searxng/searxng.git ~/searxng-src
+>      python3 -m venv ~/searxng-src/.venv
+>      ~/searxng-src/.venv/bin/pip install -e ~/searxng-src
+>
+>      # 3) 最小 settings.yml（开 json 格式供 CLI 使用）
+>      mkdir -p ~/.config/searxng
+>      cat > ~/.config/searxng/settings.yml <<'EOF'
+>      use_default_settings: true
+>      server:
+>        secret_key: "ultrasecretkey"   # 本地开发默认值；正式用 `openssl rand -hex 16` 替换
+>        limiter: false
+>      search:
+>        safe_search: 0
+>        formats:
+>          - html
+>          - json
+>      valkey:
+>        url: false   # 单机开发不需要 Redis/Valkey
+>      EOF
+>
+>      # 4) 启动（默认端口 8888；生产部署按官方文档配 uWSGI）
+>      SEARXNG_SETTINGS_PATH=~/.config/searxng/settings.yml \
+>        ~/searxng-src/.venv/bin/python -m searx.webapp
+>
+>      # 5) 验证
+>      curl -s http://localhost:8888/healthz   # 返回 OK
+>      ```
+>      此时第 4 步的 `baseUrl` 使用 `http://localhost:8888`。
 > 2. **Ollama 网页搜索**（可选，免费 API key）：
 >    - 向用户索取 Ollama API key（在 https://ollama.com 获取），若没有则跳过。
 > 3. **安装 CLI**：`npm install -g sxng-cli`。
-> 4. **配置**：运行 `sxng init`，填写 `baseUrl`（http://localhost:8080）、超时时间，以及用户提供的 Ollama API key。
+> 4. **配置**：运行 `sxng init`，填写 `baseUrl`（Docker 用 `http://localhost:8080`，venv 用 `http://localhost:8888`）、超时时间，以及用户提供的 Ollama API key。
 > 5. **验证**：运行 `sxng --health` 和 `sxng "hello world"`，报告结果。
 > ```
 

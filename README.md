@@ -681,6 +681,50 @@ docker compose up -d
 
 This runs SearXNG (port `8080`) and Valkey in the background. Verify with `docker compose ps` or `sxng --health`.
 
+**For Python venv (no Docker)**
+
+> SearXNG is **not** published on PyPI — there is **no** `pip install searxng`. The official method is cloning the source and installing into a venv (see https://docs.searxng.org/admin/installation-searxng.html ). Below is a one-shot script for local dev (WSL/Linux with python3 + git):
+
+```bash
+# 1) System deps (required to compile lxml/cryptography/msgspec, etc.)
+sudo apt-get install -y \
+  python3-dev python3-venv python-is-python3 \
+  git build-essential libxslt-dev zlib1g-dev libffi-dev libssl-dev
+
+# 2) Clone + venv + install (official method)
+git clone --depth 1 https://github.com/searxng/searxng.git ~/searxng-src
+python3 -m venv ~/searxng-src/.venv
+~/searxng-src/.venv/bin/pip install -e ~/searxng-src
+
+# 3) Minimal settings.yml (enable json so the CLI can read it)
+mkdir -p ~/.config/searxng
+cat > ~/.config/searxng/settings.yml <<'EOF'
+use_default_settings: true
+
+server:
+  secret_key: "ultrasecretkey"   # local dev default; replace with `openssl rand -hex 16` for anything real
+  limiter: false
+
+search:
+  safe_search: 0
+  formats:
+    - html
+    - json
+
+valkey:
+  url: false   # single-host dev doesn't need Redis/Valkey
+EOF
+
+# 4) Start (default port 8888; use uWSGI per official docs for production)
+SEARXNG_SETTINGS_PATH=~/.config/searxng/settings.yml \
+  ~/searxng-src/.venv/bin/python -m searx.webapp
+
+# 5) Verify + wire into sxng-cli
+curl -s http://localhost:8888/healthz   # returns OK
+sxng init                               # baseUrl = http://localhost:8888
+sxng --health && sxng "hello world"
+```
+
 ### From npm (Recommended)
 
 ```bash
@@ -718,14 +762,51 @@ If you prefer to let an LLM agent do the install and configuration for you, poin
 > ```text
 > You have access to a WSL/Linux machine. Install sxng-cli and set up its search backend end to end:
 >
-> 1. **SearXNG backend** (recommended, self-hosted, private):
->    - Create `./searxng/settings.yml` first from the example in this README (enable `formats: html, json` so the CLI can read JSON). It must exist before the container starts, or SearXNG will not pick up your config.
->    - Then run `docker compose up -d` using this repo's example `docker-compose.yml` (SearXNG on host port 8080 + Valkey). Wait until `curl -s http://localhost:8080/healthz` returns OK.
->    - If Docker is unavailable, fall back to installing SearXNG via pip. Note pip's SearXNG is a web service, not a CLI — you must start it before the CLI can talk to it: `pip install searxng`, then run `searxng-web` (defaults to `http://localhost:8888`), and use that URL as `baseUrl`.
+> 1. **SearXNG backend** (recommended, self-hosted, private) — two options, prefer Docker:
+>    - **Option A — Docker (preferred)**: Create `./searxng/settings.yml` first from the example in this README (enable `formats: html, json` so the CLI can read JSON). It must exist before the container starts, or SearXNG will not pick up your config. Then run `docker compose up -d` using this repo's example `docker-compose.yml` (SearXNG on host port 8080 + Valkey). Wait until `curl -s http://localhost:8080/healthz` returns OK.
+>    - **Option B — Python venv (official method, use when Docker is unavailable)**: SearXNG is **not** published on PyPI — there is **no** `pip install searxng`. Follow the official pip/venv installation (https://docs.searxng.org/admin/installation-searxng.html ):
+>      ```bash
+>      # 1) system deps (official list)
+>      sudo apt-get install -y \
+>        python3-dev python3-babel python3-venv python-is-python3 \
+>        git build-essential libxslt-dev zlib1g-dev libffi-dev libssl-dev
+>
+>      # 2) clone + venv + install (official method)
+>      git clone --depth 1 https://github.com/searxng/searxng.git ~/searxng-src
+>      python3 -m venv ~/searxng-src/searx-pyenv
+>      source ~/searxng-src/searx-pyenv/bin/activate
+>      pip install -U pip setuptools wheel pyyaml msgspec typing-extensions pybind11
+>      cd ~/searxng-src
+>      pip install --use-pep517 --no-build-isolation -e .
+>
+>      # 3) minimal settings.yml (json format so the CLI can read it)
+>      mkdir -p ~/.config/searxng
+>      cat > ~/.config/searxng/settings.yml <<'EOF'
+>      use_default_settings: true
+>      server:
+>        secret_key: "ultrasecretkey"   # local dev; replace with `openssl rand -hex 16` for anything real
+>        limiter: false
+>      search:
+>        safe_search: 0
+>        formats:
+>          - html
+>          - json
+>      valkey:
+>        url: false   # single-host dev doesn't need Redis/Valkey
+>      EOF
+>
+>      # 4) start (default port 8888, dev only; use uWSGI per official docs for production)
+>      cd ~/searxng-src
+>      SEARXNG_SETTINGS_PATH=~/.config/searxng/settings.yml python -m searx.webapp
+>
+>      # 5) verify + wire into sxng-cli
+>      curl -s http://localhost:8888/healthz   # returns OK
+>      ```
+>      Then use `baseUrl` = `http://localhost:8888` in step 4.
 > 2. **Ollama web search** (optional, free API key):
 >    - Ask the user for their Ollama API key (get one at https://ollama.com), or skip if they have none.
 > 3. **Install the CLI**: `npm install -g sxng-cli`.
-> 4. **Configure**: run `sxng init` and fill in `baseUrl` (http://localhost:8080), timeout, and the Ollama API key if provided.
+> 4. **Configure**: run `sxng init` and fill in `baseUrl` (`http://localhost:8080` for Docker, `http://localhost:8888` for venv), timeout, and the Ollama API key if provided.
 > 5. **Verify**: run `sxng --health` and `sxng "hello world"`. Report the result.
 > ```
 
