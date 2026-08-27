@@ -134,7 +134,7 @@ engines:
     categories: [general, web]
     search_type: web
     shortcut: ka
-    disabled: false
+    disabled: true  # 引擎文件不存在
 
   # ==================== 中文搜索 ====================
   - name: baidu
@@ -269,6 +269,17 @@ engines:
     
     disabled: false
 
+  # ==================== IT/编程补充 ====================
+  - name: superuser
+    engine: superuser
+    shortcut: su
+    disabled: false
+
+  - name: askubuntu
+    engine: askubuntu
+    shortcut: au
+    disabled: false
+
   # ==================== 知识/问答 ====================
   - name: wikipedia
     engine: wikipedia
@@ -292,6 +303,12 @@ engines:
   - name: hackernews
     engine: hackernews
     shortcut: hn
+    disabled: false
+
+  # ==================== 词典 ====================
+  - name: wiktionary
+    engine: wiktionary
+    shortcut: wkt
     disabled: false
 
   # ==================== 图片 ====================
@@ -343,6 +360,11 @@ engines:
     shortcut: arc
     disabled: false
 
+  - name: pexels
+    engine: pexels
+    shortcut: pex
+    disabled: false
+
   # ==================== 视频 ====================
   - name: google videos
     engine: google_videos
@@ -367,6 +389,26 @@ engines:
     shortcut: bili
     disabled: false
 
+  - name: dailymotion
+    engine: dailymotion
+    shortcut: dm
+    disabled: false
+
+  - name: vimeo
+    engine: vimeo
+    shortcut: vi
+    disabled: false
+
+  - name: odysee
+    engine: odysee
+    shortcut: od
+    disabled: false
+
+  - name: peertube
+    engine: peertube
+    shortcut: pt
+    disabled: false
+
   # ==================== 新闻 ====================
   - name: google news
     engine: google_news
@@ -381,6 +423,11 @@ engines:
     categories: [news]
     ddg_category: news
     shortcut: ddn
+
+  - name: reuters
+    engine: reuters
+    shortcut: rtr
+    disabled: false
 
   # ==================== 音乐 ====================
   - name: bandcamp
@@ -404,6 +451,16 @@ engines:
     shortcut: gen
     disabled: false
 
+  - name: soundcloud
+    engine: soundcloud
+    shortcut: sc
+    disabled: false
+
+  - name: radio_browser
+    engine: radio_browser
+    shortcut: rb
+    disabled: false
+
   # ==================== 学术/文档 ====================
   - name: arxiv
     engine: arxiv
@@ -424,6 +481,22 @@ engines:
   - name: crossref
     engine: crossref
     shortcut: cr
+    disabled: false
+
+  - name: openalex
+    engine: openalex
+    shortcut: oa
+    disabled: false
+
+  # ==================== EU 开放研究 ====================
+  - name: openaire publications
+    engine: openairepublications
+    shortcut: oarp
+    disabled: false
+
+  - name: openaire datasets
+    engine: openairedatasets
+    shortcut: oard
     disabled: false
 
   # ==================== 社交媒体 ====================
@@ -467,6 +540,16 @@ engines:
     shortcut: aa
     disabled: false
 
+  - name: 1337x
+    engine: 1337x
+    shortcut: "1337"
+    disabled: false
+
+  - name: piratebay
+    engine: piratebay
+    shortcut: tpb
+    disabled: false
+
   # ==================== 翻译 ====================
   - name: lingva
     engine: lingva
@@ -492,6 +575,72 @@ engines:
     engine: goodreads
     shortcut: good
     disabled: false
+
+  # ==================== 天气 ====================
+  - name: wttr.in
+    engine: wttr.in
+    shortcut: wea
+    disabled: false
+
+  # ==================== 地图/位置 ====================
+  - name: openstreetmap
+    engine: openstreetmap
+    shortcut: osm
+    disabled: false
+
+  - name: nominatim
+    engine: json_engine
+    search_url: https://nominatim.openstreetmap.org/search?q={query}&format=json&limit={pageno}
+    results_query: "."
+    url_query: display_name
+    title_query: display_name
+    content_query: type
+    shortcut: nom
+    disabled: false
+
+  # ==================== 法律/政策 ====================
+  - name: wikisource
+    engine: wikisource
+    shortcut: ws
+    disabled: false
+
+  # ==================== 教育/学习 ====================
+  - name: wikiversity
+    engine: wikiversity
+    shortcut: wvy
+    disabled: false
+
+  # ==================== 旅行 ====================
+  - name: wikivoyage
+    engine: wikivoyage
+    shortcut: wv
+    disabled: false
+
+  # ==================== 以下引擎需要付费/API Key，默认禁用 ====================
+  - name: wolframalpha
+    engine: wolframalpha
+    shortcut: wa
+    disabled: true  # 需要付费
+
+  - name: rawg
+    engine: json_engine
+    search_url: https://api.rawg.io/api/games?search={query}&key=YOUR_API_KEY
+    results_query: results
+    url_query: slug
+    title_query: name
+    content_query: released
+    shortcut: rawg
+    disabled: true  # 需要API key
+
+  - name: podcastindex
+    engine: json_engine
+    search_url: https://api.podcastindex.org/api/1.0/search/byterm?q={query}
+    results_query: feeds
+    url_query: link
+    title_query: title
+    content_query: description
+    shortcut: pci
+    disabled: true  # 需要API认证
 ```
 
 </details>
@@ -557,6 +706,31 @@ npm install
 npm run build
 npm link
 ```
+
+---
+
+### 🤖 LLM One-Click Setup (WSL / Linux)
+
+> Prerequisite: a **WSL or Linux** environment that your LLM agent can connect to (SSH, local shell, or terminal integration). Everything below can be done by the LLM itself with the commands it is given here.
+
+If you prefer to let an LLM agent do the install and configuration for you, point it at this repo and give it this prompt:
+
+> ```text
+> You have access to a WSL/Linux machine. Install sxng-cli and set up its search backend end to end:
+>
+> 1. **SearXNG backend** (recommended, self-hosted, private):
+>    - Create `./searxng/settings.yml` first from the example in this README (enable `formats: html, json` so the CLI can read JSON). It must exist before the container starts, or SearXNG will not pick up your config.
+>    - Then run `docker compose up -d` using this repo's example `docker-compose.yml` (SearXNG on host port 8080 + Valkey). Wait until `curl -s http://localhost:8080/healthz` returns OK.
+>    - If Docker is unavailable, fall back to installing SearXNG via pip. Note pip's SearXNG is a web service, not a CLI — you must start it before the CLI can talk to it: `pip install searxng`, then run `searxng-web` (defaults to `http://localhost:8888`), and use that URL as `baseUrl`.
+> 2. **Ollama web search** (optional, free API key):
+>    - Ask the user for their Ollama API key (get one at https://ollama.com), or skip if they have none.
+> 3. **Install the CLI**: `npm install -g sxng-cli`.
+> 4. **Configure**: run `sxng init` and fill in `baseUrl` (http://localhost:8080), timeout, and the Ollama API key if provided.
+> 5. **Verify**: run `sxng --health` and `sxng "hello world"`. Report the result.
+> ```
+
+The LLM should run these checks before declaring success: `docker compose ps` (SearXNG + Valkey up), `sxng --health` (healthy), and one real search returning non-empty results.
+
 
 ### Obscura (Optional — for JS-heavy pages)
 
@@ -720,10 +894,13 @@ Configuration priority (highest to lowest):
 | `SEARXNG_DEFAULT_ENGINE` | Default search engine | *(none)* |
 | `SEARXNG_ALLOWED_ENGINES` | Comma-separated allowed engines | *(all)* |
 | `SEARXNG_DEFAULT_LIMIT` | Default result limit | `10` |
-| `SEARXNG_DEFAULT_FORMAT` | Default output format (`md`, `json`, `csv`, `html`) | `md` |
+| `SEARXNG_DEFAULT_FORMAT` | Default output format (`md` or `json`) | `md` |
 | `SEARXNG_USE_PROXY` | Use proxy (`true`/`false`) | `false` |
 | `SEARXNG_PROXY_URL` | Proxy URL | *(none)* |
-| `SEARXNG_TIMEOUT` | Request timeout in ms | `10000` |
+| `SEARXNG_TIMEOUT` | Request timeout in ms | `30000` |
+| `SEARXNG_REDUNDANCY_THRESHOLD` | Word-level Jaccard threshold for redundancy | `0.7` |
+| `SEARXNG_REDUNDANCY_BIGRAM_THRESHOLD` | Bigram-level Jaccard threshold (short queries) | `0.5` |
+| `OLLAMA_API_KEY` | [Ollama web search](https://ollama.com) API key (optional fallback backend) | *(none)* |
 
 ### Config File
 
@@ -743,7 +920,10 @@ Create `sxng.config.json`:
   "defaultFormat": "md",
   "useProxy": false,
   "proxyUrl": "",
-  "timeout": 10000
+  "timeout": 30000,
+  "ollamaApiKey": "",
+  "redundancyThreshold": 0.7,
+  "redundancyBigramThreshold": 0.5
 }
 ```
 

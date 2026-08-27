@@ -130,7 +130,7 @@ engines:
     categories: [general, web]
     search_type: web
     shortcut: ka
-    disabled: false
+    disabled: true  # 引擎文件不存在
 
   # ==================== 中文搜索 ====================
   - name: baidu
@@ -263,6 +263,17 @@ engines:
     shortcut: lo
     disabled: false
 
+  # ==================== IT/编程补充 ====================
+  - name: superuser
+    engine: superuser
+    shortcut: su
+    disabled: false
+
+  - name: askubuntu
+    engine: askubuntu
+    shortcut: au
+    disabled: false
+
   # ==================== 知识/问答 ====================
   - name: wikipedia
     engine: wikipedia
@@ -285,6 +296,12 @@ engines:
   - name: hackernews
     engine: hackernews
     shortcut: hn
+    disabled: false
+
+  # ==================== 词典 ====================
+  - name: wiktionary
+    engine: wiktionary
+    shortcut: wkt
     disabled: false
 
   # ==================== 图片 ====================
@@ -336,6 +353,11 @@ engines:
     shortcut: arc
     disabled: false
 
+  - name: pexels
+    engine: pexels
+    shortcut: pex
+    disabled: false
+
   # ==================== 视频 ====================
   - name: google videos
     engine: google_videos
@@ -360,6 +382,26 @@ engines:
     shortcut: bili
     disabled: false
 
+  - name: dailymotion
+    engine: dailymotion
+    shortcut: dm
+    disabled: false
+
+  - name: vimeo
+    engine: vimeo
+    shortcut: vi
+    disabled: false
+
+  - name: odysee
+    engine: odysee
+    shortcut: od
+    disabled: false
+
+  - name: peertube
+    engine: peertube
+    shortcut: pt
+    disabled: false
+
   # ==================== 新闻 ====================
   - name: google news
     engine: google_news
@@ -374,6 +416,11 @@ engines:
     categories: [news]
     ddg_category: news
     shortcut: ddn
+
+  - name: reuters
+    engine: reuters
+    shortcut: rtr
+    disabled: false
 
   # ==================== 音乐 ====================
   - name: bandcamp
@@ -397,6 +444,16 @@ engines:
     shortcut: gen
     disabled: false
 
+  - name: soundcloud
+    engine: soundcloud
+    shortcut: sc
+    disabled: false
+
+  - name: radio_browser
+    engine: radio_browser
+    shortcut: rb
+    disabled: false
+
   # ==================== 学术/文档 ====================
   - name: arxiv
     engine: arxiv
@@ -417,6 +474,22 @@ engines:
   - name: crossref
     engine: crossref
     shortcut: cr
+    disabled: false
+
+  - name: openalex
+    engine: openalex
+    shortcut: oa
+    disabled: false
+
+  # ==================== EU 开放研究 ====================
+  - name: openaire publications
+    engine: openairepublications
+    shortcut: oarp
+    disabled: false
+
+  - name: openaire datasets
+    engine: openairedatasets
+    shortcut: oard
     disabled: false
 
   # ==================== 社交媒体 ====================
@@ -460,6 +533,16 @@ engines:
     shortcut: aa
     disabled: false
 
+  - name: 1337x
+    engine: 1337x
+    shortcut: "1337"
+    disabled: false
+
+  - name: piratebay
+    engine: piratebay
+    shortcut: tpb
+    disabled: false
+
   # ==================== 翻译 ====================
   - name: lingva
     engine: lingva
@@ -485,6 +568,72 @@ engines:
     engine: goodreads
     shortcut: good
     disabled: false
+
+  # ==================== 天气 ====================
+  - name: wttr.in
+    engine: wttr.in
+    shortcut: wea
+    disabled: false
+
+  # ==================== 地图/位置 ====================
+  - name: openstreetmap
+    engine: openstreetmap
+    shortcut: osm
+    disabled: false
+
+  - name: nominatim
+    engine: json_engine
+    search_url: https://nominatim.openstreetmap.org/search?q={query}&format=json&limit={pageno}
+    results_query: "."
+    url_query: display_name
+    title_query: display_name
+    content_query: type
+    shortcut: nom
+    disabled: false
+
+  # ==================== 法律/政策 ====================
+  - name: wikisource
+    engine: wikisource
+    shortcut: ws
+    disabled: false
+
+  # ==================== 教育/学习 ====================
+  - name: wikiversity
+    engine: wikiversity
+    shortcut: wvy
+    disabled: false
+
+  # ==================== 旅行 ====================
+  - name: wikivoyage
+    engine: wikivoyage
+    shortcut: wv
+    disabled: false
+
+  # ==================== 以下引擎需要付费/API Key，默认禁用 ====================
+  - name: wolframalpha
+    engine: wolframalpha
+    shortcut: wa
+    disabled: true  # 需要付费
+
+  - name: rawg
+    engine: json_engine
+    search_url: https://api.rawg.io/api/games?search={query}&key=YOUR_API_KEY
+    results_query: results
+    url_query: slug
+    title_query: name
+    content_query: released
+    shortcut: rawg
+    disabled: true  # 需要API key
+
+  - name: podcastindex
+    engine: json_engine
+    search_url: https://api.podcastindex.org/api/1.0/search/byterm?q={query}
+    results_query: feeds
+    url_query: link
+    title_query: title
+    content_query: description
+    shortcut: pci
+    disabled: true  # 需要API认证
 ```
 
 </details>
@@ -550,6 +699,31 @@ npm install
 npm run build
 npm link
 ```
+
+---
+
+### 🤖 LLM 一键配置（WSL / Linux）
+
+> 前提：已有一个 **WSL 或 Linux** 环境，且你的 LLM 智能体可以连接（SSH、本地 shell 或终端集成）。下面所有内容都可以由 LLM 用这里给出的命令自行配置和安装。
+
+如果你想交给 LLM 智能体来安装和配置，请让它访问本仓库，并给出以下提示词：
+
+> ```text
+> 你可以访问一台 WSL/Linux 机器。请端到端安装 sxng-cli 并配置它的搜索后端：
+>
+> 1. **SearXNG 后端**（推荐，自托管、隐私友好）：
+>    - **先**根据本 README 中的示例创建 `./searxng/settings.yml`（启用 `formats: html, json`，这样 CLI 才能读取 JSON）。该文件必须在容器启动前存在，否则 SearXNG 不会读取你的配置。
+>    - 再使用本仓库示例 `docker-compose.yml` 运行 `docker compose up -d`（SearXNG 映射到宿主机端口 8080 + Valkey）。等待 `curl -s http://localhost:8080/healthz` 返回 OK。
+>    - 如果 Docker 不可用，回退为 pip 安装 SearXNG。注意 pip 版的 SearXNG 是 Web 服务而非命令行工具，必须先启动才能供 CLI 调用：`pip install searxng`，然后运行 `searxng-web`（默认监听 `http://localhost:8888`），并将该 URL 填入 `baseUrl`。
+> 2. **Ollama 网页搜索**（可选，免费 API key）：
+>    - 向用户索取 Ollama API key（在 https://ollama.com 获取），若没有则跳过。
+> 3. **安装 CLI**：`npm install -g sxng-cli`。
+> 4. **配置**：运行 `sxng init`，填写 `baseUrl`（http://localhost:8080）、超时时间，以及用户提供的 Ollama API key。
+> 5. **验证**：运行 `sxng --health` 和 `sxng "hello world"`，报告结果。
+> ```
+
+LLM 在宣布成功前应执行这些检查：`docker compose ps`（SearXNG + Valkey 均运行中）、`sxng --health`（healthy）、以及一次返回非空结果的真实搜索。
+
 
 ### Obscura（可选 — 用于 JS 密集页面）
 
@@ -713,10 +887,13 @@ sxng --categories-list
 | `SEARXNG_DEFAULT_ENGINE` | 默认搜索引擎 | *（无）* |
 | `SEARXNG_ALLOWED_ENGINES` | 逗号分隔的允许引擎列表 | *（全部）* |
 | `SEARXNG_DEFAULT_LIMIT` | 默认结果数限制 | `10` |
-| `SEARXNG_DEFAULT_FORMAT` | 默认输出格式（`md`、`json`、`csv`、`html`） | `md` |
+| `SEARXNG_DEFAULT_FORMAT` | 默认输出格式（`md` 或 `json`） | `md` |
 | `SEARXNG_USE_PROXY` | 是否使用代理（`true`/`false`） | `false` |
 | `SEARXNG_PROXY_URL` | 代理 URL | *（无）* |
-| `SEARXNG_TIMEOUT` | 请求超时时间（毫秒） | `10000` |
+| `SEARXNG_TIMEOUT` | 请求超时时间（毫秒） | `30000` |
+| `SEARXNG_REDUNDANCY_THRESHOLD` | 词级 Jaccard 冗余阈值 | `0.7` |
+| `SEARXNG_REDUNDANCY_BIGRAM_THRESHOLD` | 二元组 Jaccard 冗余阈值（短查询） | `0.5` |
+| `OLLAMA_API_KEY` | [Ollama 网页搜索](https://ollama.com) API 密钥（可选备用搜索后端） | *（无）* |
 
 ### 配置文件
 
@@ -736,7 +913,10 @@ sxng --categories-list
   "defaultFormat": "md",
   "useProxy": false,
   "proxyUrl": "",
-  "timeout": 10000
+  "timeout": 30000,
+  "ollamaApiKey": "",
+  "redundancyThreshold": 0.7,
+  "redundancyBigramThreshold": 0.5
 }
 ```
 

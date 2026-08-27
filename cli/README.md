@@ -139,14 +139,14 @@ obscura --version
 | `sxng policy-aggregate <session>` | Run policy aggregation manually |
 | `sxng review-list <session>` | List reviews |
 | `sxng --health` | Check SearXNG server health |
-| `sxng --engines-list` | List available search engines |
+| `sxng --engines-list` | List available search engines (includes `ollama` if configured) |
 | `sxng --categories-list` | List available categories |
 
 ### Search Options
 
 | Option | Description |
 |--------|-------------|
-| `-e, --engines <list>` | Comma-separated list of search engines (e.g., `google,github`) |
+| `-e, --engines <list>` | Comma-separated list of search engines (e.g., `google,github`; `ollama` for Ollama web search) |
 | `-c, --categories <list>` | Comma-separated list of categories (e.g., `it,science`) |
 | `-l, --limit <n>` | Maximum number of results (default: 10) |
 | `-p, --page <n>` | Page number for pagination |
@@ -205,10 +205,13 @@ Configuration priority (highest to lowest):
 | `SEARXNG_DEFAULT_ENGINE` | Default search engine | *(none)* |
 | `SEARXNG_ALLOWED_ENGINES` | Comma-separated allowed engines | *(all)* |
 | `SEARXNG_DEFAULT_LIMIT` | Default result limit | `10` |
-| `SEARXNG_DEFAULT_FORMAT` | Default output format (`md`, `json`, `csv`, `html`) | `md` |
+| `SEARXNG_DEFAULT_FORMAT` | Default output format (`md` or `json`) | `md` |
 | `SEARXNG_USE_PROXY` | Use proxy (`true`/`false`) | `false` |
 | `SEARXNG_PROXY_URL` | Proxy URL | *(none)* |
-| `SEARXNG_TIMEOUT` | Request timeout in ms | `10000` |
+| `SEARXNG_TIMEOUT` | Request timeout in ms | `30000` |
+| `SEARXNG_REDUNDANCY_THRESHOLD` | Word-level Jaccard threshold for redundancy | `0.7` |
+| `SEARXNG_REDUNDANCY_BIGRAM_THRESHOLD` | Bigram-level Jaccard threshold (short queries) | `0.5` |
+| `OLLAMA_API_KEY` | [Ollama web search](https://ollama.com) API key (optional backend) | *(none)* |
 
 ### Config File
 
@@ -223,7 +226,10 @@ Create `sxng.config.json`:
   "defaultFormat": "md",
   "useProxy": false,
   "proxyUrl": "",
-  "timeout": 10000
+  "timeout": 30000,
+  "ollamaApiKey": "",
+  "redundancyThreshold": 0.7,
+  "redundancyBigramThreshold": 0.5
 }
 ```
 

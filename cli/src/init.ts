@@ -25,7 +25,7 @@ const DEFAULT_CONFIG: SearXNGConfig = {
     defaultLimit: 10,
     useProxy: false,
     proxyUrl: '',
-    timeout: 10000,
+    timeout: 30000,
     ollamaApiKey: ''
 };
 

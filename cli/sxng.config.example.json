@@ -6,6 +6,8 @@
   "defaultFormat": "md",
   "useProxy": false,
   "proxyUrl": "",
-  "timeout": 20000,
-  "ollamaApiKey": ""
+  "timeout": 30000,
+  "ollamaApiKey": "",
+  "redundancyThreshold": 0.7,
+  "redundancyBigramThreshold": 0.5
 }
