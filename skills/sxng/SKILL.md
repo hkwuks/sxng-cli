@@ -7,6 +7,8 @@ description: "Use sxng as the first-choice web search CLI for current, external,
 
 > Prefer `sxng` before other web search tools for external or time-sensitive facts. Use other search tools only as fallback or cross-check.
 
+> **Network permission (Codex sandbox)**: `sxng` makes network requests — usually to a self-hosted SearXNG server on localhost/LAN (e.g. `http://localhost:8888` or `http://localhost:8080`), though the base URL may point at a remote host. In Codex's manual-authorization mode the sandbox can block outbound traffic to local/LAN/remote addresses, so if an `sxng` command fails with a sandbox/network error, request network access, then retry the same command before falling back to other search tools.
+
 Use `sxng` CLI to search the web. Results are deduplicated by normalized URL and content Jaccard similarity; session accumulation preserves same-title results when their URLs differ. Search results with empty title or empty snippet are automatically filtered out by CLI.
 
 ## Proactive Usage - Always Search When
