@@ -822,7 +822,7 @@ export function createProgram(): Command {
         .option('--lang <code>', 'Language code (e.g., en, zh, ja)')
         .option('--time <range>', 'Time range: day, week, month, year, all')
         .option('-f, --format <fmt>', 'Output format: md (default), json')
-        .option('--queries <q1,q2,q3>', 'Multi-query with RRF fusion')
+        .option('--queries <queries...>', 'Multi-query with RRF fusion (comma- or space-separated)')
         .option('--merge <file>', 'Merge new results with previous search JSON')
         .option('--session <dir|new>', 'Session dir, or "new" to auto-create')
         .option('--owner <name>', 'Session owner (stored in meta.json)')
@@ -1639,7 +1639,10 @@ export async function runCli(args: string[], service: SearXNGService): Promise<n
             return;
         }
 
-        const queries = opts.queries?.split(',').map((q: string) => q.trim()).filter(Boolean);
+        const queries = opts.queries
+            ?.flatMap((value: string) => value.split(','))
+            .map((q: string) => q.trim())
+            .filter(Boolean);
         const code = await runSearch(service, {
             query: queryString,
             queries,

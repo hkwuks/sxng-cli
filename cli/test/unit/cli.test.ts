@@ -187,6 +187,20 @@ describe('CLI program (commander)', () => {
         }
     });
 
+    it('accepts space-separated values for --queries', async () => {
+        const output = vi.spyOn(console, 'log').mockImplementation(() => {});
+        vi.spyOn(process, 'exit').mockImplementation((() => undefined) as never);
+        const search = vi.fn((query: string) => Promise.resolve({
+            query, numberOfResults: 0, results: [],
+            suggestions: [], answers: [], corrections: [], infoboxes: [], unresponsiveEngines: [],
+        }));
+
+        await runCli(['--queries', 'first query', 'second query', '--format', 'json'], { search } as any);
+
+        expect(search.mock.calls.map(([options]) => options.query)).toEqual(['first query', 'second query']);
+        expect(JSON.parse(output.mock.calls.at(-1)![0] as string).data.queries).toEqual(['first query', 'second query']);
+    });
+
     it('rejects approval of an unverified result and returns quality diagnostics', async () => {
         const sessionDir = mkdtempSync(join(tmpdir(), 'sxng-cli-approval-test-'));
         appendSessionResults(sessionDir, [{
